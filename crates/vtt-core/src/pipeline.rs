@@ -3,11 +3,18 @@
 //! Les appels sont bloquants : le pipeline tourne sur un thread de travail
 //! dédié, jamais sur le thread du hook clavier ou de l'interface.
 
+use std::time::Instant;
+
+use crate::{audio, text};
+
 /// Fréquence attendue par Whisper.
 pub const SAMPLE_RATE: u32 = 16_000;
 
 /// En dessous de cette durée, l'enregistrement est jeté sans appeler l'ASR.
 const MIN_CLIP_MS: u64 = 300;
+
+/// Niveau RMS sous lequel un enregistrement est considéré comme du silence (~ -46 dBFS).
+const SILENCE_RMS: f32 = 0.005;
 
 /// Audio mono 16 kHz, échantillons f32 dans [-1, 1].
 #[derive(Debug, Clone, Default)]
@@ -46,7 +53,7 @@ pub trait TextSink: Send + Sync {
 /// Résultat d'une dictée, conservé pour l'historique.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    /// Clip trop court ou silence : rien n'a été inséré.
+    /// Clip trop court, silence ou hallucination : rien n'a été inséré.
     Skipped,
     Inserted {
         raw: String,
@@ -77,14 +84,25 @@ impl Pipeline {
 
     pub fn run(&self, clip: &AudioClip) -> Result<Outcome, Error> {
         if clip.duration_ms() < MIN_CLIP_MS {
+            log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
             return Ok(Outcome::Skipped);
         }
-        let raw = self.transcriber.transcribe(clip)?.trim().to_owned();
+        if audio::is_silent(&clip.samples, SAMPLE_RATE, SILENCE_RMS) {
+            log::info!("ignoré : silence ({} ms)", clip.duration_ms());
+            return Ok(Outcome::Skipped);
+        }
+
+        let started = Instant::now();
+        let transcribed = self.transcriber.transcribe(clip)?;
+        let asr_ms = started.elapsed().as_millis();
+        let raw = text::strip_hallucinations(&transcribed);
         if raw.is_empty() {
+            log::info!("ignoré : transcription vide ({transcribed:?}, ASR {asr_ms} ms)");
             return Ok(Outcome::Skipped);
         }
 
         // Un échec du LLM ne doit jamais faire perdre la dictée.
+        let started = Instant::now();
         let (text, post_process_error) = match &self.post_processor {
             None => (raw.clone(), None),
             Some(processor) => match processor.process(&raw) {
@@ -94,7 +112,15 @@ impl Pipeline {
             },
         };
 
+        let post_ms = started.elapsed().as_millis();
+
+        let started = Instant::now();
         self.sink.insert(&text)?;
+        log::info!(
+            "dictée de {} ms : ASR {asr_ms} ms, nettoyage {post_ms} ms, insertion {} ms",
+            clip.duration_ms(),
+            started.elapsed().as_millis()
+        );
         Ok(Outcome::Inserted {
             raw,
             text,
@@ -140,7 +166,7 @@ mod tests {
 
     fn clip_ms(ms: u64) -> AudioClip {
         AudioClip {
-            samples: vec![0.0; (ms * SAMPLE_RATE as u64 / 1000) as usize],
+            samples: vec![0.1; (ms * SAMPLE_RATE as u64 / 1000) as usize],
         }
     }
 
@@ -154,6 +180,23 @@ mod tests {
     fn short_clip_is_skipped() {
         let (p, sink) = pipeline("bonjour", None);
         assert_eq!(p.run(&clip_ms(200)).unwrap(), Outcome::Skipped);
+        assert!(sink.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn silent_clip_is_skipped() {
+        let (p, sink) = pipeline("Sous-titres réalisés par la communauté d'Amara.org", None);
+        let silent = AudioClip {
+            samples: vec![0.0; SAMPLE_RATE as usize],
+        };
+        assert_eq!(p.run(&silent).unwrap(), Outcome::Skipped);
+        assert!(sink.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn hallucination_only_is_skipped() {
+        let (p, sink) = pipeline("Sous-titrage ST' 501", None);
+        assert_eq!(p.run(&clip_ms(1000)).unwrap(), Outcome::Skipped);
         assert!(sink.0.lock().unwrap().is_empty());
     }
 

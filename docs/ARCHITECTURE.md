@@ -12,6 +12,23 @@ Budget de latence visé (relâchement → texte affiché) : **< 1,5 s**, dont ~0
 
 Si le LLM échoue ou dépasse son délai, le texte brut de Whisper est inséré : une dictée n'est jamais perdue.
 
+Garde-fous avant/après Whisper (`vtt-core`) :
+
+- enregistrement < 300 ms ou silencieux (RMS < -46 dBFS) → ignoré, Whisper n'est pas appelé ;
+- phrases inventées par Whisper sur du bruit (« Sous-titres réalisés par la communauté d'Amara.org »…) → retirées.
+
+## Threads (application Windows)
+
+| Thread | Rôle |
+|---|---|
+| `keyboard-hook` | Hook `WH_KEYBOARD_LL` + boucle de messages ; recopie chaque touche dans un canal, n'avale rien |
+| `controller` | Machine à états du push-to-talk (`vtt-core::hotkey`), pilote le micro ; vérifie aussi l'état physique de la touche (relâchement manqué) et coupe à 5 min |
+| `audio` | Possède le flux `cpal` ouvert pendant l'enregistrement |
+| `pipeline` | Transcrit et insère les dictées une par une ; une nouvelle dictée peut démarrer pendant ce temps |
+| principal (Tauri) | Icône de notification, pastille |
+
+La pastille est une fenêtre transparente, non activable et traversable par la souris, affichée une fois pour toutes : la montrer/cacher à chaque dictée risquerait de voler le focus de l'application cible.
+
 ## Découpage
 
 ```
@@ -20,7 +37,7 @@ VoiceToText/
 │   ├── vtt-core/      pipeline, traits, configuration — portable, sans dépendance OS
 │   ├── vtt-asr/       Whisper via whisper-rs (backend Vulkan)            [v0.1]
 │   ├── vtt-llm/       client OpenAI-compatible (DeepSeek), prompts       [v0.2]
-│   └── vtt-platform/  hook clavier, capture audio, insertion, appli active [v0.1]
+│   └── vtt-platform/  hook clavier, capture audio, insertion              [v0.1]
 ├── apps/
 │   └── desktop/       Tauri 2 : tray, réglages, historique, pastille     [v0.1]
 └── docs/
@@ -48,9 +65,10 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 | Clé API | Gestionnaire d'identifiants Windows (crate `keyring`) | Jamais en clair dans le fichier de config |
 | Hook clavier | `WH_KEYBOARD_LL` (crate `windows`) | Seule façon de voir l'appui **et** le relâchement d'AltGr ; `RegisterHotKey` ne voit pas le relâchement |
 | Insertion | Presse-papier + Ctrl+V, presse-papier restauré ensuite | Instantané même pour un long texte ; `SendInput` Unicode en repli |
-| Audio | `cpal` (WASAPI), rééchantillonnage 16 kHz via `rubato` | Format attendu par Whisper |
+| Audio | `cpal` (WASAPI), micro ouvert seulement pendant l'appui ; conversion 16 kHz mono maison (`vtt-core::audio`) | Format attendu par Whisper ; pas d'icône « micro utilisé » en permanence |
 | Configuration | TOML dans `%APPDATA%\VoiceToText\config.toml` | Lisible et éditable à la main |
-| Modèles | Téléchargés au premier lancement dans `%LOCALAPPDATA%\VoiceToText\models` | Installeur léger |
+| Modèles | Téléchargés au premier lancement dans `%LOCALAPPDATA%\VoiceToText\models`, SHA-256 vérifié | Installeur léger |
+| Journaux | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (durées ASR/insertion de chaque dictée) | Diagnostic à distance |
 
 ## Confidentialité
 
@@ -61,7 +79,9 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 
 - **AltGr** est émis par Windows comme `Ctrl gauche` (faux, injecté) + `Alt droit`. Le hook doit ignorer ce faux Ctrl.
 - **Applis lancées en administrateur** : Windows (UIPI) bloque l'insertion depuis une appli non élevée. Limite connue, pas de contournement prévu.
-- Avant le Ctrl+V, AltGr doit être relâché, sinon la frappe devient AltGr+Ctrl+V.
+- Avant le Ctrl+V, AltGr doit être relâché, sinon la frappe devient AltGr+Ctrl+V. C'est le cas : l'insertion a lieu après le relâchement.
+- Un appui seul sur Alt active la barre de menus au relâchement ; une frappe neutre (touche virtuelle `0xE8`) est envoyée pendant l'appui pour l'éviter.
+- Le presse-papier est restauré 600 ms après le collage, **texte uniquement** : une image copiée avant la dictée est perdue.
 
 ## Construction
 
