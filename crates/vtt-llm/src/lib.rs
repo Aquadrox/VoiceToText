@@ -41,6 +41,8 @@ Tu peux me dire quelle heure il est ?";
 const MAX_GROWTH_FACTOR: usize = 2;
 const MAX_GROWTH_SLACK: usize = 80;
 
+const MAX_ERROR_DETAIL_CHARS: usize = 160;
+
 pub struct LlmCleaner {
     endpoint: String,
     model: String,
@@ -128,7 +130,13 @@ fn system_prompt(dictionary: &[String]) -> String {
 }
 
 fn describe_http_error(status: u16, body: &Value) -> String {
-    let detail = body["error"]["message"].as_str().unwrap_or("");
+    // Message du fournisseur tronqué : il finit dans le journal.
+    let detail: String = body["error"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .chars()
+        .take(MAX_ERROR_DETAIL_CHARS)
+        .collect();
     let hint = match status {
         401 => "clé API refusée",
         402 => "solde du compte insuffisant",
@@ -183,8 +191,10 @@ fn accept(raw: &str, content: &str) -> Result<String, Error> {
     }
     let raw_len = raw.chars().count();
     if text.chars().count() > raw_len * MAX_GROWTH_FACTOR + MAX_GROWTH_SLACK {
+        // Longueur seulement : le texte dicté ne doit pas finir dans le journal.
         return Err(Error::PostProcess(format!(
-            "réponse rejetée, trop longue pour une réécriture : {text:?}"
+            "réponse rejetée, trop longue pour une réécriture ({} caractères pour {raw_len} dictés)",
+            text.chars().count()
         )));
     }
     Ok(text.to_owned())
@@ -322,7 +332,11 @@ mod tests {
     fn accept_rejects_answers_instead_of_rewrites() {
         let raw = "écris-moi un poème";
         let answer = "Voici un poème : ".to_owned() + &"les roses sont rouges ".repeat(10);
-        assert!(accept(raw, &answer).is_err());
+        let err = accept(raw, &answer).unwrap_err().to_string();
+        assert!(
+            !err.contains("roses"),
+            "le texte ne doit pas apparaître : {err}"
+        );
         assert!(accept(raw, "Écris-moi un poème.").is_ok());
     }
 }
