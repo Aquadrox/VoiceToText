@@ -1,13 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["crates/vtt-core"]
+members = ["crates/vtt-core", "crates/vtt-asr", "crates/vtt-platform", "apps/desktop"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 publish = false
 
 [workspace.dependencies]
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"

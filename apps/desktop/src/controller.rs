@@ -1,0 +1,148 @@
+//! Chef d'orchestre : charge le modèle, écoute le clavier, pilote le micro
+//! et confie chaque enregistrement au pipeline.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
+
+use vtt_asr::WhisperTranscriber;
+use vtt_core::hotkey::{Action, PushToTalk};
+use vtt_core::{AudioClip, Config, Outcome, Pipeline};
+use vtt_platform::audio::Recorder;
+use vtt_platform::{ClipboardPaster, now_ms};
+
+use crate::model;
+use crate::paths::Paths;
+use crate::status::{Status, StatusReporter};
+
+/// Un enregistrement plus long est coupé et traité (touche restée bloquée…).
+const MAX_RECORDING_MS: u64 = 5 * 60 * 1000;
+/// Fréquence de vérification de l'état physique du raccourci.
+const POLL: Duration = Duration::from_millis(100);
+/// Délai avant de se fier à l'état physique de la touche : Windows le met à
+/// jour après le passage dans le hook.
+const KEY_STATE_GRACE_MS: u64 = 300;
+
+pub fn spawn(reporter: Arc<StatusReporter>, config: Config, paths: Paths) {
+    thread::Builder::new()
+        .name("controller".into())
+        .spawn(move || {
+            if let Err(e) = run(&reporter, &config, &paths) {
+                reporter.set(Status::Error(e));
+            }
+        })
+        .expect("création du thread contrôleur");
+}
+
+fn run(reporter: &Arc<StatusReporter>, config: &Config, paths: &Paths) -> Result<(), String> {
+    let trigger = vtt_platform::key_code(&config.hotkey.key)
+        .ok_or_else(|| format!("touche inconnue dans config.toml : {:?}", config.hotkey.key))?;
+
+    let model_path = model::ensure(&paths.models_dir, &config.asr.model, |percent| {
+        reporter.set(Status::Loading(format!(
+            "Téléchargement du modèle : {percent} %"
+        )));
+    })?;
+    reporter.set(Status::Loading("Chargement du modèle…".into()));
+    let transcriber =
+        WhisperTranscriber::load(&model_path, &config.asr.language, config.asr.use_gpu)
+            .map_err(|e| e.to_string())?;
+    let pipeline = Pipeline::new(Box::new(transcriber), None, Box::new(ClipboardPaster));
+
+    let recording = Arc::new(AtomicBool::new(false));
+    let clips = spawn_worker(pipeline, Arc::clone(reporter), Arc::clone(&recording));
+    let recorder = Recorder::spawn();
+
+    let (keys_tx, keys) = mpsc::channel();
+    vtt_platform::spawn_keyboard_hook(keys_tx)?;
+    let mut ptt = PushToTalk::new(trigger, config.hotkey.min_hold_ms.into())
+        .with_ignored(vtt_platform::companion_keys(trigger));
+    log::info!("prêt, raccourci : {}", config.hotkey.key);
+    reporter.set(Status::Idle);
+
+    loop {
+        let action = match keys.recv_timeout(POLL) {
+            Ok(event) => ptt.on_key(event.key, event.down, event.at_ms),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => return Err("hook clavier arrêté".into()),
+        };
+        handle(action, &recorder, &recording, reporter, &clips, trigger);
+
+        // Filet de sécurité : relâchement non reçu par le hook, ou durée maximale.
+        let now = now_ms();
+        if let Some(elapsed) = ptt.recording_ms(now) {
+            let released = elapsed > KEY_STATE_GRACE_MS && !vtt_platform::key_is_down(trigger);
+            if released || elapsed > MAX_RECORDING_MS {
+                log::info!("relâchement forcé après {elapsed} ms");
+                let action = ptt.force_release(now);
+                handle(action, &recorder, &recording, reporter, &clips, trigger);
+            }
+        }
+    }
+}
+
+fn handle(
+    action: Option<Action>,
+    recorder: &Recorder,
+    recording: &AtomicBool,
+    reporter: &StatusReporter,
+    clips: &mpsc::Sender<AudioClip>,
+    trigger: u32,
+) {
+    match action {
+        Some(Action::Start) => match recorder.start() {
+            Ok(()) => {
+                recording.store(true, Ordering::SeqCst);
+                vtt_platform::suppress_menu_activation(trigger);
+                reporter.set(Status::Listening);
+            }
+            Err(e) => reporter.set(Status::Error(e)),
+        },
+        Some(Action::Cancel) => {
+            recorder.stop();
+            recording.store(false, Ordering::SeqCst);
+            reporter.set(Status::Idle);
+        }
+        Some(Action::Stop) => {
+            let clip = recorder.stop();
+            recording.store(false, Ordering::SeqCst);
+            reporter.set(Status::Processing);
+            let _ = clips.send(clip);
+        }
+        None => {}
+    }
+}
+
+/// Les dictées sont traitées une par une, hors du thread clavier, pour qu'une
+/// nouvelle dictée puisse commencer pendant la transcription de la précédente.
+fn spawn_worker(
+    pipeline: Pipeline,
+    reporter: Arc<StatusReporter>,
+    recording: Arc<AtomicBool>,
+) -> mpsc::Sender<AudioClip> {
+    let (tx, rx) = mpsc::channel::<AudioClip>();
+    thread::Builder::new()
+        .name("pipeline".into())
+        .spawn(move || {
+            for clip in rx {
+                match pipeline.run(&clip) {
+                    Ok(Outcome::Inserted {
+                        post_process_error: Some(e),
+                        ..
+                    }) => log::warn!("nettoyage ignoré : {e}"),
+                    Ok(_) => {}
+                    Err(e) => {
+                        reporter.set(Status::Error(e.to_string()));
+                        continue;
+                    }
+                }
+                if !recording.load(Ordering::SeqCst) {
+                    reporter.set(Status::Idle);
+                }
+            }
+        })
+        .expect("création du thread pipeline");
+    tx
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "La pastille écoute les changements d'état.",
+  "windows": ["overlay"],
+  "permissions": ["core:default"]
+}
