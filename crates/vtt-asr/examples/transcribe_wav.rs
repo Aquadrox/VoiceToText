@@ -41,7 +41,8 @@ fn main() {
     };
 
     let started = Instant::now();
-    let transcriber = WhisperTranscriber::load(model.as_ref(), "fr", true).expect("chargement");
+    let transcriber =
+        WhisperTranscriber::load(model.as_ref(), "fr", true, &[]).expect("chargement");
     eprintln!("chargement : {} ms", started.elapsed().as_millis());
 
     let pipeline = Pipeline::new(Box::new(transcriber), None, Box::new(Stdout));

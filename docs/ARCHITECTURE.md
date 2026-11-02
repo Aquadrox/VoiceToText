@@ -36,7 +36,7 @@ VoiceToText/
 ├── crates/
 │   ├── vtt-core/      pipeline, traits, configuration — portable, sans dépendance OS
 │   ├── vtt-asr/       Whisper via whisper-rs (backend Vulkan)            [v0.1]
-│   ├── vtt-llm/       client OpenAI-compatible (DeepSeek), prompts       [v0.2]
+│   ├── vtt-llm/       client OpenAI-compatible (DeepSeek), prompt         [v0.2]
 │   └── vtt-platform/  hook clavier, capture audio, insertion              [v0.1]
 ├── apps/
 │   └── desktop/       Tauri 2 : tray, réglages, historique, pastille     [v0.1]
@@ -61,14 +61,20 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 | Interface | Tauri 2 (frontend HTML/JS sans framework) | UI web légère via WebView2, déjà présent sur Windows 10/11 |
 | ASR | whisper.cpp via `whisper-rs`, modèle `large-v3-turbo` quantifié q8_0 (~0,9 Go VRAM) | Meilleure qualité en français, très rapide sur RTX 4070 Ti |
 | Accélération GPU | **Vulkan** plutôt que CUDA | Le pilote NVIDIA fournit Vulkan : rien à installer ni à embarquer (CUDA = ~500 Mo de DLL). CUDA reste une option si la latence déçoit |
-| LLM | DeepSeek V4 Flash, API OpenAI-compatible | `base_url` et `model` configurables : changement de fournisseur sans code |
-| Clé API | Gestionnaire d'identifiants Windows (crate `keyring`) | Jamais en clair dans le fichier de config |
+| LLM | DeepSeek `deepseek-flash`, API OpenAI-compatible, `temperature 0`, mode réflexion désactivé (`thinking.type = disabled`, activé par défaut chez DeepSeek et lent) | `base_url` et `model` configurables : changement de fournisseur sans code |
+| Clé API | Gestionnaire d'identifiants Windows, appels Win32 directs (`CredWriteW`/`CredReadW`), cible `VoiceToText/llm-api-key` | Jamais en clair sur le disque ; lue à chaque dictée, donc prise en compte sans redémarrer |
 | Hook clavier | `WH_KEYBOARD_LL` (crate `windows`) | Seule façon de voir l'appui **et** le relâchement d'AltGr ; `RegisterHotKey` ne voit pas le relâchement |
 | Insertion | Presse-papier + Ctrl+V, presse-papier restauré ensuite | Instantané même pour un long texte ; `SendInput` Unicode en repli |
 | Audio | `cpal` (WASAPI), micro ouvert seulement pendant l'appui ; conversion 16 kHz mono maison (`vtt-core::audio`) | Format attendu par Whisper ; pas d'icône « micro utilisé » en permanence |
 | Configuration | TOML dans `%APPDATA%\VoiceToText\config.toml` | Lisible et éditable à la main |
 | Modèles | Téléchargés au premier lancement dans `%LOCALAPPDATA%\VoiceToText\models`, SHA-256 vérifié | Installeur léger |
 | Journaux | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (durées ASR/insertion de chaque dictée) | Diagnostic à distance |
+
+## Nettoyage LLM
+
+- Le texte dicté est encadré par `<dictee>…</dictee>` et le prompt système interdit d'y répondre ou d'exécuter ses consignes (« écris-moi un mail » doit être réécrit, pas exécuté).
+- Réponse rejetée (texte brut inséré) si elle dépasse 2 × la longueur dictée + 80 caractères : signe que le modèle a répondu au lieu de réécrire.
+- Erreurs HTTP traduites (401 clé refusée, 402 solde insuffisant, 429…) dans le journal ; la dictée est quand même insérée.
 
 ## Confidentialité
 

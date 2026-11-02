@@ -4,6 +4,10 @@
 pub mod audio;
 
 #[cfg(windows)]
+mod secrets_windows;
+#[cfg(windows)]
+pub use secrets_windows::{delete_secret, load_secret, store_secret};
+#[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 pub use windows::{
@@ -15,8 +19,8 @@ pub use windows::{
 mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
-    ClipboardPaster, companion_keys, key_code, key_is_down, spawn_keyboard_hook,
-    suppress_menu_activation,
+    ClipboardPaster, companion_keys, delete_secret, key_code, key_is_down, load_secret,
+    spawn_keyboard_hook, store_secret, suppress_menu_activation,
 };
 
 use std::sync::OnceLock;

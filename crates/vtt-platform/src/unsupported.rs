@@ -34,3 +34,15 @@ impl TextSink for ClipboardPaster {
         Err(Error::Sink(format!("insertion {MESSAGE}")))
     }
 }
+
+pub fn store_secret(_name: &str, _value: &str) -> Result<(), String> {
+    Err(format!("stockage des secrets {MESSAGE}"))
+}
+
+pub fn load_secret(_name: &str) -> Option<String> {
+    None
+}
+
+pub fn delete_secret(_name: &str) -> Result<(), String> {
+    Err(format!("stockage des secrets {MESSAGE}"))
+}

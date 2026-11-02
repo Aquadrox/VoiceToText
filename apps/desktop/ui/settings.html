@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>VoiceToText — Réglages</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Réglages</h1>
+
+      <section>
+        <h2>Nettoyage du texte</h2>
+        <p class="muted">
+          Le texte transcrit est envoyé au modèle <strong id="model"></strong> pour retirer les
+          hésitations et corriger la ponctuation. L'audio, lui, ne quitte jamais votre PC.
+        </p>
+        <p id="disabled" class="warning" hidden>
+          Nettoyage désactivé dans config.toml (<code>llm.enabled = false</code>).
+        </p>
+
+        <label for="key">Clé API</label>
+        <p id="key-status" class="status"></p>
+        <div class="row">
+          <input id="key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+          <button id="save" class="primary">Enregistrer</button>
+        </div>
+        <p class="muted small">
+          Stockée dans le Gestionnaire d'identifiants Windows (VoiceToText/llm-api-key), jamais en
+          clair sur le disque. Prise en compte immédiatement.
+        </p>
+
+        <div class="row">
+          <button id="test">Tester</button>
+          <button id="delete" class="danger">Supprimer la clé</button>
+        </div>
+        <div id="result" class="result" hidden></div>
+      </section>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

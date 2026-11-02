@@ -9,12 +9,14 @@ use std::time::Duration;
 
 use vtt_asr::WhisperTranscriber;
 use vtt_core::hotkey::{Action, PushToTalk};
-use vtt_core::{AudioClip, Config, Outcome, Pipeline};
+use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor};
+use vtt_llm::LlmCleaner;
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, now_ms};
 
 use crate::model;
 use crate::paths::Paths;
+use crate::settings;
 use crate::status::{Status, StatusReporter};
 
 /// Un enregistrement plus long est coupé et traité (touche restée bloquée…).
@@ -46,10 +48,29 @@ fn run(reporter: &Arc<StatusReporter>, config: &Config, paths: &Paths) -> Result
         )));
     })?;
     reporter.set(Status::Loading("Chargement du modèle…".into()));
-    let transcriber =
-        WhisperTranscriber::load(&model_path, &config.asr.language, config.asr.use_gpu)
-            .map_err(|e| e.to_string())?;
-    let pipeline = Pipeline::new(Box::new(transcriber), None, Box::new(ClipboardPaster));
+    let transcriber = WhisperTranscriber::load(
+        &model_path,
+        &config.asr.language,
+        config.asr.use_gpu,
+        &config.dictionary,
+    )
+    .map_err(|e| e.to_string())?;
+    let cleaner: Option<Box<dyn PostProcessor>> = if config.llm.enabled {
+        log::info!(
+            "nettoyage : {} via {}",
+            config.llm.model,
+            config.llm.base_url
+        );
+        Some(Box::new(LlmCleaner::new(
+            &config.llm,
+            &config.dictionary,
+            settings::api_key_provider(),
+        )))
+    } else {
+        log::info!("nettoyage désactivé (llm.enabled = false)");
+        None
+    };
+    let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster));
 
     let recording = Arc::new(AtomicBool::new(false));
     let clips = spawn_worker(pipeline, Arc::clone(reporter), Arc::clone(&recording));

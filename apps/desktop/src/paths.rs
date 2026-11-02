@@ -48,7 +48,14 @@ impl Paths {
     pub fn load_config(&self) -> (Config, Option<String>) {
         match fs::read_to_string(&self.config_file) {
             Ok(source) => match Config::from_toml(&source) {
-                Ok(config) => (config, None),
+                Ok(mut config) => {
+                    let changes = config.migrate();
+                    if !changes.is_empty() {
+                        log::info!("configuration mise à jour : {}", changes.join(", "));
+                        self.save_config(&config);
+                    }
+                    (config, None)
+                }
                 Err(e) => {
                     log::error!("{} invalide : {e}", self.config_file.display());
                     let message = "config.toml invalide : valeurs par défaut utilisées";
@@ -57,14 +64,7 @@ impl Paths {
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let config = Config::default();
-                let written = config
-                    .to_toml()
-                    .map_err(|e| e.to_string())
-                    .and_then(|s| fs::write(&self.config_file, s).map_err(|e| e.to_string()));
-                match written {
-                    Ok(()) => log::info!("configuration créée : {}", self.config_file.display()),
-                    Err(e) => log::error!("écriture de la configuration : {e}"),
-                }
+                self.save_config(&config);
                 (config, None)
             }
             Err(e) => {
@@ -74,6 +74,17 @@ impl Paths {
                     Some(format!("lecture de config.toml : {e}")),
                 )
             }
+        }
+    }
+
+    fn save_config(&self, config: &Config) {
+        let written = config
+            .to_toml()
+            .map_err(|e| e.to_string())
+            .and_then(|s| fs::write(&self.config_file, s).map_err(|e| e.to_string()));
+        match written {
+            Ok(()) => log::info!("configuration écrite : {}", self.config_file.display()),
+            Err(e) => log::error!("écriture de la configuration : {e}"),
         }
     }
 }

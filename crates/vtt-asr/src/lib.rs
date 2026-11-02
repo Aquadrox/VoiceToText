@@ -14,6 +14,8 @@ const MIN_SAMPLES: usize = SAMPLE_RATE as usize * 11 / 10;
 
 pub struct WhisperTranscriber {
     language: String,
+    /// Mots du dictionnaire, donnés à Whisper comme contexte pour l'orthographe.
+    initial_prompt: Option<String>,
     n_threads: i32,
     // Un seul état réutilisé : en créer un par dictée réallouerait les tampons GPU.
     state: Mutex<WhisperState>,
@@ -22,8 +24,22 @@ pub struct WhisperTranscriber {
 impl WhisperTranscriber {
     /// Charge le modèle puis fait une transcription à vide pour que la
     /// première vraie dictée ne paie pas l'initialisation du GPU.
-    pub fn load(model: &Path, language: &str, use_gpu: bool) -> Result<Self, Error> {
+    pub fn load(
+        model: &Path,
+        language: &str,
+        use_gpu: bool,
+        dictionary: &[String],
+    ) -> Result<Self, Error> {
         whisper_rs::install_logging_hooks();
+        #[cfg(feature = "vulkan")]
+        for device in whisper_rs::vulkan::list_devices() {
+            log::info!(
+                "GPU Vulkan {} : {} ({} Mo)",
+                device.id,
+                device.name,
+                device.vram.total / (1024 * 1024)
+            );
+        }
         let started = Instant::now();
         let mut params = WhisperContextParameters::default();
         params.use_gpu(use_gpu);
@@ -38,8 +54,14 @@ impl WhisperTranscriber {
         let n_threads = std::thread::available_parallelism()
             .map(|n| n.get().min(8) as i32)
             .unwrap_or(4);
+        let words: Vec<&str> = dictionary
+            .iter()
+            .map(|w| w.trim())
+            .filter(|w| !w.is_empty())
+            .collect();
         let transcriber = Self {
             language: language.to_owned(),
+            initial_prompt: (!words.is_empty()).then(|| words.join(", ")),
             n_threads,
             state: Mutex::new(state),
         };
@@ -71,6 +93,9 @@ impl Transcriber for WhisperTranscriber {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        if let Some(prompt) = &self.initial_prompt {
+            params.set_initial_prompt(prompt);
+        }
 
         let mut samples = clip.samples.clone();
         if samples.len() < MIN_SAMPLES {

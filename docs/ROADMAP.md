@@ -9,24 +9,24 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Workspace Cargo, crate `vtt-core` : configuration TOML, traits du pipeline, repli si le LLM échoue
 - ✅ CI GitHub Actions : tests Linux + Windows
 
-## v0.1 — Dictée qui marche (Windows) 🚧 code livré, validation sur PC en cours
+## v0.1 — Dictée qui marche (Windows) ✅
 
 - ✅ `vtt-core` : push-to-talk AltGr (combinaisons AZERTY, faux Ctrl d'AltGr), conversion audio, silence, hallucinations
 - ✅ `vtt-platform` : hook clavier, capture micro 16 kHz mono, insertion presse-papier + Ctrl+V avec restauration
-- ✅ `vtt-asr` : Whisper large-v3-turbo q8_0, Vulkan, français — validé sur le serveur (CPU) avec une voix de synthèse
+- ✅ `vtt-asr` : Whisper large-v3-turbo q8_0, Vulkan, français
 - ✅ `apps/desktop` : Tauri, icône de notification, pastille d'enregistrement, journaux
 - ✅ Téléchargement du modèle au premier lancement (SHA-256 vérifié)
 - ✅ Installeur Windows construit par la CI
-- ⬜ Validation sur le PC Windows (latence GPU, AltGr, insertion dans les applis courantes)
+- ✅ Validé sur le PC (RTX 4070 Ti) : ASR 420–530 ms pour 1,4–2,5 s de dictée ; préchauffage 10 s au démarrage
 
-## v0.2 — Texte propre ⬜
+## v0.2 — Texte propre 🚧
 
-- ⬜ `vtt-llm` : client DeepSeek, prompt de nettoyage français
-- ⬜ Clé API dans le gestionnaire d'identifiants Windows
-- ⬜ Dictionnaire perso, snippets
+- ✅ `vtt-llm` : client OpenAI-compatible, DeepSeek `deepseek-flash` sans mode réflexion, prompt de nettoyage français protégé contre l'exécution des consignes dictées
+- ✅ Clé API dans le Gestionnaire d'identifiants Windows, saisie et test depuis « Réglages… »
+- ✅ Dictionnaire perso (`dictionary` dans config.toml) → indice pour Whisper et le LLM
+- ⬜ Validation sur le PC : latence et qualité du nettoyage
+- ⬜ Snippets
 - ⬜ Historique
-- ⬜ Écran de réglages (dont choix du raccourci)
-- ⬜ Mesure de latence bout en bout
 
 ## v0.3 — Confort ⬜
 
@@ -34,6 +34,14 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ⬜ Styles par application
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »
+
+## v0.4 — Interface principale ⬜
+
+Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
+
+- ⬜ Tableau de bord : statistiques (mots dictés, vitesse, temps gagné, nombre de dictées)
+- ⬜ Historique consultable (brut / nettoyé, copier, recoller)
+- ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
 
 ## Plus tard
 

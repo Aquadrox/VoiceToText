@@ -19,6 +19,7 @@ tauri-plugin-single-instance = "2"
 ureq = "3"
 vtt-asr = { path = "../../crates/vtt-asr" }
 vtt-core = { path = "../../crates/vtt-core" }
+vtt-llm = { path = "../../crates/vtt-llm" }
 vtt-platform = { path = "../../crates/vtt-platform" }
 
 [target.'cfg(windows)'.dependencies]
