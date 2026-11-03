@@ -1,10 +1,11 @@
-//! Fenêtre d'historique (provisoire, en attendant l'interface principale) :
-//! dernières dictées, copie, effacement.
+//! Historique des dictées : enregistrement après chaque dictée, lecture et
+//! effacement depuis la fenêtre principale.
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::State;
+use vtt_core::config::Pricing;
 use vtt_core::history::{Entry, History};
 use vtt_core::{AudioClip, Outcome, Target};
 
@@ -15,14 +16,20 @@ const SHOWN: usize = 500;
 /// `None` si l'historique est désactivé dans config.toml.
 pub type HistoryStore = Arc<Mutex<Option<History>>>;
 
-pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: &Outcome) {
+pub fn record(
+    store: &HistoryStore,
+    clip: &AudioClip,
+    target: &Target,
+    outcome: &Outcome,
+    pricing: &Pricing,
+) {
     let Outcome::Inserted {
         raw,
         text,
         post_process_error,
         snippet,
         command,
-        ..
+        usage,
     } = outcome
     else {
         return;
@@ -39,6 +46,9 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: 
         command: *command,
         // Exécutable seulement : le titre de la fenêtre peut être personnel.
         app: target.app.clone(),
+        usage: *usage,
+        cost: usage.map(|u| pricing.cost(&u)),
+        currency: usage.map(|_| pricing.currency.clone()),
     };
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(history) = guard.as_mut()
@@ -46,24 +56,6 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: 
     {
         // Jamais bloquant : la dictée a déjà été insérée.
         log::warn!("historique : {e}");
-    }
-}
-
-pub fn open(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("history") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
-    }
-    let built = WebviewWindowBuilder::new(app, "history", WebviewUrl::App("history.html".into()))
-        .title("VoiceToText — Historique")
-        .inner_size(640.0, 620.0)
-        .min_inner_size(420.0, 300.0)
-        .center()
-        .build();
-    if let Err(e) = built {
-        log::error!("ouverture de l'historique : {e}");
     }
 }
 

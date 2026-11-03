@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::usage::Usage;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     /// Horodatage Unix en millisecondes.
@@ -31,6 +33,14 @@ pub struct Entry {
     /// Application de destination, ex. "slack.exe".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
+    /// Jetons facturés par le LLM pour cette dictée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+    /// Coût estimé au tarif en vigueur au moment de la dictée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
 }
 
 pub struct History {
@@ -133,6 +143,9 @@ mod tests {
             cleanup_failed: false,
             command: false,
             app: None,
+            usage: None,
+            cost: None,
+            currency: None,
         }
     }
 

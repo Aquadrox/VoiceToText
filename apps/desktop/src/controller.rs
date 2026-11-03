@@ -287,7 +287,16 @@ fn spawn_worker(
                                 costs::record(&recorders.ledger, usage, &pricing);
                             }
                         }
-                        history::record(&recorders.history, &clip, &target, &outcome);
+                        if let Outcome::Inserted { raw, command, .. } = &outcome {
+                            let words = raw.split_whitespace().count() as u64;
+                            costs::record_dictation(
+                                &recorders.ledger,
+                                words,
+                                clip.duration_ms(),
+                                *command,
+                            );
+                        }
+                        history::record(&recorders.history, &clip, &target, &outcome, &pricing);
                     }
                     Err(e) => {
                         reporter.set(Status::Error(e.to_string()));

@@ -5,6 +5,7 @@ mod controller;
 mod costs;
 mod history;
 mod logging;
+mod main_window;
 mod model;
 mod paths;
 mod raw_paste;
@@ -52,6 +53,7 @@ fn main() {
             settings::save_llm_settings,
             history::history_view,
             history::clear_history,
+            main_window::home_view,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();

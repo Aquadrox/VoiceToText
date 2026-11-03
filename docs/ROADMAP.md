@@ -38,12 +38,13 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Suivi du coût LLM : jetons lus dans la réponse (`usage`, cache DeepSeek et OpenAI compris), coût estimé avec un tarif réglable (`[llm.pricing]`), totaux jour / mois / total dans « Réglages… » ; fichier `usage.json` sans aucun texte dicté
 - ✅ Fournisseur LLM au choix dans « Réglages… » : préréglages DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, Ollama local, ou adresse libre ; modèle, délai, tarif, paramètres propres au fournisseur (`extra_body`) ; une clé par fournisseur ; modèle local sans clé
 
-## v0.4 — Interface principale ⬜
+## v0.4 — Interface principale 🚧
 
 Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 
-- ⬜ Tableau de bord : statistiques (mots dictés, vitesse, temps gagné, nombre de dictées)
-- ⬜ Historique intégré à l'interface (recoller, statistiques)
+- ✅ Fenêtre principale (menu latéral), ouverte seulement depuis l'icône : l'application reste discrète
+- ✅ Accueil : mots dictés, temps gagné (frappe à 40 mots/min), vitesse de parole, coût du mois, mots par jour sur 30 jours ; compteurs par jour sans texte, conservés si l'historique est effacé
+- ✅ Historique intégré, avec le coût de chaque dictée (jetons au survol)
 - ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
 
 ## v0.5 — Distribution et mises à jour ⬜

@@ -1,7 +1,5 @@
 // Réglages : fournisseur LLM, clé API (enregistrement, suppression, test),
 // consommation.
-const { invoke } = window.__TAURI__.core;
-const $ = (id) => document.getElementById(id);
 let currency = "USD";
 
 const NO_THINKING = { thinking: { type: "disabled" } };
@@ -173,26 +171,13 @@ async function refresh() {
   return view;
 }
 
-const integer = new Intl.NumberFormat("fr-FR");
-
-function formatCost(value) {
-  // Montants minuscules (une dictée ≈ 0,0001 $) : chiffres significatifs.
-  const tiny = value > 0 && value < 0.01;
-  const precision = tiny ? { maximumSignificantDigits: 2 } : { minimumFractionDigits: 2 };
-  try {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency, ...precision }).format(value);
-  } catch {
-    return `${tiny ? value.toPrecision(2) : value.toFixed(2)} ${currency}`;
-  }
-}
-
 function renderUsage(usage) {
   for (const row of document.querySelectorAll("#usage tbody tr")) {
     const totals = usage[row.dataset.period];
     const [requests, tokens, cost] = row.querySelectorAll("td");
     requests.textContent = integer.format(totals.requests);
     tokens.textContent = integer.format(totals.input_tokens + totals.output_tokens);
-    cost.textContent = formatCost(totals.cost);
+    cost.textContent = formatCost(totals.cost, currency);
   }
 }
 
@@ -239,20 +224,29 @@ $("test").addEventListener("click", () =>
     showResult("Test en cours…");
     const t = await invoke("test_cleanup");
     const tokens = t.usage
-      ? ` · ${t.usage.input_tokens} + ${t.usage.output_tokens} jetons · ${formatCost(t.cost)}`
+      ? ` · ${t.usage.input_tokens} + ${t.usage.output_tokens} jetons · ${formatCost(t.cost, currency)}`
       : "";
     showResult(`Avant : ${t.input}\n\nAprès : ${t.output}\n\n${t.duration_ms} ms${tokens}`);
   }),
 );
 
-refresh().then((view) => fillProvider(view.llm));
+// Le formulaire n'est rempli qu'une fois : revenir sur la page ne doit pas
+// écraser une saisie en cours.
+let providerFilled = false;
+registerPage("reglages", {
+  show: () =>
+    refresh().then((view) => {
+      if (!providerFilled) fillProvider(view.llm);
+      providerFilled = true;
+    }),
+});
 
 // Consommation en direct : les dictées se font dans d'autres fenêtres, la
-// fenêtre des réglages ne reçoit donc pas le focus. Rafraîchie toutes les
-// 2 s tant qu'elle est visible (lecture locale, aucune requête réseau).
+// fenêtre ne reçoit donc pas le focus. Rafraîchie toutes les 2 s tant que la
+// page est affichée (lecture locale, aucune requête réseau).
 const USAGE_REFRESH_MS = 2000;
 setInterval(async () => {
-  if (document.hidden) return;
+  if (!isShown("reglages")) return;
   try {
     const view = await invoke("settings_view");
     renderUsage(view.usage);
