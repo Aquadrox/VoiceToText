@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>VoiceToText — Historique</title>
+    <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="history.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Historique</h1>
+        <input id="search" type="search" placeholder="Rechercher…" spellcheck="false" />
+        <button id="clear" class="danger">Tout effacer</button>
+      </header>
+      <p class="muted small">
+        Conservé uniquement sur ce PC (%LOCALAPPDATA%\VoiceToText\history.jsonl). Désactivable dans
+        config.toml (<code>[history] enabled = false</code>).
+      </p>
+      <p id="disabled" class="warning" hidden>Historique désactivé dans config.toml.</p>
+      <p id="empty" class="muted" hidden>Aucune dictée pour l'instant.</p>
+      <ol id="list"></ol>
+    </main>
+    <template id="entry">
+      <li>
+        <div class="meta">
+          <span class="when"></span>
+          <span class="badge"></span>
+          <button class="copy">Copier</button>
+        </div>
+        <p class="text"></p>
+        <details>
+          <summary>Transcription brute</summary>
+          <p class="raw"></p>
+        </details>
+      </li>
+    </template>
+    <script src="history.js"></script>
+  </body>
+</html>

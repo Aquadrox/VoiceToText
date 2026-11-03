@@ -1,7 +1,8 @@
 //! Emplacements des fichiers de l'application.
 //!
-//! Windows : configuration dans `%APPDATA%\VoiceToText`, modèles et journaux
-//! dans `%LOCALAPPDATA%\VoiceToText` (non synchronisé avec le profil itinérant).
+//! Windows : configuration dans `%APPDATA%\VoiceToText`, modèles,
+//! journaux et historique dans `%LOCALAPPDATA%\VoiceToText` (non synchronisé
+//! avec le profil itinérant).
 
 use std::fs;
 use std::io;
@@ -16,6 +17,7 @@ pub struct Paths {
     pub config_file: PathBuf,
     pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
+    pub history_file: PathBuf,
 }
 
 impl Paths {
@@ -30,6 +32,7 @@ impl Paths {
             config_file: config_dir.join("config.toml"),
             models_dir: data_dir.join("models"),
             logs_dir: data_dir.join("logs"),
+            history_file: data_dir.join("history.jsonl"),
         }
     }
 

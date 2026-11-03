@@ -1,0 +1,74 @@
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+header h1 {
+  margin: 0;
+}
+
+header input {
+  flex: 1;
+}
+
+header button.danger {
+  margin-left: 0;
+}
+
+ol {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meta .copy {
+  margin-left: auto;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.badge:empty {
+  display: none;
+}
+
+.badge {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.text,
+.raw {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+details {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+summary {
+  cursor: pointer;
+}

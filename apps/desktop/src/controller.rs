@@ -14,6 +14,7 @@ use vtt_llm::LlmCleaner;
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, now_ms};
 
+use crate::history::{self, HistoryStore};
 use crate::model;
 use crate::paths::Paths;
 use crate::settings;
@@ -27,18 +28,23 @@ const POLL: Duration = Duration::from_millis(100);
 /// jour après le passage dans le hook.
 const KEY_STATE_GRACE_MS: u64 = 300;
 
-pub fn spawn(reporter: Arc<StatusReporter>, config: Config, paths: Paths) {
+pub fn spawn(reporter: Arc<StatusReporter>, history: HistoryStore, config: Config, paths: Paths) {
     thread::Builder::new()
         .name("controller".into())
         .spawn(move || {
-            if let Err(e) = run(&reporter, &config, &paths) {
+            if let Err(e) = run(&reporter, history, &config, &paths) {
                 reporter.set(Status::Error(e));
             }
         })
         .expect("création du thread contrôleur");
 }
 
-fn run(reporter: &Arc<StatusReporter>, config: &Config, paths: &Paths) -> Result<(), String> {
+fn run(
+    reporter: &Arc<StatusReporter>,
+    history: HistoryStore,
+    config: &Config,
+    paths: &Paths,
+) -> Result<(), String> {
     let trigger = vtt_platform::key_code(&config.hotkey.key)
         .ok_or_else(|| format!("touche inconnue dans config.toml : {:?}", config.hotkey.key))?;
 
@@ -77,7 +83,12 @@ fn run(reporter: &Arc<StatusReporter>, config: &Config, paths: &Paths) -> Result
     }
 
     let recording = Arc::new(AtomicBool::new(false));
-    let clips = spawn_worker(pipeline, Arc::clone(reporter), Arc::clone(&recording));
+    let clips = spawn_worker(
+        pipeline,
+        history,
+        Arc::clone(reporter),
+        Arc::clone(&recording),
+    );
     let recorder = Recorder::spawn();
 
     let (keys_tx, keys) = mpsc::channel();
@@ -144,6 +155,7 @@ fn handle(
 /// nouvelle dictée puisse commencer pendant la transcription de la précédente.
 fn spawn_worker(
     pipeline: Pipeline,
+    history: HistoryStore,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
 ) -> mpsc::Sender<AudioClip> {
@@ -153,11 +165,16 @@ fn spawn_worker(
         .spawn(move || {
             for clip in rx {
                 match pipeline.run(&clip) {
-                    Ok(Outcome::Inserted {
-                        post_process_error: Some(e),
-                        ..
-                    }) => log::warn!("nettoyage ignoré : {e}"),
-                    Ok(_) => {}
+                    Ok(outcome) => {
+                        if let Outcome::Inserted {
+                            post_process_error: Some(e),
+                            ..
+                        } = &outcome
+                        {
+                            log::warn!("nettoyage ignoré : {e}");
+                        }
+                        history::record(&history, &clip, &outcome);
+                    }
                     Err(e) => {
                         reporter.set(Status::Error(e.to_string()));
                         continue;
