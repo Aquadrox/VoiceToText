@@ -31,7 +31,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 
 ## v0.3 — Confort 🚧
 
-- ⬜ Mode mains libres (double appui)
+- ✅ Mode mains libres : double appui court → dictée sans tenir la touche ; nouvel appui pour terminer, Échap pour annuler ; 10 min max ; désactivable (`hotkey.hands_free`)
 - ⬜ Styles par application
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »

@@ -24,6 +24,8 @@ use crate::status::{Status, StatusReporter};
 
 /// Un enregistrement plus long est coupé et traité (touche restée bloquée…).
 const MAX_RECORDING_MS: u64 = 5 * 60 * 1000;
+/// Même filet pour le mode mains libres, où les dictées sont plus longues.
+const MAX_HANDS_FREE_MS: u64 = 10 * 60 * 1000;
 /// Fréquence de vérification de l'état physique du raccourci.
 const POLL: Duration = Duration::from_millis(100);
 /// Délai avant de se fier à l'état physique de la touche : Windows le met à
@@ -108,7 +110,8 @@ fn run(
     let (keys_tx, keys) = mpsc::channel();
     vtt_platform::spawn_keyboard_hook(keys_tx)?;
     let mut ptt = PushToTalk::new(trigger, config.hotkey.min_hold_ms.into())
-        .with_ignored(vtt_platform::companion_keys(trigger));
+        .with_ignored(vtt_platform::companion_keys(trigger))
+        .with_hands_free(config.hotkey.hands_free, vtt_platform::key_code("Escape"));
     log::info!("prêt, raccourci : {}", config.hotkey.key);
     reporter.set(Status::Idle);
 
@@ -118,16 +121,38 @@ fn run(
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => return Err("hook clavier arrêté".into()),
         };
-        handle(action, &recorder, &recording, reporter, &clips, trigger);
+        handle(
+            action,
+            &recorder,
+            &recording,
+            reporter,
+            &clips,
+            trigger,
+            &config.hotkey.key,
+        );
 
         // Filet de sécurité : relâchement non reçu par le hook, ou durée maximale.
+        // En mains libres, la touche est relâchée exprès : seule la durée compte.
         let now = now_ms();
         if let Some(elapsed) = ptt.recording_ms(now) {
-            let released = elapsed > KEY_STATE_GRACE_MS && !vtt_platform::key_is_down(trigger);
-            if released || elapsed > MAX_RECORDING_MS {
+            let (released, max_ms) = if ptt.is_hands_free() {
+                (false, MAX_HANDS_FREE_MS)
+            } else {
+                let released = elapsed > KEY_STATE_GRACE_MS && !vtt_platform::key_is_down(trigger);
+                (released, MAX_RECORDING_MS)
+            };
+            if released || elapsed > max_ms {
                 log::info!("relâchement forcé après {elapsed} ms");
                 let action = ptt.force_release(now);
-                handle(action, &recorder, &recording, reporter, &clips, trigger);
+                handle(
+                    action,
+                    &recorder,
+                    &recording,
+                    reporter,
+                    &clips,
+                    trigger,
+                    &config.hotkey.key,
+                );
             }
         }
     }
@@ -140,6 +165,7 @@ fn handle(
     reporter: &StatusReporter,
     clips: &mpsc::Sender<AudioClip>,
     trigger: u32,
+    key_name: &str,
 ) {
     match action {
         Some(Action::Start) => match recorder.start() {
@@ -150,6 +176,10 @@ fn handle(
             }
             Err(e) => reporter.set(Status::Error(e)),
         },
+        Some(Action::HandsFree) => {
+            log::info!("mode mains libres");
+            reporter.set(Status::HandsFree(key_name.to_owned()));
+        }
         Some(Action::Cancel) => {
             recorder.stop();
             recording.store(false, Ordering::SeqCst);

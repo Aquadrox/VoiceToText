@@ -2,6 +2,7 @@
   --bg: rgba(24, 24, 32, 0.92);
   --fg: #f4f4f8;
   --listening: #ef4444;
+  --handsfree: #22c55e;
   --processing: #6366f1;
   --loading: #a1a1aa;
   --error: #f59e0b;
@@ -57,6 +58,11 @@ body {
 
 .pill[data-state="listening"] .dot {
   background: var(--listening);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.pill[data-state="handsfree"] .dot {
+  background: var(--handsfree);
   animation: pulse 1s ease-in-out infinite;
 }
 
