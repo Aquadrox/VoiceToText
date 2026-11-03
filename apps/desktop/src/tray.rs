@@ -12,6 +12,7 @@ use crate::paths::Paths;
 /// Construit l'icône ; renvoie la ligne d'état du menu pour la mettre à jour.
 pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
     let status = MenuItem::with_id(app, "status", "Démarrage…", false, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
     let config = MenuItem::with_id(
         app,
         "config",
@@ -27,6 +28,7 @@ pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
         &[
             &status,
             &PredefinedMenuItem::separator(app)?,
+            &settings,
             &config,
             &logs,
             &restart,
@@ -42,6 +44,7 @@ pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id.as_ref() {
+            "settings" => crate::settings::open(app),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),
             "restart" => app.restart(),

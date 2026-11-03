@@ -16,11 +16,22 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 
 - **Maintenir AltGr**, parler, **relâcher** : le texte est collé dans l'application active.
 - AltGr + une autre touche (`@`, `#`, `€`…) fonctionne normalement : la dictée est annulée.
-- Icône de notification : état, configuration, journaux, redémarrage.
+- Icône de notification : état, réglages, configuration, journaux, redémarrage.
+
+### Nettoyage du texte (DeepSeek)
+
+1. Créer une clé sur [platform.deepseek.com](https://platform.deepseek.com) (compte crédité).
+2. Icône de notification → **Réglages…** → coller la clé → **Enregistrer** → **Tester**.
+
+Sans clé, le texte brut de Whisper est inséré.
 
 Configuration : `%APPDATA%\VoiceToText\config.toml` (redémarrer après modification).
 
 ```toml
+# Noms propres, jargon : orthographe transmise à Whisper et au LLM.
+# (clé de premier niveau : à placer avant toute section [..])
+dictionary = ["Aquadrox", "Tauri"]
+
 [hotkey]
 key = "AltGr"        # ou RightCtrl, CapsLock, ScrollLock, Pause, Insert, Menu, F1…F24
 min_hold_ms = 250
@@ -29,9 +40,15 @@ min_hold_ms = 250
 model = "ggml-large-v3-turbo-q8_0.bin"
 language = "fr"
 use_gpu = true
+
+[llm]
+enabled = true
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+timeout_ms = 3000
 ```
 
-Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log`.
+Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé automatiquement au-delà de 3 Mo, les 100 dernières lignes sont gardées).
 
 ## Documentation
 

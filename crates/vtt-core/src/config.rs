@@ -72,7 +72,7 @@ impl Default for LlmConfig {
         Self {
             enabled: true,
             base_url: "https://api.deepseek.com".into(),
-            model: "deepseek-v4-flash".into(),
+            model: "deepseek-flash".into(),
             timeout_ms: 3000,
         }
     }
@@ -86,9 +86,26 @@ pub struct Snippet {
     pub text: String,
 }
 
+/// Anciens noms de modèles LLM → nom actuel.
+const RENAMED_LLM_MODELS: &[(&str, &str)] = &[("deepseek-v4-flash", "deepseek-flash")];
+
 impl Config {
     pub fn from_toml(source: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(source)
+    }
+
+    /// Met à jour les valeurs obsolètes d'un fichier existant.
+    /// Renvoie la liste des changements (vide si rien n'a changé).
+    pub fn migrate(&mut self) -> Vec<String> {
+        let mut changes = Vec::new();
+        if let Some((old, new)) = RENAMED_LLM_MODELS
+            .iter()
+            .find(|(old, _)| *old == self.llm.model)
+        {
+            changes.push(format!("llm.model : {old} → {new}"));
+            self.llm.model = (*new).to_owned();
+        }
+        changes
     }
 
     pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
@@ -123,6 +140,14 @@ mod tests {
         });
         let parsed = Config::from_toml(&config.to_toml().unwrap()).unwrap();
         assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn migrate_renames_retired_deepseek_model() {
+        let mut config = Config::from_toml("[llm]\nmodel = \"deepseek-v4-flash\"\n").unwrap();
+        assert_eq!(config.migrate().len(), 1);
+        assert_eq!(config.llm.model, "deepseek-flash");
+        assert!(config.migrate().is_empty());
     }
 
     #[test]

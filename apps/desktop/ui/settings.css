@@ -1,0 +1,145 @@
+:root {
+  --bg: #f7f7fa;
+  --card: #ffffff;
+  --fg: #1c1c24;
+  --muted: #6b6b78;
+  --border: #dcdce4;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --ok: #15803d;
+  --danger: #b91c1c;
+  --warning-bg: #fef3c7;
+  --warning-fg: #78350f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171d;
+    --card: #202028;
+    --fg: #ececf1;
+    --muted: #9d9daa;
+    --border: #34343f;
+    --accent: #818cf8;
+    --accent-fg: #11111a;
+    --ok: #4ade80;
+    --danger: #f87171;
+    --warning-bg: #3b2f12;
+    --warning-fg: #fde68a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+
+main {
+  padding: 20px 24px;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 20px;
+}
+
+h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+section {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+label {
+  display: block;
+  margin-top: 14px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.status {
+  margin: 2px 0 6px;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.warning {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+button.danger {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg);
+  white-space: pre-wrap;
+}
+
+.result.error {
+  color: var(--danger);
+}

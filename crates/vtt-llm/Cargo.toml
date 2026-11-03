@@ -1,0 +1,13 @@
+[package]
+name = "vtt-llm"
+description = "Nettoyage du texte dicté par un LLM (API compatible OpenAI)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+log.workspace = true
+serde.workspace = true
+serde_json = "1"
+ureq = { version = "3", features = ["json"] }
+vtt-core = { path = "../vtt-core" }

@@ -97,7 +97,10 @@ impl Pipeline {
         let asr_ms = started.elapsed().as_millis();
         let raw = text::strip_hallucinations(&transcribed);
         if raw.is_empty() {
-            log::info!("ignoré : transcription vide ({transcribed:?}, ASR {asr_ms} ms)");
+            log::info!(
+                "ignoré : transcription vide après filtrage ({} caractères écartés, ASR {asr_ms} ms)",
+                transcribed.chars().count()
+            );
             return Ok(Outcome::Skipped);
         }
 
