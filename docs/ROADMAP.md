@@ -54,14 +54,16 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ⬜ Publication automatisée par la CI à chaque tag (installeur + manifeste `latest.json`)
 - ⬜ Réglage : mise à jour automatique ou simple avertissement
 
-## Outillage ⬜
+## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
 
-- ⬜ Sur les PR, ne relancer que ce qui est touché : tests du crate modifié et de ceux qui en dépendent, installeur Windows seulement si du code Rust/UI/dépendances change (pas pour la doc)
-- ⬜ Les vérifications obligatoires `linux` et `windows` doivent toujours répondre sur une PR, même pour un changement de doc (répondre « rien à faire » en quelques secondes plutôt que sauter le workflow, sinon la PR reste bloquée). Pas de `[skip ci]` sur une branche de PR
-- ⬜ Suite complète + installeur toujours sur `main` et sur les tags : rien n'est publié sans tout repasser
-- ⬜ Cache de compilation plus efficace (sccache) pour whisper.cpp/Vulkan, l'étape la plus longue
+- ✅ Sur les PR, ne vérifier que ce qui est touché (`.github/scripts/changes.sh`) : PR de doc → quelques secondes ; crate modifié → clippy et tests de ce crate et de l'application ; `vtt-core`, dépendances ou CI modifiés → tout
+- ✅ Les vérifications obligatoires `linux` et `windows` répondent toujours, même pour la doc (étapes sautées, job réussi). Pas de `[skip ci]` sur une branche de PR
+- ✅ Au moindre doute (fichier non classé, historique introuvable), tout est vérifié
+- ✅ Suite complète + installeur toujours sur `main` et sur les tags : rien n'est publié sans tout repasser
+- ✅ Cache de compilation corrigé : l'installeur se recompilait entièrement (~10 min) faute de cache release ; le cache est désormais alimenté par `main` et réutilisé par les PR
+- ✅ Un nouveau push sur une PR annule la vérification précédente
 
 ## Plus tard
 

@@ -7,26 +7,51 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Un nouveau push sur une PR annule la vérification devenue inutile.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # Détection des fichiers modifiés (voir .github/scripts/changes.sh).
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Les jobs `linux` et `windows` sont obligatoires pour merger : ils
+      # tournent toujours, et ne sautent leurs étapes que pour une PR de doc.
+      - name: Fichiers modifiés
+        id: changes
+        shell: bash
+        run: .github/scripts/changes.sh
       - name: Dépendances système (WebKitGTK, ALSA)
+        if: steps.changes.outputs.code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libxdo-dev libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.code == 'true'
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+        if: steps.changes.outputs.code == 'true'
+        with:
+          # Cache alimenté par `main` seulement, réutilisé par les PR.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: steps.changes.outputs.code == 'true'
+        run: cargo fmt --all --check
+      - if: steps.changes.outputs.code == 'true'
+        run: cargo clippy ${{ steps.changes.outputs.packages }} --all-targets -- -D warnings
+      - if: steps.changes.outputs.code == 'true'
+        run: cargo test ${{ steps.changes.outputs.packages }}
 
   windows:
     runs-on: windows-latest
@@ -36,27 +61,47 @@ jobs:
       CARGO_TARGET_DIR: C:\t
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Les jobs `linux` et `windows` sont obligatoires pour merger : ils
+      # tournent toujours, et ne sautent leurs étapes que pour une PR de doc.
+      - name: Fichiers modifiés
+        id: changes
+        shell: bash
+        run: .github/scripts/changes.sh
       - name: SDK Vulkan (compilation de whisper.cpp pour le GPU)
+        if: steps.changes.outputs.code == 'true'
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           install_runtime: true
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.code == 'true'
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.code == 'true'
         with:
           workspaces: ". -> C:\\t"
-          # Garder le cache même si un job échoue : la compilation de whisper.cpp prend ~25 min.
-          cache-on-failure: true
-      - run: cargo clippy -p vtt-core -p vtt-platform --all-targets -- -D warnings
-      - run: cargo test -p vtt-core -p vtt-platform
+          # Nouvelle clé : l'ancien cache, figé avant la première compilation
+          # release, faisait recompiler tout l'installeur (~10 min) à chaque run.
+          prefix-key: v1-rust
+          # Cache alimenté par `main` seulement (avec la compilation release),
+          # réutilisé par les PR.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: steps.changes.outputs.code == 'true'
+        run: cargo clippy -p vtt-core -p vtt-platform --all-targets -- -D warnings
+      - if: steps.changes.outputs.code == 'true'
+        run: cargo test -p vtt-core -p vtt-platform
       - name: Tauri CLI
+        if: steps.changes.outputs.code == 'true'
         run: cargo install tauri-cli --version "^2" --locked
       - name: Installeur
+        if: steps.changes.outputs.code == 'true'
         working-directory: apps/desktop
         run: cargo tauri build --bundles nsis
       - uses: actions/upload-artifact@v4
+        if: steps.changes.outputs.code == 'true'
         with:
           name: VoiceToText-installeur-windows
           path: C:\t\release\bundle\nsis\*.exe
