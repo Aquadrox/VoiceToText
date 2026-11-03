@@ -121,6 +121,10 @@ Consignes de nettoyage selon l'application où vous dictez, d'après la fenêtre
 
 Modèles prêts : **Messagerie**, **E-mail**, **Code**. Le premier style qui correspond s'applique (**↑** pour changer l'ordre).
 
+### Prompts
+
+Les consignes données au LLM, pour le nettoyage des dictées et pour le Command Mode. Le prompt intégré (visible en lecture seule) convient dans la plupart des cas. **Créer une copie modifiable** pour l'adapter (plus concis, sans listes, autre registre, consignes simplifiées pour un petit modèle local), **Tester** sur un exemple avec le fournisseur actif, choisir le **Prompt actif**, **Enregistrer** : appliqué immédiatement. Le dictionnaire et les consignes de style sont ajoutés automatiquement à la fin. Le choix du prompt fait partie du profil LLM (un profil Ollama peut avoir son propre prompt).
+
 ### Réglages
 
 - **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », appui minimal, mains libres.
@@ -278,6 +282,13 @@ instructions = "Messagerie : ton conversationnel, phrases courtes, pas de formul
 [[styles]]
 apps = ["code.exe"]
 cleanup = false      # texte brut, sans LLM
+
+# Prompts personnalisés (page Prompts) ; actifs via llm.cleanup_prompt /
+# llm.command_prompt (vide = prompt intégré).
+[[prompts]]
+name = "Concis"
+kind = "nettoyage"   # ou "commande"
+text = "Corrige la ponctuation et retire les hésitations. Réponds uniquement avec le texte final."
 
 # Profils LLM enregistrés (Réglages → Nettoyage du texte → Profil).
 [[llm_profiles]]

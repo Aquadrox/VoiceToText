@@ -6,10 +6,10 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tauri::State;
-use vtt_core::config::{self, LlmConfig, LlmProfile};
+use vtt_core::config::{self, LlmConfig, LlmProfile, PromptKind};
 use vtt_core::usage::{Summary, Usage};
 use vtt_core::{Config, PostProcessor};
-use vtt_llm::{ApiKeyProvider, LlmCleaner};
+use vtt_llm::{ApiKeyProvider, LlmCleaner, Prompts};
 
 use crate::controller::{self, WorkerHandle};
 use crate::costs::{self, LedgerStore};
@@ -47,12 +47,22 @@ pub fn api_key_provider(llm: &LlmConfig) -> ApiKeyProvider {
     Box::new(move || vtt_platform::load_secret(&name))
 }
 
+/// Prompts choisis pour `llm` (`None` : prompt intégré).
+pub fn prompts_for(config: &Config, llm: &LlmConfig) -> Prompts {
+    let text = |kind, name: &str| config.prompt_text(kind, name).map(str::to_owned);
+    Prompts {
+        cleanup: text(PromptKind::Nettoyage, &llm.cleanup_prompt),
+        command: text(PromptKind::Commande, &llm.command_prompt),
+    }
+}
+
 /// Nettoyage construit d'après la configuration (`None` : désactivé).
 pub fn build_cleaner(config: &Config) -> Option<Box<dyn PostProcessor>> {
     config.llm.enabled.then(|| {
         Box::new(LlmCleaner::new(
             &config.llm,
             &config.dictionary,
+            &prompts_for(config, &config.llm),
             api_key_provider(&config.llm),
         )) as Box<dyn PostProcessor>
     })
@@ -177,6 +187,7 @@ pub fn apply_llm_settings(
 ) -> Result<Applied, String> {
     check_llm(&mut llm)?;
     let mut updated = load_for_update(&paths)?;
+    updated.check_prompt_refs(&llm)?;
     updated.llm = llm.clone();
     paths.write_config(&updated)?;
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated.clone();
@@ -254,9 +265,17 @@ pub fn test_llm_settings(
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
         .or_else(|| vtt_platform::load_secret(&secret_name(&llm)));
-    let dictionary = read(&config).dictionary.clone();
+    let (dictionary, prompts) = {
+        let config = read(&config);
+        (config.dictionary.clone(), prompts_for(&config, &llm))
+    };
     let provided = key.clone();
-    let cleaner = LlmCleaner::new(&llm, &dictionary, Box::new(move || provided.clone()));
+    let cleaner = LlmCleaner::new(
+        &llm,
+        &dictionary,
+        &prompts,
+        Box::new(move || provided.clone()),
+    );
     let key_status = match (&key, llm.may_send_key()) {
         (None, _) => "aucune",
         (Some(_), true) => "envoyée",
