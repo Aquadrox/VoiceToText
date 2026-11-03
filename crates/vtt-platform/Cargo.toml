@@ -4,6 +4,7 @@ description = "Intégration système : micro, clavier, insertion de texte"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 cpal = "0.18"

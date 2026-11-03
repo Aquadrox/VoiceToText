@@ -4,6 +4,7 @@ description = "Nettoyage du texte dicté par un LLM (API compatible OpenAI)"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 log.workspace = true
