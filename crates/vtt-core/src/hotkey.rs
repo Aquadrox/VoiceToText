@@ -8,6 +8,10 @@
 //! Mode mains libres : deux appuis courts rapprochés lancent un
 //! enregistrement qui continue après le relâchement ; un nouvel appui le
 //! termine, la touche d'annulation (Échap) le jette.
+//!
+//! Command Mode : la touche de commande (Ctrl droit) tenue avec le raccourci,
+//! avant ou pendant l'enregistrement, fait de la dictée une consigne à
+//! appliquer au texte sélectionné.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -19,6 +23,9 @@ pub enum Action {
     Cancel,
     /// Double appui : l'enregistrement en cours continue sans tenir la touche.
     HandsFree,
+    /// Touche de commande pressée pendant l'enregistrement : la dictée devient
+    /// une consigne (Command Mode).
+    Command,
 }
 
 /// Délai maximal entre le relâchement du premier appui et le second.
@@ -31,6 +38,8 @@ enum State {
         since_ms: u64,
         /// Second appui d'un double appui : s'il est court, passer en mains libres.
         double_tap: bool,
+        /// Command Mode.
+        command: bool,
     },
     /// Enregistrement mains libres : la touche est relâchée.
     HandsFree,
@@ -51,6 +60,9 @@ pub struct PushToTalk {
     last_tap_ms: Option<u64>,
     /// Début de l'enregistrement mains libres en cours.
     hands_free_since: Option<u64>,
+    /// Touche qui, tenue avec le raccourci, active le Command Mode.
+    command_key: Option<u32>,
+    command_key_down: bool,
     state: State,
 }
 
@@ -65,6 +77,8 @@ impl PushToTalk {
             hands_free_enabled: true,
             last_tap_ms: None,
             hands_free_since: None,
+            command_key: None,
+            command_key_down: false,
             state: State::Idle,
         }
     }
@@ -80,12 +94,22 @@ impl PushToTalk {
         self
     }
 
+    pub fn with_command_key(mut self, key: Option<u32>) -> Self {
+        self.command_key = key;
+        self
+    }
+
     pub fn trigger(&self) -> u32 {
         self.trigger
     }
 
     pub fn is_recording(&self) -> bool {
         matches!(self.state, State::Recording { .. } | State::HandsFree)
+    }
+
+    /// L'enregistrement en cours est une consigne (Command Mode).
+    pub fn is_command(&self) -> bool {
+        matches!(self.state, State::Recording { command: true, .. })
     }
 
     /// Enregistrement en cours sans que la touche soit tenue.
@@ -108,9 +132,30 @@ impl PushToTalk {
         if self.ignored.contains(&key) {
             return None;
         }
+        if Some(key) == self.command_key {
+            self.command_key_down = down;
+            return match self.state {
+                State::Recording {
+                    since_ms,
+                    command: false,
+                    ..
+                } if down => {
+                    self.state = State::Recording {
+                        since_ms,
+                        double_tap: false,
+                        command: true,
+                    };
+                    Some(Action::Command)
+                }
+                // Relâchée avant le raccourci, répétée, ou hors enregistrement.
+                _ => None,
+            };
+        }
         match (self.state, key == self.trigger, down) {
             (State::Idle, true, true) => {
-                let double_tap = self.hands_free_enabled
+                let command = self.command_key_down;
+                let double_tap = !command
+                    && self.hands_free_enabled
                     && self
                         .last_tap_ms
                         .is_some_and(|tap| at_ms.saturating_sub(tap) <= DOUBLE_TAP_MS);
@@ -118,6 +163,7 @@ impl PushToTalk {
                 self.state = State::Recording {
                     since_ms: at_ms,
                     double_tap,
+                    command,
                 };
                 Some(Action::Start)
             }
@@ -168,11 +214,16 @@ impl PushToTalk {
         let State::Recording {
             since_ms,
             double_tap,
+            command,
         } = self.state
         else {
             return None;
         };
         let short = at_ms.saturating_sub(since_ms) < self.min_hold_ms;
+        if command {
+            self.state = State::Idle;
+            return Some(if short { Action::Cancel } else { Action::Stop });
+        }
         if short && double_tap {
             self.state = State::HandsFree;
             self.hands_free_since = Some(since_ms);
@@ -353,6 +404,59 @@ mod tests {
         p.on_key(ALTGR, true, 1200);
         assert_eq!(p.on_key(ALTGR, false, 1260), Some(Action::Cancel));
         assert!(!p.is_hands_free());
+    }
+
+    const RCTRL: u32 = 0xA3;
+
+    fn with_command() -> PushToTalk {
+        hands_free().with_command_key(Some(RCTRL))
+    }
+
+    #[test]
+    fn command_key_during_recording_switches_to_command() {
+        let mut p = with_command();
+        assert_eq!(p.on_key(ALTGR, true, 1000), Some(Action::Start));
+        assert!(!p.is_command());
+        assert_eq!(p.on_key(RCTRL, true, 1100), Some(Action::Command));
+        assert!(p.is_command());
+        assert_eq!(p.on_key(RCTRL, true, 1200), None, "répétition ignorée");
+        // Relâcher Ctrl avant AltGr garde le Command Mode.
+        assert_eq!(p.on_key(RCTRL, false, 2500), None);
+        assert!(p.is_command());
+        assert_eq!(p.on_key(ALTGR, false, 3000), Some(Action::Stop));
+        assert!(!p.is_recording());
+    }
+
+    #[test]
+    fn command_key_held_before_trigger_starts_command() {
+        let mut p = with_command();
+        assert_eq!(p.on_key(RCTRL, true, 900), None);
+        assert_eq!(p.on_key(ALTGR, true, 1000), Some(Action::Start));
+        assert!(p.is_command());
+        assert_eq!(p.on_key(ALTGR, false, 2000), Some(Action::Stop));
+        assert_eq!(p.on_key(RCTRL, false, 2100), None);
+        // Ensuite : dictée normale.
+        p.on_key(ALTGR, true, 5000);
+        assert!(!p.is_command());
+    }
+
+    #[test]
+    fn short_command_is_cancelled_and_never_hands_free() {
+        let mut p = with_command();
+        p.on_key(ALTGR, true, 1000);
+        p.on_key(ALTGR, false, 1080);
+        // Second tap rapide, mais avec Ctrl droit : pas de mains libres.
+        p.on_key(RCTRL, true, 1150);
+        p.on_key(ALTGR, true, 1200);
+        assert_eq!(p.on_key(ALTGR, false, 1260), Some(Action::Cancel));
+        assert!(!p.is_hands_free());
+    }
+
+    #[test]
+    fn without_command_key_right_ctrl_cancels() {
+        let mut p = hands_free();
+        p.on_key(ALTGR, true, 1000);
+        assert_eq!(p.on_key(RCTRL, true, 1100), Some(Action::Cancel));
     }
 
     #[test]

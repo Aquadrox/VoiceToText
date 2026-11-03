@@ -21,6 +21,7 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: 
         text,
         post_process_error,
         snippet,
+        command,
         ..
     } = outcome
     else {
@@ -35,6 +36,7 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: 
         text: text.clone(),
         snippet: *snippet,
         cleanup_failed: post_process_error.is_some(),
+        command: *command,
         // Exécutable seulement : le titre de la fenêtre peut être personnel.
         app: target.app.clone(),
     };

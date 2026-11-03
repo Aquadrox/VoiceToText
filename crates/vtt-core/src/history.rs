@@ -25,6 +25,9 @@ pub struct Entry {
     /// Le nettoyage a échoué : le texte brut a été inséré.
     #[serde(default)]
     pub cleanup_failed: bool,
+    /// Command Mode : `raw` est la consigne, `text` le résultat.
+    #[serde(default)]
+    pub command: bool,
     /// Application de destination, ex. "slack.exe".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
@@ -128,6 +131,7 @@ mod tests {
             text: format!("propre {i}"),
             snippet: false,
             cleanup_failed: false,
+            command: false,
             app: None,
         }
     }

@@ -39,13 +39,16 @@ function renderEntry(entry) {
   const app = entry.app ? ` · ${entry.app}` : "";
   item.querySelector(".when").textContent =
     `${dateFormat.format(new Date(entry.at_ms))} · ${seconds} s${app}`;
-  item.querySelector(".badge").textContent = entry.snippet
-    ? "snippet"
-    : entry.cleanup_failed
-      ? "non nettoyé"
-      : "";
+  item.querySelector(".badge").textContent = entry.command
+    ? "commande"
+    : entry.snippet
+      ? "snippet"
+      : entry.cleanup_failed
+        ? "non nettoyé"
+        : "";
   item.querySelector(".text").textContent = entry.text;
   const raw = item.querySelector("details");
+  if (entry.command) raw.querySelector("summary").textContent = "Consigne";
   if (entry.raw === entry.text) raw.remove();
   else item.querySelector(".raw").textContent = entry.raw;
 
