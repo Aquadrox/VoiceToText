@@ -15,6 +15,8 @@ pub struct Config {
     pub llm: LlmConfig,
     /// Configurations LLM enregistrées, pour passer de l'une à l'autre.
     pub llm_profiles: Vec<LlmProfile>,
+    /// Prompts système personnalisés (le prompt actif est choisi dans `llm`).
+    pub prompts: Vec<PromptPreset>,
     pub history: HistoryConfig,
     pub updates: UpdatesConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
@@ -163,6 +165,91 @@ pub struct LlmConfig {
     /// Champs ajoutés tels quels à chaque requête, propres au fournisseur
     /// (ex. désactiver la « réflexion » de DeepSeek ou GLM).
     pub extra_body: Map<String, Value>,
+    /// Nom du prompt de nettoyage (voir `prompts`) ; vide : prompt intégré.
+    pub cleanup_prompt: String,
+    /// Nom du prompt du Command Mode ; vide : prompt intégré.
+    pub command_prompt: String,
+}
+
+/// Usage d'un prompt système.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptKind {
+    /// Nettoyage des dictées.
+    Nettoyage,
+    /// Command Mode.
+    Commande,
+}
+
+/// Prompt système enregistré sous un nom.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptPreset {
+    pub name: String,
+    pub kind: PromptKind,
+    pub text: String,
+}
+
+pub const MAX_PROMPTS: usize = 50;
+pub const MAX_PROMPT_CHARS: usize = 20_000;
+
+/// Prompts saisis dans l'interface : nom unique par usage, texte non vide.
+pub fn clean_prompts(prompts: &[PromptPreset]) -> Result<Vec<PromptPreset>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::new();
+    for prompt in prompts {
+        let name = prompt.name.trim();
+        if name.is_empty() {
+            return Err("chaque prompt a besoin d'un nom".into());
+        }
+        if !seen.insert((prompt.kind, name.to_lowercase())) {
+            return Err(format!("nom de prompt en double : « {name} »"));
+        }
+        if prompt.text.trim().is_empty() {
+            return Err(format!("prompt « {name} » : texte vide"));
+        }
+        if prompt.text.chars().count() > MAX_PROMPT_CHARS {
+            return Err(format!(
+                "prompt « {name} » : plus de {MAX_PROMPT_CHARS} caractères"
+            ));
+        }
+        cleaned.push(PromptPreset {
+            name: name.to_owned(),
+            kind: prompt.kind,
+            text: prompt.text.trim().to_owned(),
+        });
+    }
+    if cleaned.len() > MAX_PROMPTS {
+        return Err(format!("au plus {MAX_PROMPTS} prompts"));
+    }
+    Ok(cleaned)
+}
+
+impl Config {
+    /// Texte du prompt `name` pour cet usage ; `None` : prompt intégré (nom
+    /// vide, ou prompt supprimé entre-temps).
+    pub fn prompt_text(&self, kind: PromptKind, name: &str) -> Option<&str> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        self.prompts
+            .iter()
+            .find(|p| p.kind == kind && p.name == name)
+            .map(|p| p.text.as_str())
+    }
+
+    /// Les prompts choisis dans `llm` existent bien.
+    pub fn check_prompt_refs(&self, llm: &LlmConfig) -> Result<(), String> {
+        for (kind, name) in [
+            (PromptKind::Nettoyage, &llm.cleanup_prompt),
+            (PromptKind::Commande, &llm.command_prompt),
+        ] {
+            if !name.trim().is_empty() && self.prompt_text(kind, name).is_none() {
+                return Err(format!("prompt introuvable : « {name} »"));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Configuration LLM enregistrée sous un nom (« DeepSeek », « Ollama du NAS »…).
@@ -332,6 +419,8 @@ impl Default for LlmConfig {
             timeout_ms: 3000,
             pricing: Pricing::default(),
             extra_body: deepseek_extra_body(),
+            cleanup_prompt: String::new(),
+            command_prompt: String::new(),
         }
     }
 }
@@ -777,6 +866,8 @@ mod tests {
             config.llm_profiles
         );
         assert!(config.llm_profiles[0].llm.is_local());
+        assert_eq!(clean_prompts(&config.prompts).unwrap(), config.prompts);
+        config.check_prompt_refs(&config.llm).unwrap();
     }
 
     #[test]
@@ -830,5 +921,51 @@ mod tests {
         let mut invalid = cleaned[0].clone();
         invalid.llm.model = String::new();
         assert!(clean_llm_profiles(&[invalid]).is_err());
+    }
+
+    #[test]
+    fn prompts_are_validated_and_resolved() {
+        let prompt = |name: &str, kind, text: &str| PromptPreset {
+            name: name.into(),
+            kind,
+            text: text.into(),
+        };
+        let prompts = clean_prompts(&[
+            prompt(" Concis ", PromptKind::Nettoyage, " Corrige.\n"),
+            prompt("Concis", PromptKind::Commande, "Applique."),
+        ])
+        .unwrap();
+        assert_eq!(prompts[0].name, "Concis");
+        assert_eq!(prompts[0].text, "Corrige.");
+        assert!(
+            clean_prompts(&[
+                prompt("A", PromptKind::Nettoyage, "x"),
+                prompt("a", PromptKind::Nettoyage, "y")
+            ])
+            .is_err(),
+            "même nom, même usage"
+        );
+        assert!(clean_prompts(&[prompt("A", PromptKind::Nettoyage, " ")]).is_err());
+
+        let config = Config {
+            prompts,
+            ..Config::default()
+        };
+        assert_eq!(
+            config.prompt_text(PromptKind::Nettoyage, "Concis"),
+            Some("Corrige.")
+        );
+        assert_eq!(config.prompt_text(PromptKind::Nettoyage, ""), None);
+        let mut llm = LlmConfig {
+            cleanup_prompt: "Concis".into(),
+            ..LlmConfig::default()
+        };
+        assert!(config.check_prompt_refs(&llm).is_ok());
+        llm.command_prompt = "Inconnu".into();
+        assert!(config.check_prompt_refs(&llm).is_err());
+
+        let toml = config.to_toml().unwrap();
+        assert!(toml.contains("kind = \"nettoyage\""));
+        assert_eq!(Config::from_toml(&toml).unwrap(), config);
     }
 }

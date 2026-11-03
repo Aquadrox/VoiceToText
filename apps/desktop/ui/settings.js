@@ -4,6 +4,14 @@ let currency = "USD";
 let profiles = [];
 /** Configuration actuellement appliquée (pour repérer le profil actif). */
 let activeLlm = null;
+/** Prompts choisis (page Prompts) : conservés par « Appliquer » et les profils. */
+let formPrompts = { cleanup_prompt: "", command_prompt: "" };
+
+/** Appelé par la page Prompts après enregistrement. */
+function onPromptsSaved(cleanup, command) {
+  formPrompts = { cleanup_prompt: cleanup, command_prompt: command };
+  if (activeLlm) activeLlm = { ...activeLlm, ...formPrompts };
+}
 
 const NO_THINKING = { thinking: { type: "disabled" } };
 const UNKNOWN_PRICE = { input_per_million: 0, cached_input_per_million: 0, output_per_million: 0 };
@@ -83,6 +91,7 @@ for (const preset of PRESETS) {
 const formatExtra = (extra) => (Object.keys(extra).length ? JSON.stringify(extra) : "");
 
 function fillProvider(llm) {
+  formPrompts = { cleanup_prompt: llm.cleanup_prompt ?? "", command_prompt: llm.command_prompt ?? "" };
   $("enabled").checked = llm.enabled;
   $("base-url").value = llm.base_url;
   $("model").value = llm.model;
@@ -237,6 +246,7 @@ function readProvider() {
       currency: $("currency").value.trim().toUpperCase(),
     },
     extra_body: extra,
+    ...formPrompts,
   };
 }
 

@@ -601,3 +601,17 @@ ol.entries li {
 .profiles {
   margin-top: 12px;
 }
+
+#prompt-kinds textarea {
+  font: 12px/1.45 Consolas, "Cascadia Mono", monospace;
+}
+
+#prompt-kinds textarea[readonly] {
+  color: var(--muted);
+}
+
+#prompt-kinds label select {
+  display: block;
+  margin-top: 4px;
+  font-weight: normal;
+}

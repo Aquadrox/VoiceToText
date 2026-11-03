@@ -9,6 +9,7 @@ mod logging;
 mod main_window;
 mod model;
 mod paths;
+mod prompts;
 mod raw_paste;
 mod settings;
 mod status;
@@ -59,6 +60,9 @@ fn main() {
             settings::test_llm_settings,
             settings::apply_llm_settings,
             settings::save_llm_profiles,
+            prompts::prompts_view,
+            prompts::save_prompts,
+            prompts::test_prompt,
             history::history_view,
             history::clear_history,
             main_window::home_view,

@@ -14,6 +14,7 @@
         <a href="#dictionnaire">Dictionnaire</a>
         <a href="#snippets">Snippets</a>
         <a href="#styles">Styles</a>
+        <a href="#prompts">Prompts</a>
         <a href="#reglages">Réglages</a>
       </nav>
 
@@ -133,6 +134,22 @@
           <div class="save-bar">
             <button id="style-save" class="primary">Enregistrer</button>
             <span id="style-status" class="muted small"></span>
+          </div>
+        </section>
+
+        <!-- Prompts -->
+        <section class="page" id="page-prompts" hidden>
+          <h1>Prompts</h1>
+          <p class="muted">
+            Consignes données au LLM. Le prompt intégré convient dans la plupart des cas ; un prompt
+            personnalisé permet d'adapter le résultat (plus concis, sans listes, autre registre) ou
+            de simplifier les consignes pour un petit modèle local. Le dictionnaire et les consignes
+            de style sont ajoutés automatiquement à la fin. Le prompt actif fait partie du profil LLM.
+          </p>
+          <div id="prompt-kinds"></div>
+          <div class="save-bar">
+            <button id="prompts-save" class="primary">Enregistrer</button>
+            <span id="prompts-status" class="muted small"></span>
           </div>
         </section>
 
@@ -380,10 +397,41 @@
       </section>
     </template>
 
+    <template id="prompt-kind">
+      <section>
+        <h2 class="kind-title"></h2>
+        <p class="kind-note muted small"></p>
+        <label>Prompt actif <select class="active"></select></label>
+        <details>
+          <summary>Prompt intégré (lecture seule)</summary>
+          <textarea class="default" rows="12" readonly></textarea>
+          <div class="row">
+            <button class="copy-default" type="button">Créer une copie modifiable</button>
+            <button class="test-default" type="button">Tester</button>
+          </div>
+          <div class="test-result result" hidden></div>
+        </details>
+        <div class="customs cards"></div>
+      </section>
+    </template>
+
+    <template id="prompt-card">
+      <section class="card">
+        <div class="card-header">
+          <label>Nom <input class="name" type="text" spellcheck="false" /></label>
+          <button class="test" type="button">Tester</button>
+          <button class="remove danger" type="button">Supprimer</button>
+        </div>
+        <label>Texte <textarea class="text" rows="12" spellcheck="false"></textarea></label>
+        <div class="test-result result" hidden></div>
+      </section>
+    </template>
+
     <script src="common.js"></script>
     <script src="home.js"></script>
     <script src="history.js"></script>
     <script src="vocabulary.js"></script>
+    <script src="prompts.js"></script>
     <script src="general.js"></script>
     <script src="settings.js"></script>
     <script src="app.js"></script>
