@@ -13,6 +13,7 @@ mod raw_paste;
 mod settings;
 mod status;
 mod tray;
+mod updates;
 mod vocabulary;
 
 use std::sync::{Arc, Mutex};
@@ -28,6 +29,7 @@ use crate::history::HistoryStore;
 use crate::paths::Paths;
 use crate::raw_paste::LastRaw;
 use crate::status::{Status, StatusReporter};
+use crate::updates::Updates;
 
 /// Marge entre la pastille et le bas de la zone de travail (au-dessus de la barre des tâches).
 const OVERLAY_MARGIN: f64 = 24.0;
@@ -46,6 +48,8 @@ fn main() {
         // Une seconde instance installerait un second hook clavier : on l'interdit.
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             status::current_status,
             settings::settings_view,
@@ -61,10 +65,13 @@ fn main() {
             app_settings::app_settings_view,
             app_settings::save_app_settings,
             app_settings::set_autostart,
+            updates::update_status,
+            updates::install_update,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();
-            let status_item = tray::build(app, &paths, Arc::clone(&last_raw))?;
+            let tray_items = tray::build(app, &paths, Arc::clone(&last_raw))?;
+            let status_item = tray_items.status;
             app.manage(paths.clone());
             let reporter = Arc::new(StatusReporter::new(app.handle().clone(), status_item));
             app.manage(Arc::clone(&reporter));
@@ -92,6 +99,11 @@ fn main() {
                 ledger,
                 last_raw,
             };
+            let updates = Updates::new(app.handle(), tray_items.update);
+            app.manage(Arc::clone(&updates));
+            if config.updates.check {
+                updates::spawn_checks(app.handle().clone(), updates);
+            }
             let worker = WorkerHandle::default();
             app.manage(Arc::clone(&worker));
             controller::spawn(reporter, recorders, worker, Config::clone(&config), paths);

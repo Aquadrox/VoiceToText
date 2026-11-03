@@ -4,7 +4,27 @@ const HOME_REFRESH_MS = 5000;
 const dayFormat = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" });
 const parseDay = (day) => new Date(`${day}T12:00:00`);
 
+async function showUpdateBanner() {
+  try {
+    const status = await invoke("update_status");
+    $("update-banner").hidden = !status.available;
+    if (status.available) {
+      $("update-text").textContent =
+        `Nouvelle version ${status.available} disponible (installée : ${status.current}).`;
+    }
+  } catch {
+    $("update-banner").hidden = true;
+  }
+}
+
+$("update-install").addEventListener("click", async () => {
+  $("update-install").disabled = true;
+  $("update-text").textContent = "Téléchargement et vérification de la mise à jour…";
+  await invoke("install_update");
+});
+
 async function showHome() {
+  showUpdateBanner();
   let view;
   try {
     view = await invoke("home_view");

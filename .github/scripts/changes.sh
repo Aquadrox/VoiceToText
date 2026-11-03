@@ -27,6 +27,8 @@ code=false
 declare -A packages=()
 while IFS= read -r file; do
   case "$file" in
+    # Le README contient un exemple de configuration testé par vtt-core.
+    README.md) everything "README modifié (exemple de configuration testé)" ;;
     *.md | docs/* | LICENSE* | .gitignore) ;;
     crates/vtt-core/*) everything "vtt-core est utilisé par tous les autres crates" ;;
     crates/*/*)

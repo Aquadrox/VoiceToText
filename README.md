@@ -1,38 +1,211 @@
 # VoiceToText
 
-Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parler, relâcher. Le texte transcrit et nettoyé apparaît dans l'application active.
+Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler, relâcher**. Le texte est transcrit sur votre PC, nettoyé (hésitations, ponctuation, auto-corrections) puis collé dans l'application active : traitement de texte, messagerie, navigateur, e-mail…
 
-- Transcription locale (Whisper sur GPU), français.
-- Nettoyage du texte par LLM (DeepSeek, désactivable).
-- Windows d'abord ; Linux et Android ensuite.
+- **Transcription locale** : Whisper tourne sur votre carte graphique, l'audio ne quitte jamais le PC.
+- **Nettoyage par LLM** (DeepSeek par défaut, ou GLM, OpenAI, Mistral, OpenRouter, un modèle local Ollama…), désactivable.
+- **Mains libres**, **Command Mode** (« traduis ça en anglais »), **snippets**, **dictionnaire**, **styles par application**, **historique**, **statistiques**, **suivi du coût**.
+- Français pour l'instant ; Windows d'abord, Linux et Android plus tard.
 
-## Installation (Windows)
+## Sommaire
 
-1. Télécharger l'installeur depuis la page **Releases** du dépôt (`VoiceToText_x.y.z_x64-setup.exe`).
-2. Lancer `VoiceToText_x.y.z_x64-setup.exe` (installation pour l'utilisateur courant, sans droits admin).
-3. Au premier lancement, le modèle Whisper (874 Mo) se télécharge : progression affichée dans la pastille en bas de l'écran.
+1. [Installation](#installation)
+2. [Premiers pas](#premiers-pas)
+3. [Dicter](#dicter)
+4. [Command Mode](#command-mode)
+5. [Coller la version brute](#coller-la-version-brute)
+6. [La fenêtre principale](#la-fenêtre-principale)
+7. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+8. [Mises à jour](#mises-à-jour)
+9. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+10. [Fichiers et emplacements](#fichiers-et-emplacements)
+11. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+12. [Dépannage](#dépannage)
+13. [Développement](#développement)
 
-## Utilisation
+## Installation
 
-- **Maintenir AltGr**, parler, **relâcher** : le texte est collé dans l'application active.
-- AltGr + une autre touche (`@`, `#`, `€`…) fonctionne normalement : la dictée est annulée.
-- **Mains libres** : deux appuis courts sur AltGr → la dictée continue sans tenir la touche (pastille verte). Un appui sur AltGr la termine, **Échap** l'annule. Limite : 10 min.
-- **Command Mode** : sélectionner un texte, maintenir **AltGr + Ctrl droit**, dicter une consigne (« traduis en anglais », « rends plus formel », « résume en trois points »), relâcher : la sélection est remplacée par le résultat. Sans sélection, le texte demandé est rédigé à l'emplacement du curseur (« écris un mail pour décaler la réunion à jeudi »). Nécessite le LLM. Pastille orange. Désactivé dans les terminaux (une réponse piégée par le texte sélectionné y serait exécutée au collage).
-- **Version brute** : si le nettoyage a trop réécrit, **Ctrl+Z** puis **Alt+Maj+V** colle la transcription Whisper de la dernière dictée, telle quelle. Aussi dans le menu de l'icône : « Copier la dernière dictée brute ».
-- Icône de notification : état, **Ouvrir VoiceToText** (accueil et statistiques, historique avec le coût de chaque dictée, réglages), configuration, journaux, redémarrage. La fenêtre ne s'ouvre jamais d'elle-même.
+1. Télécharger `VoiceToText_x.y.z_x64-setup.exe` depuis la page [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest).
+2. Le lancer : installation pour l'utilisateur courant, **sans droits administrateur**. Windows SmartScreen peut afficher « Windows a protégé votre ordinateur » (l'installeur n'est pas signé par un éditeur reconnu) : **Informations complémentaires → Exécuter quand même**.
+3. Au premier lancement, le modèle Whisper (874 Mo) se télécharge ; la progression s'affiche dans la pastille en bas de l'écran. Les lancements suivants prennent environ une seconde.
 
-### Nettoyage du texte (LLM)
+L'application est **discrète** : une icône dans la zone de notification (à côté de l'horloge) et une pastille qui n'apparaît que pendant la dictée. La fenêtre principale ne s'ouvre jamais d'elle-même.
 
-DeepSeek par défaut :
+Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → Lancer VoiceToText à l'ouverture de session Windows**.
 
-1. Créer une clé sur [platform.deepseek.com](https://platform.deepseek.com) (compte crédité).
-2. Icône de notification → **Réglages…** → coller la clé → **Enregistrer** → **Tester**.
+## Premiers pas
 
-Autre fournisseur : **Réglages…** → **Fournisseur** (GLM/Z.ai, OpenAI, Mistral, OpenRouter, Ollama sur le PC, ou toute API compatible OpenAI) → modèle, délai, tarif → **Enregistrer et redémarrer**, puis saisir la clé de ce fournisseur. Chaque fournisseur garde sa propre clé.
+1. Clic sur l'icône → **Réglages…**
+2. Section **Clé API** : coller une clé DeepSeek ([platform.deepseek.com](https://platform.deepseek.com), compte crédité ; quelques euros suffisent pour des milliers de dictées) → **Enregistrer** → **Tester**.
+3. Ouvrir un éditeur de texte, **maintenir AltGr**, dire « euh bonjour, je voulais te dire que la réunion c'est mardi, non pardon mercredi », **relâcher** → « Bonjour, je voulais te dire que la réunion est mercredi. »
 
-Sans clé, le texte brut de Whisper est inséré.
+Sans clé, tout fonctionne aussi, avec le texte brut de Whisper (voir [Sans LLM](#sans-llm)).
 
-Configuration : `%APPDATA%\VoiceToText\config.toml`. Dictionnaire, snippets et styles se modifient aussi dans la fenêtre principale (**Ouvrir VoiceToText**), appliqués sans redémarrer ; les autres modifications à la main demandent un redémarrage.
+## Dicter
+
+| Geste | Effet |
+|---|---|
+| **Maintenir AltGr**, parler, **relâcher** | Le texte est collé dans l'application active |
+| Appui très court sur AltGr | Ignoré (pas de déclenchement accidentel) |
+| AltGr + une autre touche (`@`, `#`, `€`…) | Frappe normale, la dictée est annulée |
+| **Deux appuis courts** sur AltGr | **Mains libres** : la dictée continue sans tenir la touche |
+| En mains libres : **AltGr** | Termine la dictée et colle le texte |
+| En mains libres : **Échap** | Annule la dictée |
+| **AltGr + Ctrl droit** | [Command Mode](#command-mode) |
+| **Alt+Maj+V** | [Colle la version brute](#coller-la-version-brute) de la dernière dictée |
+
+Toutes ces touches se changent dans **Réglages → Raccourcis**.
+
+La **pastille** en bas de l'écran indique l'état :
+
+| Couleur | État |
+|---|---|
+| 🔴 Rouge | Écoute (touche maintenue) |
+| 🟢 Vert | Mains libres (« Échap annule ») |
+| 🟠 Orange | Command Mode : dictez la consigne |
+| 🟣 Violet | Transcription et nettoyage en cours |
+| ⚪ Gris | Chargement ou téléchargement du modèle |
+| 🟡 Jaune | Erreur (message affiché quelques secondes) |
+
+Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dictée est alors traitée automatiquement).
+
+## Command Mode
+
+Pour transformer un texte existant avec la voix :
+
+1. Sélectionner le texte.
+2. Maintenir **AltGr + Ctrl droit** (dans n'importe quel ordre), dicter la consigne, relâcher.
+3. La sélection est remplacée par le résultat.
+
+Exemples : « traduis en anglais », « rends ça plus formel », « résume en trois points », « corrige les fautes ».
+
+**Sans sélection**, le texte demandé est rédigé à l'emplacement du curseur : « écris un mail pour décaler la réunion à jeudi ».
+
+- Nécessite le LLM. En cas d'échec (pas de clé, réseau…), **rien n'est collé** : la sélection reste intacte.
+- **Désactivé dans les terminaux** (Windows Terminal, cmd, PowerShell…) : une réponse piégée par le texte sélectionné y serait exécutée au collage.
+- Dans VS Code, Ctrl+C sans sélection copie toute la ligne : elle est alors traitée comme la sélection.
+
+## Coller la version brute
+
+Si le nettoyage a trop réécrit une dictée : **Ctrl+Z** (annuler le collage) puis **Alt+Maj+V** colle la transcription Whisper d'origine, sans nettoyage. Aussi depuis le menu de l'icône : **Copier la dernière dictée brute**.
+
+## La fenêtre principale
+
+Icône → **Ouvrir VoiceToText** (ou **Historique…**, **Réglages…** pour aller directement à la page).
+
+### Accueil
+
+Mots dictés, temps gagné (comparé à une frappe à 40 mots/min), vitesse de parole, coût LLM du mois, et un graphique des mots dictés par jour sur 30 jours (détail au survol, tableau des valeurs dans « Voir les données »). Un bandeau signale les nouvelles versions.
+
+### Historique
+
+Les 1 000 dernières dictées : date, durée, application de destination, **coût de chaque dictée** (jetons au survol), texte final, transcription brute (ou consigne pour une commande). Recherche, copie, effacement complet (deux clics). Badges : *commande*, *snippet*, *non nettoyé*.
+
+### Dictionnaire
+
+Noms propres, jargon, sigles : leur orthographe est transmise à Whisper et au LLM. **Ajouter** (ou Entrée), **×** pour retirer, **Enregistrer** : appliqué immédiatement, sans redémarrer.
+
+### Snippets
+
+Un **déclencheur** et un **texte** : dicter **seulement** le déclencheur (« ma signature ») insère le texte tel quel, sans LLM (instantané et gratuit). Casse, accents et ponctuation ne comptent pas ; un déclencheur prononcé au milieu d'une phrase ne déclenche rien.
+
+### Styles
+
+Consignes de nettoyage selon l'application où vous dictez, d'après la fenêtre active au début de la dictée :
+
+- **Applications** : exécutables (`slack.exe`, `outlook.exe`…) ;
+- **Titre de fenêtre contenant** : pour un site dans le navigateur (`Gmail`, `WhatsApp`) ;
+- **Consignes** : « ton conversationnel, phrases courtes » ;
+- ou **texte brut** (case décochée) : par exemple pour un éditeur de code.
+
+Modèles prêts : **Messagerie**, **E-mail**, **Code**. Le premier style qui correspond s'applique (**↑** pour changer l'ordre).
+
+### Réglages
+
+- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », appui minimal, mains libres.
+- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique.
+- **Mises à jour** : vérification automatique.
+- **Démarrage** : lancement à l'ouverture de session.
+- **Nettoyage du texte** : fournisseur LLM, modèle, délai, tarif, paramètres avancés.
+- **Clé API**, bouton **Tester**, **Consommation** (requêtes, jetons, coût du jour, du mois, total).
+
+Les sections Raccourcis, Micro et transcription, Mises à jour et Nettoyage du texte s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le démarrage avec Windows et la clé API s'appliquent immédiatement.
+
+Modèles Whisper proposés :
+
+| Modèle | Taille | Pour qui |
+|---|---|---|
+| Large v3 Turbo, 8 bits (**recommandé**) | 874 Mo | Carte graphique récente |
+| Large v3 Turbo, pleine précision | 1,6 Go | Un peu plus précis |
+| Large v3 Turbo, 5 bits | 574 Mo | Moins de mémoire graphique |
+| Large v3, 5 bits | 1,1 Go | Plus précis, plus lent |
+| Small, 8 bits | 264 Mo | PC sans carte graphique |
+
+Un nouveau modèle est téléchargé au redémarrage ; son empreinte SHA-256 est vérifiée.
+
+## Nettoyage du texte (LLM)
+
+Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitations (« euh », « du coup »), applique les auto-corrections (« mardi, non, mercredi » → « mercredi »), corrige ponctuation et accords, met les énumérations en liste. Le texte dicté est traité comme une donnée : une phrase dictée comme « écris-moi un poème » est réécrite, pas exécutée.
+
+### Changer de fournisseur
+
+**Réglages → Nettoyage du texte → Fournisseur** : DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, **Ollama (sur ce PC)** ou toute API compatible OpenAI. Renseigner le modèle et son tarif → **Enregistrer et redémarrer**, puis saisir la clé de ce fournisseur. **Chaque fournisseur garde sa propre clé**.
+
+- La clé n'est envoyée qu'en HTTPS (HTTP seulement vers un modèle local).
+- GLM-5.3 ne permet pas de désactiver la « réflexion » (plus lent) : le préréglage propose glm-5.2.
+
+### Coût
+
+Chaque réponse indique les jetons consommés ; le coût est estimé avec le tarif saisi (par défaut, le plein tarif de deepseek-flash : estimation haute, les heures creuses coûtent moitié moins). Ordre de grandeur : **environ 1 centime pour 100 dictées**. Totaux dans **Réglages → Consommation** et sur l'accueil, coût de chaque dictée dans l'historique.
+
+### Sans LLM
+
+Nettoyage désactivé (case décochée) ou sans clé : le texte de Whisper est inséré tel quel. Whisper ponctue et met les majuscules, mais garde les hésitations et les reprises. Les snippets fonctionnent ; le Command Mode et les consignes de style, non.
+
+Pour garder le nettoyage **sans rien envoyer sur Internet** : installer [Ollama](https://ollama.com), un modèle (`ollama pull qwen3:8b` par exemple), puis choisir le préréglage **Ollama**. Plus lent qu'un service en ligne, gratuit et privé.
+
+## Mises à jour
+
+VoiceToText vérifie les nouvelles versions une minute après le démarrage puis toutes les 6 heures (désactivable dans **Réglages → Mises à jour**). Quand une version est disponible :
+
+- une notification Windows l'annonce (une fois par version) ;
+- le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**.
+
+Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule. Menu de l'icône → **Rechercher une mise à jour** pour vérifier tout de suite.
+
+Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer la 0.5 une fois à la main.
+
+## Confidentialité et sécurité
+
+| Donnée | Où elle va |
+|---|---|
+| Audio | **Reste sur le PC** (transcription locale) |
+| Texte transcrit | Envoyé au fournisseur LLM choisi (rien avec Ollama ou le nettoyage désactivé) |
+| Texte sélectionné (Command Mode) | Envoyé au fournisseur LLM avec la consigne |
+| Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`), jamais en clair sur le disque |
+| Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
+| Statistiques et coût | `usage.json` : compteurs uniquement, **aucun texte** |
+| Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
+| Titre de la fenêtre active | Sert à choisir un style ; ni stocké, ni journalisé, ni envoyé |
+| Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
+
+## Fichiers et emplacements
+
+| Fichier | Emplacement |
+|---|---|
+| Configuration | `%APPDATA%\VoiceToText\config.toml` |
+| Modèles Whisper | `%LOCALAPPDATA%\VoiceToText\models\` |
+| Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
+| Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json` |
+| Journal | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé au-delà de 3 Mo, les 100 dernières lignes sont gardées) |
+
+Menu de l'icône : **Modifier la configuration** (ouvre config.toml), **Ouvrir les journaux**, **Redémarrer**.
+
+Désinstaller : Paramètres Windows → Applications → VoiceToText. Les fichiers ci-dessus et la clé API (Gestionnaire d'identifiants Windows → Identifiants Windows → `VoiceToText/…`) peuvent ensuite être supprimés à la main.
+
+## Configuration avancée (config.toml)
+
+Tout se règle dans la fenêtre principale ; le fichier reste modifiable à la main (menu **Modifier la configuration**, puis **Redémarrer**). Les clés absentes prennent leur valeur par défaut. Exemple complet :
 
 ```toml
 # Noms propres, jargon : orthographe transmise à Whisper et au LLM.
@@ -41,7 +214,7 @@ dictionary = ["Aquadrox", "Tauri"]
 
 [hotkey]
 key = "AltGr"        # ou RightCtrl, RightShift, CapsLock, ScrollLock, Pause, Insert, Menu, F1…F24
-min_hold_ms = 250
+min_hold_ms = 250    # appui plus court : ignoré
 hands_free = true    # double appui → mains libres
 paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
@@ -58,10 +231,9 @@ use_gpu = true
 enabled = true
 base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
-timeout_ms = 3000
+timeout_ms = 3000    # au-delà, le texte brut est inséré (30 s minimum pour le Command Mode)
 
-# Tarif par million de jetons, pour le coût estimé (Réglages… → Consommation).
-# Défaut : deepseek-flash au plein tarif ; à adapter si le modèle change.
+# Tarif par million de jetons, pour le coût estimé.
 [llm.pricing]
 input_per_million = 0.30
 cached_input_per_million = 0.006
@@ -76,45 +248,44 @@ thinking = { type = "disabled" }   # DeepSeek / GLM : pas de « réflexion » (l
 enabled = true       # dictées conservées sur ce PC uniquement
 max_entries = 1000
 
-# Snippets : dicter seulement le déclencheur insère le texte tel quel
-# (sans LLM). Casse, accents et ponctuation ne comptent pas.
+[updates]
+check = true         # vérifier les nouvelles versions (installation sur clic seulement)
+
+# Snippets : dicter seulement le déclencheur insère le texte tel quel.
 [[snippets]]
 trigger = "ma signature"
 text = """
 Florian
 VoiceToText"""
 
-[[snippets]]
-trigger = "mon adresse mail"
-text = "prenom.nom@example.com"
-
-# Styles par application (fenêtre active au début de la dictée) : le premier
-# qui correspond s'applique. `apps` = exécutable, `titles` = morceau du titre
-# (utile pour un site dans le navigateur). Exemples :
+# Styles par application : le premier qui correspond s'applique.
 [[styles]]
 apps = ["slack.exe", "discord.exe", "ms-teams.exe"]
 titles = ["WhatsApp"]
 instructions = "Messagerie : ton conversationnel, phrases courtes, pas de formule de politesse."
 
 [[styles]]
-apps = ["outlook.exe", "olk.exe", "thunderbird.exe"]
-titles = ["Gmail"]
-instructions = "E-mail : ton soigné, paragraphes aérés."
-
-[[styles]]
-apps = ["code.exe", "windowsterminal.exe"]
+apps = ["code.exe"]
 cleanup = false      # texte brut, sans LLM
 ```
 
-Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé automatiquement au-delà de 3 Mo, les 100 dernières lignes sont gardées).
+## Dépannage
 
-## Documentation
-
-- [Fonctions](docs/FONCTIONS.md)
-- [Architecture et choix techniques](docs/ARCHITECTURE.md)
-- [Roadmap et avancement](docs/ROADMAP.md)
+| Problème | Piste |
+|---|---|
+| Rien n'est collé dans une application | Application lancée **en administrateur** : Windows bloque l'insertion depuis une application normale. La relancer sans droits administrateur, ou copier le texte depuis l'**Historique**. |
+| La pastille affiche une erreur | Message complet dans le journal (menu **Ouvrir les journaux**). |
+| Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Tester** affiche la cause. |
+| AltGr ne déclenche rien | Vérifier **Réglages → Raccourcis** ; une autre application peut capter la touche. Essayer F13 ou Ctrl droit. |
+| Alt+Maj+V sans effet | Raccourci pris par une autre application (voir le journal) : en choisir un autre dans **Réglages → Raccourcis**. Si plusieurs dispositions de clavier sont installées, Alt+Maj change aussi la langue : choisir un autre raccourci. |
+| Mauvais micro | **Réglages → Micro**. |
+| Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
+| Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
+| Téléchargement du modèle échoué | Vérifier la connexion puis **Redémarrer** depuis le menu de l'icône (le téléchargement recommence). |
 
 ## Développement
+
+Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier) et `apps/desktop` (application). Les installeurs sont produits par la CI GitHub Actions.
 
 ```sh
 cargo test --workspace
@@ -122,4 +293,8 @@ cargo test --workspace
 cargo run --release -p vtt-asr --example transcribe_wav -- <modèle.bin> <fichier.wav>
 ```
 
-Les binaires Windows sont produits par la CI GitHub Actions.
+Documentation technique :
+
+- [Fonctions](docs/FONCTIONS.md)
+- [Architecture et choix techniques](docs/ARCHITECTURE.md)
+- [Roadmap et avancement](docs/ROADMAP.md)

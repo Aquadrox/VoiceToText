@@ -110,14 +110,32 @@ jobs:
       # CLI Tauri précompilée (npm) : `cargo install tauri-cli` la recompilait
       # en ~10 min à chaque cache vide.
       - name: Installeur
-        if: steps.changes.outputs.code == 'true'
+        if: steps.changes.outputs.code == 'true' && !startsWith(github.ref, 'refs/tags/v')
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@^2 build --bundles nsis
+      # Release : installeur signé pour la mise à jour automatique. Les
+      # secrets ne sont lus qu'ici (tags), jamais dans les PR.
+      - name: Installeur signé (release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::secret TAURI_SIGNING_PRIVATE_KEY absent : impossible de signer la release"
+            exit 1
+          fi
+          npx --yes @tauri-apps/cli@^2 build --bundles nsis --config updater.conf.json
       - uses: actions/upload-artifact@v4
         if: steps.changes.outputs.code == 'true'
         with:
           name: VoiceToText-installeur-windows
-          path: D:\t\release\bundle\nsis\*.exe
+          # .sig : signature de l'installeur (releases uniquement).
+          path: |
+            D:\t\release\bundle\nsis\*.exe
+            D:\t\release\bundle\nsis\*.exe.sig
           if-no-files-found: error
 
   release:
@@ -130,8 +148,33 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: VoiceToText-installeur-windows
+      # Manifeste lu par l'application (releases/latest/download/latest.json) :
+      # version, URL de l'installeur et sa signature.
+      - name: Manifeste de mise à jour
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          exe=$(ls *.exe)
+          test -f "$exe.sig" || { echo "::error::signature $exe.sig absente"; exit 1; }
+          EXE="$exe" python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          tag, exe = os.environ["TAG"], os.environ["EXE"]
+          entry = {
+              "signature": open(f"{exe}.sig").read().strip(),
+              "url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{exe}",
+          }
+          manifest = {
+              "version": tag.removeprefix("v"),
+              "notes": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{tag}",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {"windows-x86_64": entry, "windows-x86_64-nsis": entry},
+          }
+          json.dump(manifest, open("latest.json", "w"), indent=2)
+          PY
+          cat latest.json
       - name: Publication de la release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
