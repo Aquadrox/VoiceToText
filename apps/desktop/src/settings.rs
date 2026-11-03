@@ -169,7 +169,7 @@ pub fn test_cleanup(
         api_key_provider(&config.llm),
     );
     let started = Instant::now();
-    let cleaned = cleaner.process(SAMPLE).map_err(|e| e.to_string())?;
+    let cleaned = cleaner.process(SAMPLE, None).map_err(|e| e.to_string())?;
     let duration_ms = started.elapsed().as_millis();
     log::info!("test du nettoyage : {duration_ms} ms");
     if let Some(usage) = &cleaned.usage {

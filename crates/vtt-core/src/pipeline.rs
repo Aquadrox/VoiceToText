@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use crate::config::Snippet;
+use crate::config::{Snippet, Style};
 use crate::usage::Usage;
 use crate::{audio, text};
 
@@ -30,6 +30,15 @@ impl AudioClip {
     }
 }
 
+/// Fenêtre active au début de la dictée, là où le texte sera inséré.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Target {
+    /// Nom de l'exécutable, ex. "slack.exe".
+    pub app: Option<String>,
+    /// Titre de la fenêtre (jamais journalisé : il peut être personnel).
+    pub title: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("transcription : {0}")]
@@ -52,7 +61,8 @@ pub struct Cleaned {
 }
 
 pub trait PostProcessor: Send + Sync {
-    fn process(&self, raw: &str) -> Result<Cleaned, Error>;
+    /// `style` : consignes propres à l'application de destination.
+    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error>;
 }
 
 pub trait TextSink: Send + Sync {
@@ -83,6 +93,7 @@ pub struct Pipeline {
     sink: Box<dyn TextSink>,
     /// Déclencheur normalisé → texte à insérer.
     snippets: Vec<(String, String)>,
+    styles: Vec<Style>,
 }
 
 impl Pipeline {
@@ -96,7 +107,21 @@ impl Pipeline {
             post_processor,
             sink,
             snippets: Vec::new(),
+            styles: Vec::new(),
         }
+    }
+
+    pub fn with_styles(mut self, styles: &[Style]) -> Self {
+        self.styles = styles.to_vec();
+        self
+    }
+
+    /// Premier style correspondant à la fenêtre de destination, et son numéro.
+    fn style_for(&self, target: &Target) -> Option<(usize, &Style)> {
+        self.styles
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.matches(target.app.as_deref(), target.title.as_deref()))
     }
 
     /// Les déclencheurs vides (ou faits uniquement de ponctuation) sont ignorés.
@@ -117,7 +142,7 @@ impl Pipeline {
             .map(|i| (i, self.snippets[i].1.as_str()))
     }
 
-    pub fn run(&self, clip: &AudioClip) -> Result<Outcome, Error> {
+    pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
         if clip.duration_ms() < MIN_CLIP_MS {
             log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
             return Ok(Outcome::Skipped);
@@ -160,10 +185,29 @@ impl Pipeline {
         }
 
         // Un échec du LLM ne doit jamais faire perdre la dictée.
+        let style = self.style_for(target);
+        if let Some((index, style)) = style {
+            log::info!(
+                "style n°{} ({})",
+                index + 1,
+                if style.cleanup {
+                    "consignes"
+                } else {
+                    "texte brut"
+                }
+            );
+        }
+        let processor = match style {
+            Some((_, style)) if !style.cleanup => None,
+            _ => self.post_processor.as_ref(),
+        };
+        let instructions = style
+            .map(|(_, s)| s.instructions.trim())
+            .filter(|i| !i.is_empty());
         let started = Instant::now();
-        let (text, post_process_error, usage) = match &self.post_processor {
+        let (text, post_process_error, usage) = match processor {
             None => (raw.clone(), None, None),
-            Some(processor) => match processor.process(&raw) {
+            Some(processor) => match processor.process(&raw, instructions) {
                 Ok(cleaned) if !cleaned.text.trim().is_empty() => {
                     (cleaned.text.trim().to_owned(), None, cleaned.usage)
                 }
@@ -214,9 +258,13 @@ mod tests {
 
     struct Upper;
     impl PostProcessor for Upper {
-        fn process(&self, raw: &str) -> Result<Cleaned, Error> {
+        fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
+            let text = match style {
+                Some(style) => format!("{} [{style}]", raw.to_uppercase()),
+                None => raw.to_uppercase(),
+            };
             Ok(Cleaned {
-                text: raw.to_uppercase(),
+                text,
                 usage: Some(USAGE),
             })
         }
@@ -224,7 +272,7 @@ mod tests {
 
     struct Failing;
     impl PostProcessor for Failing {
-        fn process(&self, _: &str) -> Result<Cleaned, Error> {
+        fn process(&self, _: &str, _: Option<&str>) -> Result<Cleaned, Error> {
             Err(Error::PostProcess("délai dépassé".into()))
         }
     }
@@ -235,6 +283,17 @@ mod tests {
         fn insert(&self, text: &str) -> Result<(), Error> {
             self.0.lock().unwrap().push(text.to_owned());
             Ok(())
+        }
+    }
+
+    fn no_target() -> Target {
+        Target::default()
+    }
+
+    fn target(app: &str) -> Target {
+        Target {
+            app: Some(app.into()),
+            title: Some("Fenêtre".into()),
         }
     }
 
@@ -253,7 +312,10 @@ mod tests {
     #[test]
     fn short_clip_is_skipped() {
         let (p, sink) = pipeline("bonjour", None);
-        assert_eq!(p.run(&clip_ms(200)).unwrap(), Outcome::Skipped);
+        assert_eq!(
+            p.run(&clip_ms(200), &no_target()).unwrap(),
+            Outcome::Skipped
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
@@ -263,28 +325,37 @@ mod tests {
         let silent = AudioClip {
             samples: vec![0.0; SAMPLE_RATE as usize],
         };
-        assert_eq!(p.run(&silent).unwrap(), Outcome::Skipped);
+        assert_eq!(
+            p.run(&silent, &Target::default()).unwrap(),
+            Outcome::Skipped
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
     #[test]
     fn hallucination_only_is_skipped() {
         let (p, sink) = pipeline("Sous-titrage ST' 501", None);
-        assert_eq!(p.run(&clip_ms(1000)).unwrap(), Outcome::Skipped);
+        assert_eq!(
+            p.run(&clip_ms(1000), &no_target()).unwrap(),
+            Outcome::Skipped
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
     #[test]
     fn blank_transcription_is_skipped() {
         let (p, sink) = pipeline("  \n", None);
-        assert_eq!(p.run(&clip_ms(1000)).unwrap(), Outcome::Skipped);
+        assert_eq!(
+            p.run(&clip_ms(1000), &no_target()).unwrap(),
+            Outcome::Skipped
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
     #[test]
     fn post_processed_text_is_inserted() {
         let (p, sink) = pipeline(" bonjour ", Some(Box::new(Upper)));
-        let outcome = p.run(&clip_ms(1000)).unwrap();
+        let outcome = p.run(&clip_ms(1000), &no_target()).unwrap();
         assert_eq!(
             outcome,
             Outcome::Inserted {
@@ -301,7 +372,7 @@ mod tests {
     #[test]
     fn post_process_failure_falls_back_to_raw() {
         let (p, sink) = pipeline("bonjour", Some(Box::new(Failing)));
-        match p.run(&clip_ms(1000)).unwrap() {
+        match p.run(&clip_ms(1000), &no_target()).unwrap() {
             Outcome::Inserted {
                 text,
                 post_process_error,
@@ -333,7 +404,7 @@ mod tests {
         let (p, sink) = pipeline("  ma signature. ", Some(Box::new(Failing)));
         let p = p.with_snippets(&snippets());
         assert_eq!(
-            p.run(&clip_ms(1000)).unwrap(),
+            p.run(&clip_ms(1000), &no_target()).unwrap(),
             Outcome::Inserted {
                 raw: "ma signature.".into(),
                 text: "Florian\nVoiceToText".into(),
@@ -350,7 +421,7 @@ mod tests {
         let (p, sink) = pipeline("voici ma signature", Some(Box::new(Upper)));
         let p = p.with_snippets(&snippets());
         assert!(matches!(
-            p.run(&clip_ms(1000)).unwrap(),
+            p.run(&clip_ms(1000), &no_target()).unwrap(),
             Outcome::Inserted { snippet: false, .. }
         ));
         assert_eq!(*sink.0.lock().unwrap(), ["VOICI MA SIGNATURE"]);
@@ -360,5 +431,44 @@ mod tests {
     fn punctuation_only_trigger_is_ignored() {
         let (p, _) = pipeline("bonjour", None);
         assert_eq!(p.with_snippets(&snippets()).snippets.len(), 1);
+    }
+
+    fn styles() -> Vec<Style> {
+        vec![
+            Style {
+                apps: vec!["code.exe".into()],
+                cleanup: false,
+                ..Style::default()
+            },
+            Style {
+                apps: vec!["slack.exe".into()],
+                instructions: "décontracté".into(),
+                ..Style::default()
+            },
+        ]
+    }
+
+    #[test]
+    fn style_instructions_reach_post_processor() {
+        let (p, sink) = pipeline("salut", Some(Box::new(Upper)));
+        let p = p.with_styles(&styles());
+        p.run(&clip_ms(1000), &target("Slack.exe")).unwrap();
+        p.run(&clip_ms(1000), &target("notepad.exe")).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["SALUT [décontracté]", "SALUT"]);
+    }
+
+    #[test]
+    fn style_without_cleanup_inserts_raw() {
+        let (p, sink) = pipeline("let x = 1", Some(Box::new(Upper)));
+        let p = p.with_styles(&styles());
+        assert!(matches!(
+            p.run(&clip_ms(1000), &target("code.exe")).unwrap(),
+            Outcome::Inserted {
+                usage: None,
+                post_process_error: None,
+                ..
+            }
+        ));
+        assert_eq!(*sink.0.lock().unwrap(), ["let x = 1"]);
     }
 }

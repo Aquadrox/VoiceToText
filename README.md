@@ -82,6 +82,23 @@ VoiceToText"""
 [[snippets]]
 trigger = "mon adresse mail"
 text = "prenom.nom@example.com"
+
+# Styles par application (fenêtre active au début de la dictée) : le premier
+# qui correspond s'applique. `apps` = exécutable, `titles` = morceau du titre
+# (utile pour un site dans le navigateur). Exemples :
+[[styles]]
+apps = ["slack.exe", "discord.exe", "ms-teams.exe"]
+titles = ["WhatsApp"]
+instructions = "Messagerie : ton conversationnel, phrases courtes, pas de formule de politesse."
+
+[[styles]]
+apps = ["outlook.exe", "olk.exe", "thunderbird.exe"]
+titles = ["Gmail"]
+instructions = "E-mail : ton soigné, paragraphes aérés."
+
+[[styles]]
+apps = ["code.exe", "windowsterminal.exe"]
+cleanup = false      # texte brut, sans LLM
 ```
 
 Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé automatiquement au-delà de 3 Mo, les 100 dernières lignes sont gardées).

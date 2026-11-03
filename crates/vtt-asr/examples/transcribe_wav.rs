@@ -47,7 +47,9 @@ fn main() {
 
     let pipeline = Pipeline::new(Box::new(transcriber), None, Box::new(Stdout));
     let started = Instant::now();
-    let outcome = pipeline.run(&clip).expect("transcription");
+    let outcome = pipeline
+        .run(&clip, &vtt_core::Target::default())
+        .expect("transcription");
     eprintln!(
         "{} ms d'audio transcrits en {} ms : {outcome:?}",
         clip.duration_ms(),

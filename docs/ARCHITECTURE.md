@@ -82,6 +82,7 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 - Le **texte** transcrit est envoyé au fournisseur LLM choisi (DeepSeek par défaut) pour le nettoyage. Désactivable dans les réglages. Avec un modèle local (Ollama…), rien ne quitte le PC.
 - La clé API n'est envoyée qu'en HTTPS (HTTP refusé, sauf vers un modèle local sur `localhost`).
 - L'**historique** des dictées (texte brut et final) est stocké en clair dans `%LOCALAPPDATA%\VoiceToText\history.jsonl`, protégé par les droits du compte Windows comme les autres fichiers du profil. Jamais envoyé ailleurs. Limité à 1000 dictées, effaçable depuis la fenêtre Historique, désactivable (`history.enabled = false`). Le journal, lui, ne contient jamais le texte dicté.
+- **Styles par application** : l'exécutable de la fenêtre active est journalisé et gardé dans l'historique ; son **titre** (qui peut contenir un nom de document ou de conversation) sert seulement à choisir le style, il n'est ni journalisé ni stocké, ni envoyé au LLM.
 - La **consommation** du LLM (`usage.json`) ne contient que des compteurs de jetons et des montants par jour, aucun texte.
 - Dans les fenêtres, le texte dicté est affiché avec `textContent` uniquement : une dictée contenant du HTML ne peut pas s'exécuter.
 

@@ -14,5 +14,6 @@ pub mod usage;
 
 pub use config::Config;
 pub use pipeline::{
-    AudioClip, Cleaned, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, TextSink, Transcriber,
+    AudioClip, Cleaned, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, Target, TextSink,
+    Transcriber,
 };

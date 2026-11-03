@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use vtt_core::history::{Entry, History};
-use vtt_core::{AudioClip, Outcome};
+use vtt_core::{AudioClip, Outcome, Target};
 
 /// Nombre de dictées affichées dans la fenêtre.
 const SHOWN: usize = 500;
@@ -15,7 +15,7 @@ const SHOWN: usize = 500;
 /// `None` si l'historique est désactivé dans config.toml.
 pub type HistoryStore = Arc<Mutex<Option<History>>>;
 
-pub fn record(store: &HistoryStore, clip: &AudioClip, outcome: &Outcome) {
+pub fn record(store: &HistoryStore, clip: &AudioClip, target: &Target, outcome: &Outcome) {
     let Outcome::Inserted {
         raw,
         text,
@@ -35,6 +35,8 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, outcome: &Outcome) {
         text: text.clone(),
         snippet: *snippet,
         cleanup_failed: post_process_error.is_some(),
+        // Exécutable seulement : le titre de la fenêtre peut être personnel.
+        app: target.app.clone(),
     };
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(history) = guard.as_mut()

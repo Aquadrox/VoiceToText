@@ -5,16 +5,20 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use vtt_core::{Error, TextSink};
-use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+use vtt_core::{Error, Target, TextSink};
+use windows::Win32::Foundation::{CloseHandle, HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_RMENU, VK_V,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG,
-    SetWindowsHookExW, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+    CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
+    HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, SetWindowsHookExW, WH_KEYBOARD_LL, WM_KEYDOWN,
+    WM_SYSKEYDOWN,
 };
 
 use crate::{KeyEvent, now_ms};
@@ -158,6 +162,47 @@ fn send_keys(keys: &[(VIRTUAL_KEY, bool)]) -> bool {
         .collect();
     let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
     sent as usize == inputs.len()
+}
+
+/// Fenêtre au premier plan : exécutable et titre. Champs vides si Windows
+/// refuse l'accès (processus d'un autre utilisateur ou protégé).
+pub fn foreground_target() -> Target {
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() {
+        return Target::default();
+    }
+    let mut title = [0u16; 512];
+    let len = unsafe { GetWindowTextW(window, &mut title) };
+    let title = (len > 0).then(|| String::from_utf16_lossy(&title[..len as usize]));
+
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+    Target {
+        app: process_name(pid),
+        title,
+    }
+}
+
+/// Nom de l'exécutable d'un processus, ex. "slack.exe".
+fn process_name(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    let mut path = [0u16; 1024];
+    let mut len = path.len() as u32;
+    let queried = unsafe {
+        QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(path.as_mut_ptr()),
+            &mut len,
+        )
+    };
+    let _ = unsafe { CloseHandle(process) };
+    queried.ok()?;
+    let path = String::from_utf16_lossy(&path[..len as usize]);
+    path.rsplit('\\').next().map(str::to_owned)
 }
 
 /// Place le texte dans le presse-papier, sans coller.
