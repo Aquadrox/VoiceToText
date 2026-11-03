@@ -63,6 +63,13 @@ pub struct Cleaned {
 pub trait PostProcessor: Send + Sync {
     /// `style` : consignes propres à l'application de destination.
     fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error>;
+
+    /// Command Mode : applique la consigne dictée au texte sélectionné, ou
+    /// rédige le texte demandé s'il n'y a pas de sélection.
+    fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
+        let _ = (instruction, selection);
+        Err(Error::PostProcess("Command Mode non pris en charge".into()))
+    }
 }
 
 pub trait TextSink: Send + Sync {
@@ -84,6 +91,8 @@ pub enum Outcome {
         snippet: bool,
         /// Jetons facturés par le LLM pour cette dictée.
         usage: Option<Usage>,
+        /// Command Mode : `raw` est la consigne, `text` le résultat.
+        command: bool,
     },
 }
 
@@ -142,14 +151,16 @@ impl Pipeline {
             .map(|i| (i, self.snippets[i].1.as_str()))
     }
 
-    pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
+    /// Transcription filtrée et durée de l'ASR ; `None` si le clip est trop
+    /// court, silencieux ou ne contient qu'une hallucination.
+    fn transcribe(&self, clip: &AudioClip) -> Result<Option<(String, u128)>, Error> {
         if clip.duration_ms() < MIN_CLIP_MS {
             log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
-            return Ok(Outcome::Skipped);
+            return Ok(None);
         }
         if audio::is_silent(&clip.samples, SAMPLE_RATE, SILENCE_RMS) {
             log::info!("ignoré : silence ({} ms)", clip.duration_ms());
-            return Ok(Outcome::Skipped);
+            return Ok(None);
         }
 
         let started = Instant::now();
@@ -161,8 +172,15 @@ impl Pipeline {
                 "ignoré : transcription vide après filtrage ({} caractères écartés, ASR {asr_ms} ms)",
                 transcribed.chars().count()
             );
-            return Ok(Outcome::Skipped);
+            return Ok(None);
         }
+        Ok(Some((raw, asr_ms)))
+    }
+
+    pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
+        let Some((raw, asr_ms)) = self.transcribe(clip)? else {
+            return Ok(Outcome::Skipped);
+        };
 
         // Snippet : la dictée entière est un déclencheur → texte fixe, sans LLM.
         // Le journal ne contient que son numéro (le texte peut être personnel).
@@ -181,6 +199,7 @@ impl Pipeline {
                 post_process_error: None,
                 snippet: true,
                 usage: None,
+                command: false,
             });
         }
 
@@ -234,6 +253,45 @@ impl Pipeline {
             post_process_error,
             snippet: false,
             usage,
+            command: false,
+        })
+    }
+
+    /// Command Mode : la dictée est une consigne appliquée à `selection`. En
+    /// cas d'échec rien n'est inséré : la sélection reste intacte.
+    pub fn run_command(&self, clip: &AudioClip, selection: Option<&str>) -> Result<Outcome, Error> {
+        let Some(processor) = &self.post_processor else {
+            return Err(Error::PostProcess(
+                "Command Mode : le nettoyage LLM est désactivé".into(),
+            ));
+        };
+        let Some((instruction, asr_ms)) = self.transcribe(clip)? else {
+            return Ok(Outcome::Skipped);
+        };
+        let started = Instant::now();
+        let result = processor.command(&instruction, selection)?;
+        let llm_ms = started.elapsed().as_millis();
+        if result.text.trim().is_empty() {
+            return Err(Error::PostProcess("Command Mode : réponse vide".into()));
+        }
+        let started = Instant::now();
+        self.sink.insert(result.text.trim())?;
+        log::info!(
+            "commande de {} ms : ASR {asr_ms} ms, LLM {llm_ms} ms ({}), insertion {} ms",
+            clip.duration_ms(),
+            match selection {
+                Some(s) => format!("sélection de {} caractères", s.chars().count()),
+                None => "sans sélection".into(),
+            },
+            started.elapsed().as_millis()
+        );
+        Ok(Outcome::Inserted {
+            raw: instruction,
+            text: result.text.trim().to_owned(),
+            post_process_error: None,
+            snippet: false,
+            usage: result.usage,
+            command: true,
         })
     }
 }
@@ -265,6 +323,13 @@ mod tests {
             };
             Ok(Cleaned {
                 text,
+                usage: Some(USAGE),
+            })
+        }
+
+        fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
+            Ok(Cleaned {
+                text: format!("{instruction} → {}", selection.unwrap_or("∅")),
                 usage: Some(USAGE),
             })
         }
@@ -364,6 +429,7 @@ mod tests {
                 post_process_error: None,
                 snippet: false,
                 usage: Some(USAGE),
+                command: false,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
@@ -411,6 +477,7 @@ mod tests {
                 post_process_error: None,
                 snippet: true,
                 usage: None,
+                command: false,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["Florian\nVoiceToText"]);
@@ -470,5 +537,49 @@ mod tests {
             }
         ));
         assert_eq!(*sink.0.lock().unwrap(), ["let x = 1"]);
+    }
+
+    #[test]
+    fn command_applies_instruction_to_selection() {
+        let (p, sink) = pipeline(" traduis en anglais ", Some(Box::new(Upper)));
+        match p.run_command(&clip_ms(1000), Some("bonjour")).unwrap() {
+            Outcome::Inserted {
+                raw,
+                text,
+                command,
+                usage,
+                ..
+            } => {
+                assert_eq!(raw, "traduis en anglais");
+                assert_eq!(text, "traduis en anglais → bonjour");
+                assert!(command);
+                assert_eq!(usage, Some(USAGE));
+            }
+            other => panic!("inattendu : {other:?}"),
+        }
+        p.run_command(&clip_ms(1000), None).unwrap();
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            ["traduis en anglais → bonjour", "traduis en anglais → ∅"]
+        );
+    }
+
+    #[test]
+    fn command_failure_inserts_nothing() {
+        let (p, sink) = pipeline("traduis", Some(Box::new(Failing)));
+        assert!(p.run_command(&clip_ms(1000), Some("bonjour")).is_err());
+        let (without_llm, _) = pipeline("traduis", None);
+        assert!(without_llm.run_command(&clip_ms(1000), Some("x")).is_err());
+        assert!(sink.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn short_command_is_skipped() {
+        let (p, sink) = pipeline("traduis", Some(Box::new(Upper)));
+        assert_eq!(
+            p.run_command(&clip_ms(200), Some("x")).unwrap(),
+            Outcome::Skipped
+        );
+        assert!(sink.0.lock().unwrap().is_empty());
     }
 }

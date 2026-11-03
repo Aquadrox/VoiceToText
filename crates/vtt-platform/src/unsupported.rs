@@ -31,6 +31,10 @@ pub fn foreground_target() -> vtt_core::Target {
     vtt_core::Target::default()
 }
 
+pub fn copy_selection() -> Option<String> {
+    None
+}
+
 pub fn modifiers_down() -> bool {
     false
 }

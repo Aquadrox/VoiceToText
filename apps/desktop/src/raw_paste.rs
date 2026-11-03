@@ -54,18 +54,27 @@ fn paste(last: &LastRaw) {
         log::info!("coller la version brute : aucune dictée depuis le démarrage");
         return;
     };
-    let started = Instant::now();
-    while vtt_platform::modifiers_down() {
-        if started.elapsed() > MODIFIERS_TIMEOUT {
-            log::warn!("coller la version brute : touches du raccourci toujours enfoncées");
-            return;
-        }
-        thread::sleep(Duration::from_millis(20));
+    if !wait_modifiers_released() {
+        log::warn!("coller la version brute : touches du raccourci toujours enfoncées");
+        return;
     }
     match ClipboardPaster.insert(&raw) {
         Ok(()) => log::info!("version brute collée ({} caractères)", raw.chars().count()),
         Err(e) => log::warn!("coller la version brute : {e}"),
     }
+}
+
+/// Attend que Ctrl, Maj, Alt et Windows soient relâchés avant une frappe
+/// simulée (sinon Ctrl+V deviendrait Ctrl+Alt+Maj+V). `false` après 2 s.
+pub fn wait_modifiers_released() -> bool {
+    let started = Instant::now();
+    while vtt_platform::modifiers_down() {
+        if started.elapsed() > MODIFIERS_TIMEOUT {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    true
 }
 
 /// Menu de l'icône : copie dans le presse-papier (coller depuis le menu

@@ -32,6 +32,9 @@ pub struct HotkeyConfig {
     /// Raccourci qui colle la transcription brute (sans nettoyage) de la
     /// dernière dictée, ex. "Alt+Shift+V". Vide : désactivé.
     pub paste_raw: String,
+    /// Touche qui, tenue avec le raccourci, transforme la dictée en consigne
+    /// appliquée au texte sélectionné (Command Mode). Vide : désactivé.
+    pub command_key: String,
 }
 
 impl Default for HotkeyConfig {
@@ -41,6 +44,7 @@ impl Default for HotkeyConfig {
             min_hold_ms: 250,
             hands_free: true,
             paste_raw: "Alt+Shift+V".into(),
+            command_key: "RightCtrl".into(),
         }
     }
 }

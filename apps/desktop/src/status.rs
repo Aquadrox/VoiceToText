@@ -14,6 +14,8 @@ pub enum Status {
     /// Enregistrement mains libres ; contient le nom du raccourci.
     #[serde(rename = "handsfree")]
     HandsFree(String),
+    /// Enregistrement d'une consigne (Command Mode).
+    Command,
     Processing,
     Loading(String),
     Error(String),
@@ -27,6 +29,7 @@ impl Status {
             Status::HandsFree(key) => {
                 format!("Mains libres — {key} pour terminer, Échap pour annuler")
             }
+            Status::Command => "Commande : dictez la consigne pour le texte sélectionné…".into(),
             Status::Processing => "Transcription…".into(),
             Status::Loading(message) => message.clone(),
             Status::Error(message) => format!("Erreur : {message}"),

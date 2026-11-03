@@ -7,13 +7,15 @@ use std::time::Duration;
 
 use vtt_core::{Error, Target, TextSink};
 use windows::Win32::Foundation::{CloseHandle, HINSTANCE, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_RMENU, VK_V,
+    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_RMENU,
+    VK_V,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
@@ -203,6 +205,43 @@ fn process_name(pid: u32) -> Option<String> {
     queried.ok()?;
     let path = String::from_utf16_lossy(&path[..len as usize]);
     path.rsplit('\\').next().map(str::to_owned)
+}
+
+/// Attente maximale de la copie après le Ctrl+C simulé.
+const COPY_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Texte sélectionné dans l'application active (Ctrl+C simulé), ou `None`
+/// s'il n'y a pas de sélection. Le contenu texte précédent du presse-papier
+/// est remis en place. Les touches de modification doivent être relâchées.
+pub fn copy_selection() -> Option<String> {
+    let previous = arboard::Clipboard::new().ok()?.get_text().ok();
+    let before = unsafe { GetClipboardSequenceNumber() };
+    if !send_keys(&[
+        (VK_CONTROL, false),
+        (VK_C, false),
+        (VK_C, true),
+        (VK_CONTROL, true),
+    ]) {
+        return None;
+    }
+    // Sans sélection, la plupart des applications ne touchent pas au
+    // presse-papier : le numéro de séquence ne bouge pas.
+    let started = std::time::Instant::now();
+    while unsafe { GetClipboardSequenceNumber() } == before {
+        if started.elapsed() > COPY_TIMEOUT {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(15));
+    }
+    // L'application peut écrire plusieurs formats à la suite : laisser finir.
+    thread::sleep(Duration::from_millis(30));
+    let mut clipboard = arboard::Clipboard::new().ok()?;
+    let selection = clipboard.get_text().ok().filter(|s| !s.trim().is_empty());
+    let _ = match previous {
+        Some(previous) => clipboard.set_text(previous),
+        None => clipboard.clear(),
+    };
+    selection
 }
 
 /// Place le texte dans le presse-papier, sans coller.

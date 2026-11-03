@@ -3,7 +3,7 @@ const pill = document.getElementById("pill");
 const label = document.getElementById("label");
 const LABELS = { listening: "Écoute…", processing: "Transcription…" };
 // Mains libres : le message (nom du raccourci) sert au menu ; la pastille reste courte.
-const SHORT = { handsfree: "Mains libres · Échap annule" };
+const SHORT = { handsfree: "Mains libres · Échap annule", command: "Commande…" };
 const ERROR_VISIBLE_MS = 5000;
 let errorTimer;
 
