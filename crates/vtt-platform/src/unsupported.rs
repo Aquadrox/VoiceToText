@@ -31,6 +31,14 @@ pub fn foreground_target() -> vtt_core::Target {
     vtt_core::Target::default()
 }
 
+pub fn autostart_enabled() -> bool {
+    false
+}
+
+pub fn set_autostart(_enabled: bool) -> Result<(), String> {
+    Err(format!("démarrage automatique {MESSAGE}"))
+}
+
 pub fn copy_selection() -> Option<String> {
     None
 }

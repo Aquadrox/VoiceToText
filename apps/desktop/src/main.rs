@@ -1,6 +1,7 @@
 // Pas de console en version publiée.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_settings;
 mod controller;
 mod costs;
 mod history;
@@ -57,6 +58,9 @@ fn main() {
             main_window::home_view,
             vocabulary::vocabulary_view,
             vocabulary::save_vocabulary,
+            app_settings::app_settings_view,
+            app_settings::save_app_settings,
+            app_settings::set_autostart,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();

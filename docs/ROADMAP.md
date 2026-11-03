@@ -38,7 +38,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Suivi du coût LLM : jetons lus dans la réponse (`usage`, cache DeepSeek et OpenAI compris), coût estimé avec un tarif réglable (`[llm.pricing]`), totaux jour / mois / total dans « Réglages… » ; fichier `usage.json` sans aucun texte dicté
 - ✅ Fournisseur LLM au choix dans « Réglages… » : préréglages DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, Ollama local, ou adresse libre ; modèle, délai, tarif, paramètres propres au fournisseur (`extra_body`) ; une clé par fournisseur ; modèle local sans clé
 
-## v0.4 — Interface principale 🚧
+## v0.4 — Interface principale ✅
 
 Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 
@@ -46,7 +46,7 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Accueil : mots dictés, temps gagné (frappe à 40 mots/min), vitesse de parole, coût du mois, mots par jour sur 30 jours ; compteurs par jour sans texte, conservés si l'historique est effacé
 - ✅ Historique intégré, avec le coût de chaque dictée (jetons au survol)
 - ✅ Pages Dictionnaire, Snippets et Styles (modèles Messagerie / E-mail / Code, ordre de priorité) : enregistrées dans config.toml et appliquées à chaud, sans recharger le modèle
-- ⬜ Réglages complets : raccourcis, micro, modèle Whisper, démarrage avec Windows
+- ✅ Réglages complets : raccourcis (dictée, Command Mode, version brute, appui minimal, mains libres), micro, modèle Whisper (5 modèles vérifiés par SHA-256, téléchargés au redémarrage), carte graphique, démarrage avec Windows (clé Run de l'utilisateur)
 
 ## v0.5 — Distribution et mises à jour ⬜
 

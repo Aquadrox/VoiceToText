@@ -134,7 +134,9 @@ fn run(
     );
     *worker.lock().unwrap_or_else(|e| e.into_inner()) = Some(clips.clone());
     let mut controls = Controls {
-        recorder: Recorder::spawn(),
+        recorder: Recorder::spawn(
+            Some(config.audio.device.trim().to_owned()).filter(|d| !d.is_empty()),
+        ),
         recording,
         reporter,
         clips,

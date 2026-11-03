@@ -4,6 +4,10 @@
 pub mod audio;
 
 #[cfg(windows)]
+mod autostart_windows;
+#[cfg(windows)]
+pub use autostart_windows::{autostart_enabled, set_autostart};
+#[cfg(windows)]
 mod secrets_windows;
 #[cfg(windows)]
 pub use secrets_windows::{delete_secret, load_secret, store_secret};
@@ -19,9 +23,9 @@ pub use windows::{
 mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
-    ClipboardPaster, companion_keys, copy_selection, copy_text, delete_secret, foreground_target,
-    key_code, key_is_down, load_secret, modifiers_down, spawn_keyboard_hook, store_secret,
-    suppress_menu_activation,
+    ClipboardPaster, autostart_enabled, companion_keys, copy_selection, copy_text, delete_secret,
+    foreground_target, key_code, key_is_down, load_secret, modifiers_down, set_autostart,
+    spawn_keyboard_hook, store_secret, suppress_menu_activation,
 };
 
 use std::sync::OnceLock;

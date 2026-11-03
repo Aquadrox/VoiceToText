@@ -1,4 +1,4 @@
-//! Capture du micro par défaut.
+//! Capture du micro (celui choisi dans les réglages, sinon celui par défaut).
 //!
 //! Le flux n'est ouvert que pendant l'enregistrement (pas d'icône « micro
 //! utilisé » en permanence). Il vit dans un thread dédié car `cpal::Stream`
@@ -24,11 +24,13 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    pub fn spawn() -> Self {
+    /// `device` : nom du micro (voir [`input_devices`]) ; `None` ou introuvable :
+    /// micro par défaut de Windows.
+    pub fn spawn(device: Option<String>) -> Self {
         let (tx, rx) = mpsc::channel();
         thread::Builder::new()
             .name("audio".into())
-            .spawn(move || run(rx))
+            .spawn(move || run(rx, device))
             .expect("création du thread audio");
         Self { tx }
     }
@@ -61,7 +63,15 @@ struct Active {
     sample_rate: u32,
 }
 
-fn run(rx: Receiver<Command>) {
+/// Noms des micros disponibles, pour le choix dans les réglages.
+pub fn input_devices() -> Vec<String> {
+    cpal::default_host()
+        .input_devices()
+        .map(|devices| devices.map(|d| d.to_string()).collect())
+        .unwrap_or_default()
+}
+
+fn run(rx: Receiver<Command>, device: Option<String>) {
     let mut active: Option<Active> = None;
     for command in rx {
         match command {
@@ -69,7 +79,7 @@ fn run(rx: Receiver<Command>) {
                 let result = if active.is_some() {
                     Ok(())
                 } else {
-                    open().map(|a| active = Some(a))
+                    open(device.as_deref()).map(|a| active = Some(a))
                 };
                 let _ = reply.send(result);
             }
@@ -81,10 +91,23 @@ fn run(rx: Receiver<Command>) {
     }
 }
 
-fn open() -> Result<Active, String> {
-    let device = cpal::default_host()
-        .default_input_device()
-        .ok_or("aucun micro détecté")?;
+fn find_device(name: Option<&str>) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    if let Some(name) = name {
+        let found = host
+            .input_devices()
+            .ok()
+            .and_then(|mut devices| devices.find(|d| d.to_string() == name));
+        if found.is_some() {
+            return found;
+        }
+        log::warn!("micro « {name} » introuvable : micro par défaut utilisé");
+    }
+    host.default_input_device()
+}
+
+fn open(name: Option<&str>) -> Result<Active, String> {
+    let device = find_device(name).ok_or("aucun micro détecté")?;
     let supported = device
         .default_input_config()
         .map_err(|e| format!("configuration du micro : {e}"))?;

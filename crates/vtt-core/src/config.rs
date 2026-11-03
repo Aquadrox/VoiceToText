@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 #[serde(default)]
 pub struct Config {
     pub hotkey: HotkeyConfig,
+    pub audio: AudioConfig,
     pub asr: AsrConfig,
     pub llm: LlmConfig,
     pub history: HistoryConfig,
@@ -47,6 +48,80 @@ impl Default for HotkeyConfig {
             command_key: "RightCtrl".into(),
         }
     }
+}
+
+/// Touches utilisables comme raccourci de dictée ou touche de commande
+/// (noms compris par la couche plateforme).
+pub const HOTKEY_NAMES: &[&str] = &[
+    "AltGr",
+    "RightCtrl",
+    "RightShift",
+    "CapsLock",
+    "ScrollLock",
+    "Pause",
+    "Insert",
+    "Menu",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F16",
+    "F17",
+    "F18",
+    "F19",
+    "F20",
+    "F21",
+    "F22",
+    "F23",
+    "F24",
+];
+
+pub const MIN_HOLD_RANGE_MS: std::ops::RangeInclusive<u32> = 50..=1000;
+
+impl HotkeyConfig {
+    /// Vérifie une configuration saisie dans les réglages (le raccourci
+    /// « coller la version brute » est vérifié par l'application).
+    pub fn validate(&self) -> Result<(), String> {
+        let known = |name: &str| HOTKEY_NAMES.iter().any(|k| k.eq_ignore_ascii_case(name));
+        if !known(&self.key) {
+            return Err(format!("raccourci de dictée inconnu : {}", self.key));
+        }
+        let command = self.command_key.trim();
+        if !command.is_empty() {
+            if !known(command) {
+                return Err(format!("touche de commande inconnue : {command}"));
+            }
+            if command.eq_ignore_ascii_case(&self.key) {
+                return Err("la touche de commande doit différer du raccourci de dictée".into());
+            }
+        }
+        if !MIN_HOLD_RANGE_MS.contains(&self.min_hold_ms) {
+            return Err(format!(
+                "appui minimal entre {} et {} ms",
+                MIN_HOLD_RANGE_MS.start(),
+                MIN_HOLD_RANGE_MS.end()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AudioConfig {
+    /// Nom du micro ; vide : micro par défaut de Windows.
+    pub device: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -559,5 +634,26 @@ mod tests {
             "aucune cible"
         );
         assert!(clean_styles(&[style(&["a.exe"], &"x".repeat(2001))]).is_err());
+    }
+
+    #[test]
+    fn hotkey_validation() {
+        assert!(HotkeyConfig::default().validate().is_ok());
+        let with = |f: &dyn Fn(&mut HotkeyConfig)| {
+            let mut hotkey = HotkeyConfig::default();
+            f(&mut hotkey);
+            hotkey.validate()
+        };
+        assert!(with(&|h| h.key = "F13".into()).is_ok());
+        assert!(with(&|h| h.key = "Espace".into()).is_err());
+        assert!(
+            with(&|h| h.command_key = String::new()).is_ok(),
+            "commande désactivée"
+        );
+        assert!(
+            with(&|h| h.command_key = "altgr".into()).is_err(),
+            "même touche"
+        );
+        assert!(with(&|h| h.min_hold_ms = 10).is_err());
     }
 }

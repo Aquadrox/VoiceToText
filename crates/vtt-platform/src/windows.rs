@@ -307,4 +307,12 @@ mod tests {
         assert_eq!(key_code("F25"), None);
         assert_eq!(key_code("nimportequoi"), None);
     }
+
+    /// Chaque touche proposée dans les réglages est reconnue.
+    #[test]
+    fn every_settings_key_is_known() {
+        for name in vtt_core::config::HOTKEY_NAMES {
+            assert!(key_code(name).is_some(), "{name}");
+        }
+    }
 }

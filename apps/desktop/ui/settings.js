@@ -235,10 +235,13 @@ $("test").addEventListener("click", () =>
 let providerFilled = false;
 registerPage("reglages", {
   show: () =>
-    refresh().then((view) => {
-      if (!providerFilled) fillProvider(view.llm);
-      providerFilled = true;
-    }),
+    Promise.all([
+      showGeneral(),
+      refresh().then((view) => {
+        if (!providerFilled) fillProvider(view.llm);
+        providerFilled = true;
+      }),
+    ]),
 });
 
 // Consommation en direct : les dictées se font dans d'autres fenêtres, la
