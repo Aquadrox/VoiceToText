@@ -38,6 +38,9 @@ pub struct HotkeyConfig {
     /// Raccourci qui colle la transcription brute (sans nettoyage) de la
     /// dernière dictée, ex. "Alt+Shift+V". Vide : désactivé.
     pub paste_raw: String,
+    /// Raccourci qui retraite l'audio de la dernière dictée (après une erreur,
+    /// ou pour la coller ailleurs), ex. "Alt+Shift+R". Vide : désactivé.
+    pub retry: String,
     /// Touche qui, tenue avec le raccourci, transforme la dictée en consigne
     /// appliquée au texte sélectionné (Command Mode). Vide : désactivé.
     pub command_key: String,
@@ -50,6 +53,7 @@ impl Default for HotkeyConfig {
             min_hold_ms: 250,
             hands_free: true,
             paste_raw: "Alt+Shift+V".into(),
+            retry: "Alt+Shift+R".into(),
             command_key: "RightCtrl".into(),
         }
     }
@@ -95,8 +99,8 @@ pub const HOTKEY_NAMES: &[&str] = &[
 pub const MIN_HOLD_RANGE_MS: std::ops::RangeInclusive<u32> = 50..=1000;
 
 impl HotkeyConfig {
-    /// Vérifie une configuration saisie dans les réglages (le raccourci
-    /// « coller la version brute » est vérifié par l'application).
+    /// Vérifie une configuration saisie dans les réglages (la syntaxe des
+    /// raccourcis globaux est vérifiée par l'application).
     pub fn validate(&self) -> Result<(), String> {
         let known = |name: &str| HOTKEY_NAMES.iter().any(|k| k.eq_ignore_ascii_case(name));
         if !known(&self.key) {
@@ -110,6 +114,10 @@ impl HotkeyConfig {
             if command.eq_ignore_ascii_case(&self.key) {
                 return Err("la touche de commande doit différer du raccourci de dictée".into());
             }
+        }
+        let retry = self.retry.trim();
+        if !retry.is_empty() && retry.eq_ignore_ascii_case(self.paste_raw.trim()) {
+            return Err("« réessayer » et « coller la version brute » doivent différer".into());
         }
         if !MIN_HOLD_RANGE_MS.contains(&self.min_hold_ms) {
             return Err(format!(
@@ -843,6 +851,18 @@ mod tests {
             "même touche"
         );
         assert!(with(&|h| h.min_hold_ms = 10).is_err());
+        assert!(
+            with(&|h| h.retry = "alt+shift+v".into()).is_err(),
+            "même raccourci que la version brute"
+        );
+        assert!(
+            with(&|h| {
+                h.retry = String::new();
+                h.paste_raw = String::new();
+            })
+            .is_ok(),
+            "deux raccourcis désactivés"
+        );
     }
 
     /// L'exemple complet du manuel (README) reste une configuration valide.

@@ -67,6 +67,30 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Clé API rattachée à l'adresse saisie dans le formulaire
 - ✅ Prompts système éditables (page Prompts) : nettoyage et Command Mode, prompt intégré en référence, copies modifiables, test sur exemple, prompt actif par profil LLM, appliqués à chaud
 
+## v0.7 — Fiabilité 🚧
+
+- 🚧 Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
+- ⬜ Libérer la mémoire graphique : décharger Whisper après X minutes sans dicter ou pendant un jeu en plein écran, recharger pendant la dictée suivante
+- ⬜ Profil LLM de secours : si le fournisseur principal échoue, essai d'un second profil avant le repli sur le texte brut
+
+## v0.8 — Confort de dictée ⬜
+
+- ⬜ Sons de début et de fin de dictée (désactivables)
+- ⬜ Couper la musique et les vidéos pendant la dictée, puis les remettre
+- ⬜ Niveau du micro dans la pastille
+- ⬜ Commandes vocales simples : « nouvelle ligne », « nouveau paragraphe », « annule la dernière dictée »
+
+## v0.9 — Apprentissage ⬜
+
+- ⬜ Suggestions pour le dictionnaire tirées de l'historique (mots souvent corrigés par le LLM, noms propres récurrents), ajout en un clic
+- ⬜ Mode traduction : dicter en français, insérer en anglais (style ou raccourci dédié)
+
+## v0.10 — Pratique ⬜
+
+- ⬜ Export / import des réglages (configuration, prompts, profils ; jamais les clés API)
+- ⬜ Statistiques par application sur l'accueil
+- ⬜ Installeur signé (certificat de signature de code, ex. Azure Trusted Signing) : plus d'avertissement SmartScreen
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

@@ -226,6 +226,18 @@ impl Pipeline {
     }
 
     pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
+        self.run_to(clip, target, self.sink.as_ref())
+    }
+
+    /// Comme [`Pipeline::run`], mais le texte va dans `sink` au lieu de
+    /// l'insertion habituelle (ex. presse-papier seul pour « Réessayer »
+    /// depuis le menu de l'icône).
+    pub fn run_to(
+        &self,
+        clip: &AudioClip,
+        target: &Target,
+        sink: &dyn TextSink,
+    ) -> Result<Outcome, Error> {
         let Some((raw, asr_ms)) = self.transcribe(clip)? else {
             return Ok(Outcome::Skipped);
         };
@@ -234,7 +246,7 @@ impl Pipeline {
         // Le journal ne contient que son numéro (le texte peut être personnel).
         if let Some((index, snippet)) = self.snippet_for(&raw) {
             let started = Instant::now();
-            self.sink.insert(snippet)?;
+            sink.insert(snippet)?;
             log::info!(
                 "dictée de {} ms : ASR {asr_ms} ms, snippet n°{}, insertion {} ms",
                 clip.duration_ms(),
@@ -286,7 +298,7 @@ impl Pipeline {
         let post_ms = started.elapsed().as_millis();
 
         let started = Instant::now();
-        self.sink.insert(&text)?;
+        sink.insert(&text)?;
         let tokens = usage.map_or(String::new(), |u| {
             format!(" ({} + {} jetons)", u.input_tokens, u.output_tokens)
         });
@@ -494,6 +506,15 @@ mod tests {
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
+    }
+
+    #[test]
+    fn run_to_uses_given_sink() {
+        let (p, sink) = pipeline("bonjour", Some(Box::new(Upper)));
+        let other = Recorder::default();
+        p.run_to(&clip_ms(1000), &no_target(), &other).unwrap();
+        assert!(sink.0.lock().unwrap().is_empty());
+        assert_eq!(*other.0.lock().unwrap(), ["BONJOUR"]);
     }
 
     #[test]

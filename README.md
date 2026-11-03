@@ -14,15 +14,16 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 3. [Dicter](#dicter)
 4. [Command Mode](#command-mode)
 5. [Coller la version brute](#coller-la-version-brute)
-6. [La fenêtre principale](#la-fenêtre-principale)
-7. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-8. [Mises à jour](#mises-à-jour)
-9. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-10. [Fichiers et emplacements](#fichiers-et-emplacements)
-11. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-12. [Dépannage](#dépannage)
-13. [Développement](#développement)
-14. [Licence](#licence)
+6. [Réessayer une dictée](#réessayer-une-dictée)
+7. [La fenêtre principale](#la-fenêtre-principale)
+8. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+9. [Mises à jour](#mises-à-jour)
+10. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+11. [Fichiers et emplacements](#fichiers-et-emplacements)
+12. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+13. [Dépannage](#dépannage)
+14. [Développement](#développement)
+15. [Licence](#licence)
 
 ## Installation
 
@@ -54,6 +55,7 @@ Sans clé, tout fonctionne aussi, avec le texte brut de Whisper (voir [Sans LLM]
 | En mains libres : **Échap** | Annule la dictée |
 | **AltGr + Ctrl droit** | [Command Mode](#command-mode) |
 | **Alt+Maj+V** | [Colle la version brute](#coller-la-version-brute) de la dernière dictée |
+| **Alt+Maj+R** | [Réessaie la dernière dictée](#réessayer-une-dictée) et colle le résultat |
 
 Toutes ces touches se changent dans **Réglages → Raccourcis**.
 
@@ -89,6 +91,17 @@ Exemples : « traduis en anglais », « rends ça plus formel », « résume en 
 ## Coller la version brute
 
 Si le nettoyage a trop réécrit une dictée : **Ctrl+Z** (annuler le collage) puis **Alt+Maj+V** colle la transcription Whisper d'origine, sans nettoyage. Aussi depuis le menu de l'icône : **Copier la dernière dictée brute**.
+
+## Réessayer une dictée
+
+Rien n'est perdu quand une dictée échoue (transcription en erreur, réseau coupé, collage refusé…) : l'audio de la **dernière dictée** reste en mémoire jusqu'à la suivante.
+
+- **Alt+Maj+R** : la dictée est retraitée (transcription, nettoyage) et collée **là où se trouve le curseur maintenant**. Pratique aussi pour la coller dans une autre fenêtre.
+- Menu de l'icône → **Réessayer la dernière dictée (copie)** : même chose, mais le texte est seulement copié (notification « Ctrl+V pour le coller »).
+- Une commande (Command Mode) se réessaie avec Alt+Maj+R, après avoir sélectionné le texte à transformer.
+- Si le collage est refusé (application lancée en administrateur), le texte reste dans le presse-papier : **Ctrl+V** pour le coller à la main.
+
+L'audio n'est jamais écrit sur le disque. Une dictée réessayée apparaît une seconde fois dans l'historique et son coût LLM est compté ; les statistiques de l'accueil ne la comptent qu'une fois.
 
 ## La fenêtre principale
 
@@ -194,7 +207,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 
 | Donnée | Où elle va |
 |---|---|
-| Audio | **Reste sur le PC** (transcription locale) |
+| Audio | **Reste sur le PC** (transcription locale) ; seule la dernière dictée est gardée, en mémoire, pour « Réessayer » |
 | Texte transcrit | Envoyé au fournisseur LLM choisi (rien avec Ollama ou le nettoyage désactivé) |
 | Texte sélectionné (Command Mode) | Envoyé au fournisseur LLM avec la consigne |
 | Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`), jamais en clair sur le disque |
@@ -232,6 +245,7 @@ key = "AltGr"        # ou RightCtrl, RightShift, CapsLock, ScrollLock, Pause, In
 min_hold_ms = 250    # appui plus court : ignoré
 hands_free = true    # double appui → mains libres
 paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
+retry = "Alt+Shift+R"       # réessayer la dernière dictée ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
 
 [audio]

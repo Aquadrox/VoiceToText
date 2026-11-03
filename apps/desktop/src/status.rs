@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, State, Wry};
+use tauri_plugin_notification::NotificationExt;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", content = "message", rename_all = "lowercase")]
@@ -59,6 +60,21 @@ impl StatusReporter {
         let _ = self.tray_item.set_text(status.tray_label());
         let _ = self.app.emit_to("overlay", "status", &status);
         *self.current.lock().unwrap_or_else(|e| e.into_inner()) = status;
+    }
+
+    /// Notification Windows (jamais le texte dicté : elle reste affichée
+    /// dans le centre de notifications).
+    pub fn notify(&self, title: &str, body: &str) {
+        if let Err(e) = self
+            .app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+        {
+            log::warn!("notification : {e}");
+        }
     }
 }
 
