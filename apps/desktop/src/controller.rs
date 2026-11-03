@@ -79,7 +79,7 @@ fn run(
         Some(Box::new(LlmCleaner::new(
             &config.llm,
             &config.dictionary,
-            settings::api_key_provider(),
+            settings::api_key_provider(&config.llm),
         )))
     } else {
         log::info!("nettoyage désactivé (llm.enabled = false)");

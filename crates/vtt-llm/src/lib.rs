@@ -1,10 +1,11 @@
 //! Nettoyage du texte dicté par un LLM exposant une API compatible OpenAI
-//! (`POST {base_url}/chat/completions`), DeepSeek par défaut.
+//! (`POST {base_url}/chat/completions`) : DeepSeek par défaut, mais aussi
+//! OpenAI, Mistral, GLM (Z.ai), OpenRouter ou un modèle local (Ollama…).
 
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use vtt_core::config::LlmConfig;
 use vtt_core::usage::Usage;
 use vtt_core::{Cleaned, Error, PostProcessor};
@@ -47,8 +48,13 @@ const MAX_ERROR_DETAIL_CHARS: usize = 160;
 pub struct LlmCleaner {
     endpoint: String,
     model: String,
-    /// DeepSeek active par défaut un mode « réflexion » lent et inutile ici.
-    disable_thinking: bool,
+    /// Champs propres au fournisseur, ajoutés à chaque requête.
+    extra_body: Map<String, Value>,
+    /// L'API OpenAI refuse `temperature` et `max_tokens` sur ses modèles à
+    /// raisonnement : on envoie `max_completion_tokens` et la température par défaut.
+    openai: bool,
+    /// Modèle local : clé facultative.
+    local: bool,
     system_prompt: String,
     api_key: ApiKeyProvider,
     agent: ureq::Agent,
@@ -65,7 +71,9 @@ impl LlmCleaner {
         Self {
             endpoint: format!("{}/chat/completions", config.base_url.trim_end_matches('/')),
             model: config.model.clone(),
-            disable_thinking: config.base_url.contains("deepseek.com"),
+            extra_body: config.extra_body.clone(),
+            openai: config.host() == Some("api.openai.com"),
+            local: config.is_local(),
             system_prompt: system_prompt(dictionary),
             api_key,
             agent,
@@ -73,17 +81,22 @@ impl LlmCleaner {
     }
 
     fn request_body(&self, raw: &str) -> Value {
+        let max_tokens = (raw.len() / 2 + 256).min(4096);
         let mut body = json!({
             "model": self.model,
-            "temperature": 0,
-            "max_tokens": (raw.len() / 2 + 256).min(4096),
             "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": format!("<dictee>{raw}</dictee>")},
             ],
         });
-        if self.disable_thinking {
-            body["thinking"] = json!({"type": "disabled"});
+        if self.openai {
+            body["max_completion_tokens"] = max_tokens.into();
+        } else {
+            body["temperature"] = 0.into();
+            body["max_tokens"] = max_tokens.into();
+        }
+        for (key, value) in &self.extra_body {
+            body[key] = value.clone();
         }
         body
     }
@@ -91,13 +104,15 @@ impl LlmCleaner {
 
 impl PostProcessor for LlmCleaner {
     fn process(&self, raw: &str) -> Result<Cleaned, Error> {
-        let key = (self.api_key)()
-            .filter(|k| !k.trim().is_empty())
-            .ok_or_else(|| Error::PostProcess("aucune clé API enregistrée".into()))?;
-        let mut response = self
-            .agent
-            .post(&self.endpoint)
-            .header("Authorization", &format!("Bearer {}", key.trim()))
+        let key = (self.api_key)().filter(|k| !k.trim().is_empty());
+        if key.is_none() && !self.local {
+            return Err(Error::PostProcess("aucune clé API enregistrée".into()));
+        }
+        let mut request = self.agent.post(&self.endpoint);
+        if let Some(key) = key {
+            request = request.header("Authorization", &format!("Bearer {}", key.trim()));
+        }
+        let mut response = request
             .send_json(self.request_body(raw))
             .map_err(|e| Error::PostProcess(format!("requête : {e}")))?;
 
@@ -341,22 +356,48 @@ mod tests {
 
     #[test]
     fn missing_key_fails_without_network() {
-        let err = cleaner("http://127.0.0.1:9", None)
+        let err = cleaner("https://api.example.com", None)
             .process("bonjour")
             .unwrap_err();
         assert!(err.to_string().contains("aucune clé"));
     }
 
     #[test]
-    fn thinking_disabled_only_for_deepseek() {
+    fn extra_body_is_merged_into_request() {
         let deepseek = cleaner("https://api.deepseek.com/", Some("k"));
         assert_eq!(
             deepseek.endpoint,
             "https://api.deepseek.com/chat/completions"
         );
         assert_eq!(deepseek.request_body("x")["thinking"]["type"], "disabled");
-        let other = cleaner("https://api.example.com/v1", Some("k"));
-        assert!(other.request_body("x").get("thinking").is_none());
+
+        let mut config = config("https://api.example.com/v1");
+        config.extra_body = Map::new();
+        config.extra_body.insert("temperature".into(), json!(0.3));
+        let other = LlmCleaner::new(&config, &[], Box::new(|| None));
+        let body = other.request_body("x");
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["temperature"], 0.3, "extra_body l'emporte");
+        assert!(body["max_tokens"].is_number());
+    }
+
+    #[test]
+    fn openai_gets_max_completion_tokens_without_temperature() {
+        let mut config = config("https://api.openai.com/v1");
+        config.extra_body = Map::new();
+        let body = LlmCleaner::new(&config, &[], Box::new(|| None)).request_body("x");
+        assert!(body["max_completion_tokens"].is_number());
+        assert!(body.get("max_tokens").is_none() && body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn local_model_works_without_key() {
+        let (url, server) = serve_once(200, r#"{"choices":[{"message":{"content":"Bonjour."}}]}"#);
+        let url = url.replace("127.0.0.1", "localhost");
+        let cleaned = cleaner(&url, None).process("bonjour").unwrap();
+        assert_eq!(cleaned.text, "Bonjour.");
+        let request = server.join().unwrap();
+        assert!(!request.to_ascii_lowercase().contains("authorization"));
     }
 
     #[test]

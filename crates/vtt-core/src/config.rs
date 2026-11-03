@@ -4,6 +4,7 @@
 //! valide, les clés absentes prennent leur valeur par défaut.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -68,6 +69,71 @@ pub struct LlmConfig {
     pub timeout_ms: u32,
     /// Tarif du modèle, pour estimer le coût du nettoyage.
     pub pricing: Pricing,
+    /// Champs ajoutés tels quels à chaque requête, propres au fournisseur
+    /// (ex. désactiver la « réflexion » de DeepSeek ou GLM).
+    pub extra_body: Map<String, Value>,
+}
+
+/// Délai accepté pour le nettoyage (les modèles locaux sont plus lents).
+pub const LLM_TIMEOUT_RANGE_MS: std::ops::RangeInclusive<u32> = 500..=60_000;
+
+impl LlmConfig {
+    /// Nom d'hôte de `base_url`, sans port (`api.deepseek.com`, `localhost`…).
+    pub fn host(&self) -> Option<&str> {
+        let rest = self
+            .base_url
+            .strip_prefix("https://")
+            .or_else(|| self.base_url.strip_prefix("http://"))?;
+        let authority = rest.split('/').next()?;
+        let host = match authority.strip_prefix('[') {
+            // IPv6 : [::1]:8080
+            Some(v6) => v6.split(']').next()?,
+            None => authority.split(':').next()?,
+        };
+        (!host.is_empty()).then_some(host)
+    }
+
+    /// Modèle tournant sur ce PC (Ollama, LM Studio…) : pas de clé requise,
+    /// HTTP simple accepté.
+    pub fn is_local(&self) -> bool {
+        matches!(self.host(), Some("localhost" | "127.0.0.1" | "::1"))
+    }
+
+    /// Vérifie une configuration saisie dans les réglages.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.host().is_none() {
+            return Err("adresse invalide : attendu https://hôte/…".into());
+        }
+        // La clé API part dans l'en-tête : jamais en clair sur le réseau.
+        if !self.base_url.starts_with("https://") && !self.is_local() {
+            return Err(
+                "adresse en https:// obligatoire (http:// seulement pour un modèle local)".into(),
+            );
+        }
+        if self.model.trim().is_empty() {
+            return Err("nom du modèle manquant".into());
+        }
+        if !LLM_TIMEOUT_RANGE_MS.contains(&self.timeout_ms) {
+            return Err(format!(
+                "délai entre {} et {} ms",
+                LLM_TIMEOUT_RANGE_MS.start(),
+                LLM_TIMEOUT_RANGE_MS.end()
+            ));
+        }
+        let p = &self.pricing;
+        let prices = [
+            p.input_per_million,
+            p.cached_input_per_million,
+            p.output_per_million,
+        ];
+        if prices.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err("tarifs : nombres positifs attendus".into());
+        }
+        if p.currency.len() != 3 || !p.currency.chars().all(|c| c.is_ascii_uppercase()) {
+            return Err("devise : code à 3 lettres (USD, EUR…)".into());
+        }
+        Ok(())
+    }
 }
 
 /// Prix par million de jetons. À ajuster si le modèle ou le fournisseur change.
@@ -102,6 +168,7 @@ impl Default for LlmConfig {
             model: "deepseek-flash".into(),
             timeout_ms: 3000,
             pricing: Pricing::default(),
+            extra_body: deepseek_extra_body(),
         }
     }
 }
@@ -130,6 +197,13 @@ pub struct Snippet {
     pub trigger: String,
     /// Texte inséré à la place.
     pub text: String,
+}
+
+/// DeepSeek active par défaut un mode « réflexion » lent et inutile ici.
+fn deepseek_extra_body() -> Map<String, Value> {
+    let mut extra = Map::new();
+    extra.insert("thinking".into(), json!({"type": "disabled"}));
+    extra
 }
 
 /// Anciens noms de modèles LLM → nom actuel.
@@ -194,6 +268,49 @@ mod tests {
         assert_eq!(config.migrate().len(), 1);
         assert_eq!(config.llm.model, "deepseek-flash");
         assert!(config.migrate().is_empty());
+    }
+
+    #[test]
+    fn default_llm_disables_deepseek_thinking() {
+        let config = Config::from_toml("[llm]\nmodel = \"deepseek-flash\"\n").unwrap();
+        assert_eq!(config.llm.extra_body["thinking"]["type"], "disabled");
+        // Un choix explicite (table vide) est respecté.
+        let config = Config::from_toml("[llm.extra_body]\n").unwrap();
+        assert!(config.llm.extra_body.is_empty());
+    }
+
+    #[test]
+    fn llm_host_and_locality() {
+        let llm = |url: &str| LlmConfig {
+            base_url: url.into(),
+            ..LlmConfig::default()
+        };
+        assert_eq!(llm("https://api.z.ai/api/paas/v4").host(), Some("api.z.ai"));
+        assert_eq!(llm("http://localhost:11434/v1").host(), Some("localhost"));
+        assert_eq!(llm("http://[::1]:8080/v1").host(), Some("::1"));
+        assert_eq!(llm("ftp://x").host(), None);
+        assert_eq!(llm("https://").host(), None);
+        assert!(llm("http://127.0.0.1:1234/v1").is_local());
+        assert!(!llm("https://api.openai.com/v1").is_local());
+    }
+
+    #[test]
+    fn llm_validation() {
+        let ok = LlmConfig::default();
+        assert!(ok.validate().is_ok());
+        let with = |f: &dyn Fn(&mut LlmConfig)| {
+            let mut llm = LlmConfig::default();
+            f(&mut llm);
+            llm.validate()
+        };
+        assert!(with(&|l| l.base_url = "http://api.openai.com/v1".into()).is_err());
+        assert!(with(&|l| l.base_url = "http://localhost:11434/v1".into()).is_ok());
+        assert!(with(&|l| l.base_url = "pas une url".into()).is_err());
+        assert!(with(&|l| l.model = "  ".into()).is_err());
+        assert!(with(&|l| l.timeout_ms = 100).is_err());
+        assert!(with(&|l| l.pricing.output_per_million = -1.0).is_err());
+        assert!(with(&|l| l.pricing.input_per_million = f64::NAN).is_err());
+        assert!(with(&|l| l.pricing.currency = "euro".into()).is_err());
     }
 
     #[test]
