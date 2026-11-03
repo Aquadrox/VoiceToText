@@ -27,7 +27,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Validé sur le PC : nettoyage 720–1070 ms par dictée, préchauffage 0,2 s (modèle en cache)
 - ✅ Journal daté, purgé au-delà de 3 Mo (garde les 100 dernières lignes)
 - ✅ Snippets : dicter seulement le déclencheur insère le texte fixe, sans LLM (config.toml en attendant l'interface v0.4)
-- ⬜ Historique
+- ✅ Historique : 1000 dernières dictées sur le PC, fenêtre « Historique… » (recherche, brut/nettoyé, copier, tout effacer)
 
 ## v0.3 — Confort ⬜
 
@@ -43,7 +43,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 
 - ⬜ Tableau de bord : statistiques (mots dictés, vitesse, temps gagné, nombre de dictées)
-- ⬜ Historique consultable (brut / nettoyé, copier, recoller)
+- ⬜ Historique intégré à l'interface (recoller, statistiques)
 - ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
 
 ## v0.5 — Distribution et mises à jour ⬜

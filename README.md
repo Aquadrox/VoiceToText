@@ -8,7 +8,7 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 
 ## Installation (Windows)
 
-1. Télécharger l'installeur : onglet **Actions** du dépôt → dernier run réussi → artefact `VoiceToText-installeur-windows` (ou page **Releases**).
+1. Télécharger l'installeur depuis la page **Releases** du dépôt (`VoiceToText_x.y.z_x64-setup.exe`).
 2. Lancer `VoiceToText_x.y.z_x64-setup.exe` (installation pour l'utilisateur courant, sans droits admin).
 3. Au premier lancement, le modèle Whisper (874 Mo) se télécharge : progression affichée dans la pastille en bas de l'écran.
 
@@ -16,7 +16,7 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 
 - **Maintenir AltGr**, parler, **relâcher** : le texte est collé dans l'application active.
 - AltGr + une autre touche (`@`, `#`, `€`…) fonctionne normalement : la dictée est annulée.
-- Icône de notification : état, réglages, configuration, journaux, redémarrage.
+- Icône de notification : état, historique des dictées, réglages, configuration, journaux, redémarrage.
 
 ### Nettoyage du texte (DeepSeek)
 
@@ -46,6 +46,10 @@ enabled = true
 base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
 timeout_ms = 3000
+
+[history]
+enabled = true       # dictées conservées sur ce PC uniquement
+max_entries = 1000
 
 # Snippets : dicter seulement le déclencheur insère le texte tel quel
 # (sans LLM). Casse, accents et ponctuation ne comptent pas.

@@ -80,6 +80,8 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 
 - L'audio ne quitte jamais le PC (ASR local).
 - Le **texte** transcrit est envoyé à l'API DeepSeek pour le nettoyage. Désactivable dans les réglages (`llm.enabled = false`).
+- L'**historique** des dictées (texte brut et final) est stocké en clair dans `%LOCALAPPDATA%\VoiceToText\history.jsonl`, protégé par les droits du compte Windows comme les autres fichiers du profil. Jamais envoyé ailleurs. Limité à 1000 dictées, effaçable depuis la fenêtre Historique, désactivable (`history.enabled = false`). Le journal, lui, ne contient jamais le texte dicté.
+- Dans les fenêtres, le texte dicté est affiché avec `textContent` uniquement : une dictée contenant du HTML ne peut pas s'exécuter.
 
 ## Points d'attention Windows
 

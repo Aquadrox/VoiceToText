@@ -11,6 +11,7 @@ pub struct Config {
     pub hotkey: HotkeyConfig,
     pub asr: AsrConfig,
     pub llm: LlmConfig,
+    pub history: HistoryConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     pub snippets: Vec<Snippet>,
@@ -74,6 +75,24 @@ impl Default for LlmConfig {
             base_url: "https://api.deepseek.com".into(),
             model: "deepseek-flash".into(),
             timeout_ms: 3000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoryConfig {
+    /// Conserver les dictées sur le PC (jamais envoyées ailleurs).
+    pub enabled: bool,
+    /// Au-delà, les plus anciennes sont effacées.
+    pub max_entries: usize,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_entries: 1000,
         }
     }
 }

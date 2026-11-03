@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod controller;
+mod history;
 mod logging;
 mod model;
 mod paths;
@@ -9,11 +10,13 @@ mod settings;
 mod status;
 mod tray;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, PhysicalPosition, WebviewWindow};
 use vtt_core::Config;
+use vtt_core::history::History;
 
+use crate::history::HistoryStore;
 use crate::paths::Paths;
 use crate::status::{Status, StatusReporter};
 
@@ -39,6 +42,8 @@ fn main() {
             settings::save_api_key,
             settings::delete_api_key,
             settings::test_cleanup,
+            history::history_view,
+            history::clear_history,
         ])
         .setup(move |app| {
             let status_item = tray::build(app, &paths)?;
@@ -46,6 +51,11 @@ fn main() {
             app.manage(Arc::clone(&reporter));
             let config = Arc::new(config);
             app.manage(Arc::clone(&config));
+            let history: HistoryStore =
+                Arc::new(Mutex::new(config.history.enabled.then(|| {
+                    History::open(paths.history_file.clone(), config.history.max_entries)
+                })));
+            app.manage(Arc::clone(&history));
 
             if let Some(overlay) = app.get_webview_window("overlay") {
                 show_overlay(&overlay)?;
@@ -55,7 +65,7 @@ fn main() {
                 Some(e) => reporter.set(Status::Error(e)),
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
-            controller::spawn(reporter, Config::clone(&config), paths);
+            controller::spawn(reporter, history, Config::clone(&config), paths);
             Ok(())
         })
         .run(tauri::generate_context!())
