@@ -30,6 +30,7 @@ pub fn record(
         snippet,
         command,
         usage,
+        fallback,
     } = outcome
     else {
         return;
@@ -49,6 +50,7 @@ pub fn record(
         usage: *usage,
         cost: usage.map(|u| pricing.cost(&u)),
         currency: usage.map(|_| pricing.currency.clone()),
+        fallback: fallback.clone(),
     };
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(history) = guard.as_mut()

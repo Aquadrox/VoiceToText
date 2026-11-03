@@ -48,7 +48,9 @@ function renderEntry(entry) {
       ? "snippet"
       : entry.cleanup_failed
         ? "non nettoyé"
-        : "";
+        : entry.fallback
+          ? `secours : ${entry.fallback}`
+          : "";
   item.querySelector(".text").textContent = entry.text;
   const raw = item.querySelector("details");
   if (entry.command) raw.querySelector("summary").textContent = "Consigne";

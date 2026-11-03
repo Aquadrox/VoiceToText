@@ -185,6 +185,8 @@ Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitatio
 
 **Profils** : « Enregistrer comme profil » garde la configuration sous un nom (« DeepSeek », « Ollama du NAS »…) ; la liste **Profil** permet ensuite de passer de l'un à l'autre (choisir, puis **Appliquer**). Le profil actif est marqué *(actif)*.
 
+**Profil de secours** : si le fournisseur échoue (panne, délai dépassé, clé refusée, réponse vide), le texte est envoyé au profil choisi dans **Profil de secours** avant de se replier sur le texte brut. Exemple : DeepSeek en principal, l'Ollama du réseau local en secours. Le Command Mode en profite aussi. L'historique marque ces dictées *secours : nom du profil* et leur coût suit le tarif du profil de secours. Le délai total peut atteindre la somme des deux délais.
+
 Adresses : l'application ajoute elle-même `/chat/completions` (s'il a été recopié, il est retiré). Pour **Ollama** ou **LM Studio**, l'adresse se termine par `/v1` : `http://localhost:11434/v1` sur ce PC, `http://192.168.1.20:11434/v1` sur une autre machine du réseau (Ollama lancé avec `OLLAMA_HOST=0.0.0.0`).
 
 - La clé n'est envoyée qu'en HTTPS, ou en HTTP vers ce PC : **jamais en clair sur le réseau** (un serveur local du réseau fonctionne sans clé).
@@ -272,6 +274,7 @@ enabled = true
 base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
 timeout_ms = 3000    # au-delà, le texte brut est inséré (30 s minimum pour le Command Mode)
+fallback_profile = "Ollama du NAS"   # profil essayé si celui-ci échoue ("" ou absent = aucun)
 
 # Tarif par million de jetons, pour le coût estimé.
 [llm.pricing]

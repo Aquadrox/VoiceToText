@@ -67,11 +67,11 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Clé API rattachée à l'adresse saisie dans le formulaire
 - ✅ Prompts système éditables (page Prompts) : nettoyage et Command Mode, prompt intégré en référence, copies modifiables, test sur exemple, prompt actif par profil LLM, appliqués à chaud
 
-## v0.7 — Fiabilité 🚧
+## v0.7 — Fiabilité ✅
 
 - ✅ Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
 - ✅ Libérer la mémoire graphique : Whisper déchargé après 5 à 60 min sans dicter (`asr.unload_after_min`) ou pendant un jeu / une vidéo en plein écran (`asr.unload_in_fullscreen`, après une minute sans dicter), rechargé dès le début de la dictée suivante, pendant que l'utilisateur parle
-- ⬜ Profil LLM de secours : si le fournisseur principal échoue, essai d'un second profil avant le repli sur le texte brut
+- ✅ Profil LLM de secours (`llm.fallback_profile`) : si le fournisseur principal échoue ou répond vide, un second profil est essayé (nettoyage et Command Mode) avant le repli sur le texte brut ; coût au tarif du secours, dictée marquée dans l'historique
 
 ## v0.8 — Confort de dictée ⬜
 

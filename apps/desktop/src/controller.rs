@@ -96,8 +96,39 @@ pub struct Reconfiguration {
     /// Nettoyage reconstruit (nouveau fournisseur ou dictionnaire ; `None` :
     /// désactivé).
     pub post_processor: Option<Box<dyn PostProcessor>>,
-    /// Tarif du fournisseur, pour le coût des prochaines dictées.
-    pub pricing: Pricing,
+    /// Tarifs des fournisseurs, pour le coût des prochaines dictées.
+    pub tariffs: Tariffs,
+}
+
+/// Tarif du fournisseur principal et de celui du profil de secours.
+#[derive(Debug, Clone)]
+pub struct Tariffs {
+    main: Pricing,
+    fallback: Option<Pricing>,
+}
+
+impl Tariffs {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            main: config.llm.pricing.clone(),
+            fallback: config
+                .fallback_for(&config.llm)
+                .map(|p| p.llm.pricing.clone()),
+        }
+    }
+
+    /// Tarif du fournisseur qui a répondu.
+    fn for_outcome(&self, outcome: &Outcome) -> &Pricing {
+        match (outcome, &self.fallback) {
+            (
+                Outcome::Inserted {
+                    fallback: Some(_), ..
+                },
+                Some(fallback),
+            ) => fallback,
+            _ => &self.main,
+        }
+    }
 }
 
 /// Applique `config` (dictionnaire, snippets, styles, fournisseur LLM) au
@@ -113,7 +144,7 @@ pub fn reconfigure(worker: &WorkerHandle, config: &Config) -> bool {
                 snippets: config.snippets.clone(),
                 styles: config.styles.clone(),
                 post_processor: settings::build_cleaner(config),
-                pricing: config.llm.pricing.clone(),
+                tariffs: Tariffs::from_config(config),
             }))
             .is_ok()
     })
@@ -186,7 +217,7 @@ fn run(
     let clips = spawn_worker(
         pipeline,
         recorders,
-        config.llm.pricing.clone(),
+        Tariffs::from_config(config),
         UnloadPolicy::from_config(&config.asr),
         config.hotkey.retry.trim().to_owned(),
         Arc::clone(reporter),
@@ -335,7 +366,7 @@ impl Controls<'_> {
 fn spawn_worker(
     mut pipeline: Pipeline,
     recorders: Recorders,
-    mut pricing: Pricing,
+    mut tariffs: Tariffs,
     unload: UnloadPolicy,
     retry_shortcut: String,
     reporter: Arc<StatusReporter>,
@@ -396,7 +427,7 @@ fn spawn_worker(
                             &r.styles,
                             r.post_processor,
                         );
-                        pricing = r.pricing;
+                        tariffs = r.tariffs;
                         log::info!(
                             "configuration appliquée : {} mot(s), {} snippet(s), {} style(s)",
                             r.dictionary.len(),
@@ -422,7 +453,8 @@ fn spawn_worker(
                         // Une dictée réessayée n'est comptée qu'une fois dans
                         // les statistiques ; son coût, lui, est bien réel.
                         let stats = delivery.is_none();
-                        record(&recorders, &job, &target, &outcome, &pricing, stats);
+                        let pricing = tariffs.for_outcome(&outcome);
+                        record(&recorders, &job, &target, &outcome, pricing, stats);
                         if delivery.is_some() && outcome == Outcome::Skipped {
                             reporter.set(Status::Error(
                                 "la dernière dictée ne contenait aucune parole".into(),

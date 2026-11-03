@@ -98,6 +98,8 @@ pub trait Transcriber: Send + Sync {
 pub struct Cleaned {
     pub text: String,
     pub usage: Option<Usage>,
+    /// Nom du profil de secours qui a répondu (`None` : le principal).
+    pub fallback: Option<String>,
 }
 
 pub trait PostProcessor: Send + Sync {
@@ -109,6 +111,63 @@ pub trait PostProcessor: Send + Sync {
     fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
         let _ = (instruction, selection);
         Err(Error::PostProcess("Command Mode non pris en charge".into()))
+    }
+}
+
+/// Nettoyage principal doublé d'un profil de secours, essayé quand le
+/// principal échoue ou répond vide, avant le repli sur le texte brut.
+pub struct WithFallback {
+    primary: Box<dyn PostProcessor>,
+    fallback: Box<dyn PostProcessor>,
+    name: String,
+}
+
+impl WithFallback {
+    pub fn new(
+        primary: Box<dyn PostProcessor>,
+        fallback: Box<dyn PostProcessor>,
+        name: impl Into<String>,
+    ) -> Self {
+        Self {
+            primary,
+            fallback,
+            name: name.into(),
+        }
+    }
+
+    fn attempt(
+        &self,
+        call: impl Fn(&dyn PostProcessor) -> Result<Cleaned, Error>,
+    ) -> Result<Cleaned, Error> {
+        let primary_error = match call(self.primary.as_ref()) {
+            Ok(cleaned) if !cleaned.text.trim().is_empty() => return Ok(cleaned),
+            Ok(_) => "réponse vide".to_owned(),
+            Err(e) => e.to_string(),
+        };
+        log::warn!(
+            "LLM principal en échec ({primary_error}), essai du profil de secours « {} »",
+            self.name
+        );
+        match call(self.fallback.as_ref()) {
+            Ok(mut cleaned) => {
+                cleaned.fallback = Some(self.name.clone());
+                Ok(cleaned)
+            }
+            Err(e) => Err(Error::PostProcess(format!(
+                "{primary_error} ; secours « {} » : {e}",
+                self.name
+            ))),
+        }
+    }
+}
+
+impl PostProcessor for WithFallback {
+    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
+        self.attempt(|p| p.process(raw, style))
+    }
+
+    fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
+        self.attempt(|p| p.command(instruction, selection))
     }
 }
 
@@ -133,6 +192,8 @@ pub enum Outcome {
         usage: Option<Usage>,
         /// Command Mode : `raw` est la consigne, `text` le résultat.
         command: bool,
+        /// Profil de secours qui a répondu à la place du LLM principal.
+        fallback: Option<String>,
     },
 }
 
@@ -282,6 +343,7 @@ impl Pipeline {
                 snippet: true,
                 usage: None,
                 command: false,
+                fallback: None,
             });
         }
 
@@ -306,14 +368,22 @@ impl Pipeline {
             .map(|(_, s)| s.instructions.trim())
             .filter(|i| !i.is_empty());
         let started = Instant::now();
-        let (text, post_process_error, usage) = match processor {
-            None => (raw.clone(), None, None),
+        let (text, post_process_error, usage, fallback) = match processor {
+            None => (raw.clone(), None, None, None),
             Some(processor) => match processor.process(&raw, instructions) {
-                Ok(cleaned) if !cleaned.text.trim().is_empty() => {
-                    (cleaned.text.trim().to_owned(), None, cleaned.usage)
-                }
-                Ok(cleaned) => (raw.clone(), Some("réponse vide".to_owned()), cleaned.usage),
-                Err(err) => (raw.clone(), Some(err.to_string()), None),
+                Ok(cleaned) if !cleaned.text.trim().is_empty() => (
+                    cleaned.text.trim().to_owned(),
+                    None,
+                    cleaned.usage,
+                    cleaned.fallback,
+                ),
+                Ok(cleaned) => (
+                    raw.clone(),
+                    Some("réponse vide".to_owned()),
+                    cleaned.usage,
+                    cleaned.fallback,
+                ),
+                Err(err) => (raw.clone(), Some(err.to_string()), None, None),
             },
         };
 
@@ -324,6 +394,10 @@ impl Pipeline {
         let tokens = usage.map_or(String::new(), |u| {
             format!(" ({} + {} jetons)", u.input_tokens, u.output_tokens)
         });
+        let tokens = match &fallback {
+            Some(name) => format!("{tokens} via le secours « {name} »"),
+            None => tokens,
+        };
         log::info!(
             "dictée de {} ms : ASR {asr_ms} ms, nettoyage {post_ms} ms{tokens}, insertion {} ms",
             clip.duration_ms(),
@@ -336,6 +410,7 @@ impl Pipeline {
             snippet: false,
             usage,
             command: false,
+            fallback,
         })
     }
 
@@ -387,6 +462,7 @@ impl Pipeline {
             snippet: false,
             usage: result.usage,
             command: true,
+            fallback: result.fallback,
         })
     }
 }
@@ -419,6 +495,7 @@ mod tests {
             Ok(Cleaned {
                 text,
                 usage: Some(USAGE),
+                fallback: None,
             })
         }
 
@@ -426,6 +503,7 @@ mod tests {
             Ok(Cleaned {
                 text: format!("{instruction} → {}", selection.unwrap_or("∅")),
                 usage: Some(USAGE),
+                fallback: None,
             })
         }
     }
@@ -525,9 +603,65 @@ mod tests {
                 snippet: false,
                 usage: Some(USAGE),
                 command: false,
+                fallback: None,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
+    }
+
+    #[test]
+    fn fallback_answers_when_primary_fails() {
+        let processor = WithFallback::new(Box::new(Failing), Box::new(Upper), "Ollama");
+        let (p, sink) = pipeline("bonjour", Some(Box::new(processor)));
+        match p.run(&clip_ms(1000), &no_target()).unwrap() {
+            Outcome::Inserted {
+                text,
+                post_process_error,
+                fallback,
+                ..
+            } => {
+                assert_eq!(text, "BONJOUR");
+                assert_eq!(post_process_error, None);
+                assert_eq!(fallback.as_deref(), Some("Ollama"));
+            }
+            other => panic!("inattendu : {other:?}"),
+        }
+        assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
+    }
+
+    #[test]
+    fn fallback_is_skipped_when_primary_succeeds() {
+        let processor = WithFallback::new(Box::new(Upper), Box::new(Failing), "Ollama");
+        let cleaned = processor.process("salut", None).unwrap();
+        assert_eq!(cleaned.text, "SALUT");
+        assert_eq!(cleaned.fallback, None);
+    }
+
+    #[test]
+    fn both_failing_falls_back_to_raw_with_both_errors() {
+        let processor = WithFallback::new(Box::new(Failing), Box::new(Failing), "Ollama");
+        let (p, sink) = pipeline("bonjour", Some(Box::new(processor)));
+        match p.run(&clip_ms(1000), &no_target()).unwrap() {
+            Outcome::Inserted {
+                text,
+                post_process_error: Some(error),
+                fallback: None,
+                ..
+            } => {
+                assert_eq!(text, "bonjour");
+                assert!(error.contains("secours « Ollama »"), "{error}");
+            }
+            other => panic!("inattendu : {other:?}"),
+        }
+        assert_eq!(*sink.0.lock().unwrap(), ["bonjour"]);
+    }
+
+    #[test]
+    fn fallback_also_serves_command_mode() {
+        let processor = WithFallback::new(Box::new(Failing), Box::new(Upper), "Ollama");
+        let cleaned = processor.command("traduis", Some("bonjour")).unwrap();
+        assert_eq!(cleaned.text, "traduis → bonjour");
+        assert_eq!(cleaned.fallback.as_deref(), Some("Ollama"));
     }
 
     #[test]
@@ -582,6 +716,7 @@ mod tests {
                 snippet: true,
                 usage: None,
                 command: false,
+                fallback: None,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["Florian\nVoiceToText"]);
