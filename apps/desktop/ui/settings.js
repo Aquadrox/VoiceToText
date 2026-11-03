@@ -246,3 +246,17 @@ $("test").addEventListener("click", () =>
 );
 
 refresh().then((view) => fillProvider(view.llm));
+
+// Consommation en direct : les dictées se font dans d'autres fenêtres, la
+// fenêtre des réglages ne reçoit donc pas le focus. Rafraîchie toutes les
+// 2 s tant qu'elle est visible (lecture locale, aucune requête réseau).
+const USAGE_REFRESH_MS = 2000;
+setInterval(async () => {
+  if (document.hidden) return;
+  try {
+    const view = await invoke("settings_view");
+    renderUsage(view.usage);
+  } catch {
+    // Prochain essai dans 2 s.
+  }
+}, USAGE_REFRESH_MS);
