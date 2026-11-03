@@ -62,7 +62,8 @@ Accélérer la CI sans baisser la garde :
 - ✅ Les vérifications obligatoires `linux` et `windows` répondent toujours, même pour la doc (étapes sautées, job réussi). Pas de `[skip ci]` sur une branche de PR
 - ✅ Au moindre doute (fichier non classé, historique introuvable), tout est vérifié
 - ✅ Suite complète + installeur toujours sur `main` et sur les tags : rien n'est publié sans tout repasser
-- ✅ Cache de compilation corrigé : l'installeur se recompilait entièrement (~10 min) faute de cache release ; le cache est désormais alimenté par `main` et réutilisé par les PR
+- ✅ Cache de compilation corrigé : rust-cache recevait un chemin absolu (`C:\t`) qu'il collait derrière le dépôt, et ne sauvegardait donc aucun fichier compilé ; chemin relatif (`D:\t`), cache alimenté par `main` et réutilisé par les PR
+- ✅ CLI Tauri précompilée via npm au lieu de `cargo install` (10 min de compilation à chaque cache vide)
 - ✅ Un nouveau push sur une PR annule la vérification précédente
 
 ## Plus tard
