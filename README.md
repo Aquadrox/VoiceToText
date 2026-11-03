@@ -127,10 +127,10 @@ Modèles prêts : **Messagerie**, **E-mail**, **Code**. Le premier style qui cor
 - **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique.
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
-- **Nettoyage du texte** : fournisseur LLM, modèle, délai, tarif, paramètres avancés.
-- **Clé API**, bouton **Tester**, **Consommation** (requêtes, jetons, coût du jour, du mois, total).
+- **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
+- **Clé API** (pour l'adresse saisie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
 
-Les sections Raccourcis, Micro et transcription, Mises à jour et Nettoyage du texte s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le démarrage avec Windows et la clé API s'appliquent immédiatement.
+Raccourcis, micro, modèle Whisper et mises à jour s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent immédiatement, sans redémarrer.
 
 Modèles Whisper proposés :
 
@@ -150,9 +150,19 @@ Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitatio
 
 ### Changer de fournisseur
 
-**Réglages → Nettoyage du texte → Fournisseur** : DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, **Ollama (sur ce PC)** ou toute API compatible OpenAI. Renseigner le modèle et son tarif → **Enregistrer et redémarrer**, puis saisir la clé de ce fournisseur. **Chaque fournisseur garde sa propre clé**.
+**Réglages → Nettoyage du texte** :
 
-- La clé n'est envoyée qu'en HTTPS (HTTP seulement vers un modèle local).
+1. **Fournisseur** : DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, **Ollama (ce PC ou réseau local)** ou toute API compatible OpenAI. Le préréglage remplit l'adresse ; renseigner le modèle et son tarif.
+2. **Clé API** (section suivante) : saisir la clé du fournisseur. **Chaque adresse garde sa propre clé**.
+3. **Tester ces réglages** : envoie une phrase d'exemple avec ce qui est saisi, **sans rien enregistrer**, et affiche un compte rendu : adresse exacte appelée, clé envoyée ou non, durée, réponse ou erreur, jetons et coût, **modèles disponibles sur le serveur** (un clic en choisit un), et des **pistes** en cas d'échec (« ajoutez /v1 », « rien n'écoute sur ce port », « nom de modèle inexact »…).
+4. **Appliquer** : actif dès la dictée suivante, sans redémarrer.
+
+**Profils** : « Enregistrer comme profil » garde la configuration sous un nom (« DeepSeek », « Ollama du NAS »…) ; la liste **Profil** permet ensuite de passer de l'un à l'autre (choisir, puis **Appliquer**). Le profil actif est marqué *(actif)*.
+
+Adresses : l'application ajoute elle-même `/chat/completions` (s'il a été recopié, il est retiré). Pour **Ollama** ou **LM Studio**, l'adresse se termine par `/v1` : `http://localhost:11434/v1` sur ce PC, `http://192.168.1.20:11434/v1` sur une autre machine du réseau (Ollama lancé avec `OLLAMA_HOST=0.0.0.0`).
+
+- La clé n'est envoyée qu'en HTTPS, ou en HTTP vers ce PC : **jamais en clair sur le réseau** (un serveur local du réseau fonctionne sans clé).
+- HTTP n'est accepté que vers ce PC ou le réseau local (adresses privées, noms en `.local`).
 - GLM-5.3 ne permet pas de désactiver la « réflexion » (plus lent) : le préréglage propose glm-5.2.
 
 ### Coût
@@ -268,6 +278,14 @@ instructions = "Messagerie : ton conversationnel, phrases courtes, pas de formul
 [[styles]]
 apps = ["code.exe"]
 cleanup = false      # texte brut, sans LLM
+
+# Profils LLM enregistrés (Réglages → Nettoyage du texte → Profil).
+[[llm_profiles]]
+name = "Ollama du NAS"
+base_url = "http://192.168.1.20:11434/v1"
+model = "qwen3:8b"
+timeout_ms = 15000
+extra_body = {}
 ```
 
 ## Dépannage
@@ -276,7 +294,8 @@ cleanup = false      # texte brut, sans LLM
 |---|---|
 | Rien n'est collé dans une application | Application lancée **en administrateur** : Windows bloque l'insertion depuis une application normale. La relancer sans droits administrateur, ou copier le texte depuis l'**Historique**. |
 | La pastille affiche une erreur | Message complet dans le journal (menu **Ouvrir les journaux**). |
-| Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Tester** affiche la cause. |
+| Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Tester ces réglages** affiche la cause et des pistes. |
+| Serveur local (Ollama, LM Studio) injoignable | L'adresse doit se terminer par `/v1` ; sur une autre machine, Ollama doit écouter sur le réseau (`OLLAMA_HOST=0.0.0.0`) et le pare-feu autoriser le port 11434. **Tester ces réglages** liste les modèles si l'adresse est bonne. |
 | AltGr ne déclenche rien | Vérifier **Réglages → Raccourcis** ; une autre application peut capter la touche. Essayer F13 ou Ctrl droit. |
 | Alt+Maj+V sans effet | Raccourci pris par une autre application (voir le journal) : en choisir un autre dans **Réglages → Raccourcis**. Si plusieurs dispositions de clavier sont installées, Alt+Maj change aussi la langue : choisir un autre raccourci. |
 | Mauvais micro | **Réglages → Micro**. |

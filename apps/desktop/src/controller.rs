@@ -11,7 +11,6 @@ use vtt_asr::WhisperTranscriber;
 use vtt_core::config::{Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
-use vtt_llm::LlmCleaner;
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, now_ms};
 
@@ -51,8 +50,30 @@ pub struct Reconfiguration {
     pub dictionary: Vec<String>,
     pub snippets: Vec<Snippet>,
     pub styles: Vec<Style>,
-    /// Nettoyage reconstruit avec le nouveau dictionnaire (`None` : désactivé).
+    /// Nettoyage reconstruit (nouveau fournisseur ou dictionnaire ; `None` :
+    /// désactivé).
     pub post_processor: Option<Box<dyn PostProcessor>>,
+    /// Tarif du fournisseur, pour le coût des prochaines dictées.
+    pub pricing: Pricing,
+}
+
+/// Applique `config` (dictionnaire, snippets, styles, fournisseur LLM) au
+/// thread de traitement, sans recharger le modèle. `false` si le modèle est
+/// encore en chargement : la configuration enregistrée sera lue au démarrage
+/// suivant.
+pub fn reconfigure(worker: &WorkerHandle, config: &Config) -> bool {
+    let sender = worker.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    sender.is_some_and(|sender| {
+        sender
+            .send(Work::Reconfigure(Reconfiguration {
+                dictionary: config.dictionary.clone(),
+                snippets: config.snippets.clone(),
+                styles: config.styles.clone(),
+                post_processor: settings::build_cleaner(config),
+                pricing: config.llm.pricing.clone(),
+            }))
+            .is_ok()
+    })
 }
 
 /// Accès au thread de traitement depuis l'interface ; `None` tant que le
@@ -99,21 +120,15 @@ fn run(
         &config.dictionary,
     )
     .map_err(|e| e.to_string())?;
-    let cleaner: Option<Box<dyn PostProcessor>> = if config.llm.enabled {
-        log::info!(
+    let cleaner = settings::build_cleaner(config);
+    match &cleaner {
+        Some(_) => log::info!(
             "nettoyage : {} via {}",
             config.llm.model,
             config.llm.base_url
-        );
-        Some(Box::new(LlmCleaner::new(
-            &config.llm,
-            &config.dictionary,
-            settings::api_key_provider(&config.llm),
-        )))
-    } else {
-        log::info!("nettoyage désactivé (llm.enabled = false)");
-        None
-    };
+        ),
+        None => log::info!("nettoyage désactivé (llm.enabled = false)"),
+    }
     let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles);
@@ -270,7 +285,7 @@ impl Controls<'_> {
 fn spawn_worker(
     mut pipeline: Pipeline,
     recorders: Recorders,
-    pricing: Pricing,
+    mut pricing: Pricing,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
 ) -> mpsc::Sender<Work> {
@@ -292,8 +307,9 @@ fn spawn_worker(
                             &r.styles,
                             r.post_processor,
                         );
+                        pricing = r.pricing;
                         log::info!(
-                            "vocabulaire appliqué : {} mot(s), {} snippet(s), {} style(s)",
+                            "configuration appliquée : {} mot(s), {} snippet(s), {} style(s)",
                             r.dictionary.len(),
                             r.snippets.len(),
                             r.styles.len()

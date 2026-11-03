@@ -57,6 +57,16 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Manuel d'utilisation complet dans le README
 - ⬜ Validation sur le PC : passage 0.5.0 → 0.5.1 par la mise à jour automatique
 
+## v0.6 — Personnalisation du LLM 🚧
+
+- ✅ Réglages LLM appliqués à chaud, sans redémarrage
+- ✅ « Tester ces réglages » avant d'enregistrer : adresse appelée, clé envoyée ou non, réponse ou erreur, jetons et coût, modèles du serveur (`/models`, un clic pour choisir), pistes de correction (`/v1` manquant, port fermé, modèle inexact, clé refusée…)
+- ✅ Adresse normalisée (`/` final et `/chat/completions` recopié retirés)
+- ✅ Serveurs du réseau local (adresses privées, `.local`) en HTTP ; la clé n'est jamais envoyée en clair hors de ce PC
+- ✅ Profils LLM enregistrés, pour passer de l'un à l'autre
+- ✅ Clé API rattachée à l'adresse saisie dans le formulaire
+- ⬜ Prompts système éditables (nettoyage et Command Mode), plusieurs prompts enregistrés, choix du prompt actif
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

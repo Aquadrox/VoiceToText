@@ -216,6 +216,17 @@
               corriger la ponctuation. L'audio, lui, ne quitte jamais votre PC.
             </p>
 
+            <div class="profiles">
+              <label for="profile">Profil</label>
+              <div class="row">
+                <select id="profile"></select>
+                <button id="profile-delete" type="button" class="danger">Supprimer le profil</button>
+              </div>
+              <p class="muted small">
+                Choisir un profil remplit le formulaire ; « Appliquer » l'active.
+              </p>
+            </div>
+
             <form id="provider-form">
               <label class="inline">
                 <input id="enabled" type="checkbox" />
@@ -271,25 +282,30 @@
               </details>
 
               <div class="row">
-                <button id="save-provider" type="submit" class="primary">
-                  Enregistrer et redémarrer
-                </button>
+                <button id="provider-test" type="button">Tester ces réglages</button>
+                <button id="save-provider" type="submit" class="primary">Appliquer</button>
+              </div>
+              <div class="row">
+                <input id="profile-name" type="text" placeholder="Nom du profil (ex. Ollama du NAS)" spellcheck="false" />
+                <button id="profile-save" type="button">Enregistrer comme profil</button>
               </div>
             </form>
             <div id="provider-result" class="result" hidden></div>
+            <div id="diagnostic" class="diagnostic" hidden></div>
           </section>
 
           <section>
             <h2>Clé API <span id="key-host" class="muted"></span></h2>
+            <p class="muted small">Pour l'adresse saisie ci-dessus ; une clé par adresse.</p>
             <p id="key-status" class="status"></p>
             <div class="row">
               <input id="key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" />
               <button id="save" class="primary">Enregistrer</button>
             </div>
             <p class="muted small">
-              Une clé par fournisseur, stockée dans le Gestionnaire d'identifiants Windows
-              (VoiceToText/llm-api-key…), jamais en clair sur le disque. Prise en compte
-              immédiatement.
+              Stockée dans le Gestionnaire d'identifiants Windows (VoiceToText/llm-api-key…),
+              jamais en clair sur le disque, et jamais envoyée en HTTP hors de ce PC. « Tester »
+              utilise la clé saisie ici si elle est remplie, sinon celle enregistrée.
             </p>
 
             <div class="row">
