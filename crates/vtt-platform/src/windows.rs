@@ -118,6 +118,15 @@ pub fn key_is_down(key: u32) -> bool {
     unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 }
 }
 
+/// Une touche de modification (Ctrl, Maj, Alt, Windows) est enfoncée.
+///
+/// Un Ctrl+V simulé pendant que l'utilisateur tient encore Alt+Maj (son
+/// raccourci) deviendrait Ctrl+Alt+Maj+V : il faut attendre le relâchement.
+pub fn modifiers_down() -> bool {
+    const MODIFIERS: [u32; 5] = [0x10, 0x11, 0x12, 0x5B, 0x5C];
+    MODIFIERS.iter().any(|&key| key_is_down(key))
+}
+
 /// Un appui seul sur Alt active la barre de menus de l'application au
 /// relâchement. Une frappe neutre pendant l'appui l'en empêche (technique
 /// d'AutoHotkey).
@@ -149,6 +158,13 @@ fn send_keys(keys: &[(VIRTUAL_KEY, bool)]) -> bool {
         .collect();
     let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
     sent as usize == inputs.len()
+}
+
+/// Place le texte dans le presse-papier, sans coller.
+pub fn copy_text(text: &str) -> Result<(), String> {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text))
+        .map_err(|e| format!("presse-papier : {e}"))
 }
 
 /// Insère le texte via le presse-papier et un Ctrl+V simulé, puis remet

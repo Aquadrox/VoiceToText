@@ -19,6 +19,7 @@ use crate::costs::{self, LedgerStore};
 use crate::history::{self, HistoryStore};
 use crate::model;
 use crate::paths::Paths;
+use crate::raw_paste::{self, LastRaw};
 use crate::settings;
 use crate::status::{Status, StatusReporter};
 
@@ -32,17 +33,18 @@ const POLL: Duration = Duration::from_millis(100);
 /// jour après le passage dans le hook.
 const KEY_STATE_GRACE_MS: u64 = 300;
 
-pub fn spawn(
-    reporter: Arc<StatusReporter>,
-    history: HistoryStore,
-    ledger: LedgerStore,
-    config: Config,
-    paths: Paths,
-) {
+/// Ce qui est enregistré après chaque dictée.
+pub struct Recorders {
+    pub history: HistoryStore,
+    pub ledger: LedgerStore,
+    pub last_raw: LastRaw,
+}
+
+pub fn spawn(reporter: Arc<StatusReporter>, recorders: Recorders, config: Config, paths: Paths) {
     thread::Builder::new()
         .name("controller".into())
         .spawn(move || {
-            if let Err(e) = run(&reporter, history, ledger, &config, &paths) {
+            if let Err(e) = run(&reporter, recorders, &config, &paths) {
                 reporter.set(Status::Error(e));
             }
         })
@@ -51,8 +53,7 @@ pub fn spawn(
 
 fn run(
     reporter: &Arc<StatusReporter>,
-    history: HistoryStore,
-    ledger: LedgerStore,
+    recorders: Recorders,
     config: &Config,
     paths: &Paths,
 ) -> Result<(), String> {
@@ -94,14 +95,10 @@ fn run(
     }
 
     let recording = Arc::new(AtomicBool::new(false));
-    let recorders = Recorders {
-        history,
-        ledger,
-        pricing: config.llm.pricing.clone(),
-    };
     let clips = spawn_worker(
         pipeline,
         recorders,
+        config.llm.pricing.clone(),
         Arc::clone(reporter),
         Arc::clone(&recording),
     );
@@ -197,16 +194,10 @@ fn handle(
 
 /// Les dictées sont traitées une par une, hors du thread clavier, pour qu'une
 /// nouvelle dictée puisse commencer pendant la transcription de la précédente.
-/// Ce qui est enregistré après chaque dictée.
-struct Recorders {
-    history: HistoryStore,
-    ledger: LedgerStore,
-    pricing: Pricing,
-}
-
 fn spawn_worker(
     pipeline: Pipeline,
     recorders: Recorders,
+    pricing: Pricing,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
 ) -> mpsc::Sender<AudioClip> {
@@ -224,11 +215,11 @@ fn spawn_worker(
                         {
                             log::warn!("nettoyage ignoré : {e}");
                         }
-                        if let Outcome::Inserted {
-                            usage: Some(usage), ..
-                        } = &outcome
-                        {
-                            costs::record(&recorders.ledger, usage, &recorders.pricing);
+                        if let Outcome::Inserted { raw, usage, .. } = &outcome {
+                            raw_paste::remember(&recorders.last_raw, raw);
+                            if let Some(usage) = usage {
+                                costs::record(&recorders.ledger, usage, &pricing);
+                            }
                         }
                         history::record(&recorders.history, &clip, &outcome);
                     }
