@@ -45,6 +45,14 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ⬜ Historique consultable (brut / nettoyé, copier, recoller)
 - ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
 
+## v0.5 — Distribution et mises à jour ⬜
+
+- ⬜ Hébergement des installeurs accessible sans compte GitHub : le dépôt est privé, ses Releases ne sont pas téléchargeables par l'application. Options : VPS IONOS (fichiers statiques derrière HTTPS), dépôt public dédié aux seules releases, ou stockage en ligne
+- ⬜ Vérification au démarrage (puis toutes les quelques heures) : avertissement « nouvelle version disponible » dans la zone de notification
+- ⬜ Mise à jour automatique en un clic via le module de mise à jour de Tauri : paquets **signés** (clé privée hors du dépôt, dans les secrets de la CI), signature vérifiée avant installation
+- ⬜ Publication automatisée par la CI à chaque tag (installeur + manifeste `latest.json`)
+- ⬜ Réglage : mise à jour automatique ou simple avertissement
+
 ## Outillage ⬜
 
 Accélérer la CI sans baisser la garde :
