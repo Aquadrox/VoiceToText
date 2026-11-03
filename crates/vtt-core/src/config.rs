@@ -772,7 +772,10 @@ mod tests {
         assert_eq!(clean_snippets(&config.snippets).unwrap(), config.snippets);
         assert_eq!(clean_styles(&config.styles).unwrap(), config.styles);
         assert!(!config.styles[1].cleanup);
-        assert_eq!(clean_llm_profiles(&config.llm_profiles).unwrap(), config.llm_profiles);
+        assert_eq!(
+            clean_llm_profiles(&config.llm_profiles).unwrap(),
+            config.llm_profiles
+        );
         assert!(config.llm_profiles[0].llm.is_local());
     }
 
