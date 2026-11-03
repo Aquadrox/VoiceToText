@@ -48,7 +48,7 @@ model = "deepseek-flash"
 timeout_ms = 3000
 ```
 
-Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log`.
+Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé automatiquement au-delà de 3 Mo, les 100 dernières lignes sont gardées).
 
 ## Documentation
 

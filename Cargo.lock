@@ -4593,7 +4593,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voicetotext"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs 6.0.0",
  "log",
@@ -4603,6 +4603,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
+ "time",
  "ureq",
  "vtt-asr",
  "vtt-core",
@@ -4632,7 +4633,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-asr"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hound",
  "log",
@@ -4642,7 +4643,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "log",
  "serde",
@@ -4652,7 +4653,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "log",
  "serde",
@@ -4663,7 +4664,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arboard",
  "cpal",

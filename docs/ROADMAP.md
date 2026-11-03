@@ -24,7 +24,8 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ `vtt-llm` : client OpenAI-compatible, DeepSeek `deepseek-flash` sans mode réflexion, prompt de nettoyage français protégé contre l'exécution des consignes dictées
 - ✅ Clé API dans le Gestionnaire d'identifiants Windows, saisie et test depuis « Réglages… »
 - ✅ Dictionnaire perso (`dictionary` dans config.toml) → indice pour Whisper et le LLM
-- ⬜ Validation sur le PC : latence et qualité du nettoyage
+- ✅ Validé sur le PC : nettoyage 720–1070 ms par dictée, préchauffage 0,2 s (modèle en cache)
+- ✅ Journal daté, purgé au-delà de 3 Mo (garde les 100 dernières lignes)
 - ⬜ Snippets
 - ⬜ Historique
 
