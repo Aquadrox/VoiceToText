@@ -675,8 +675,11 @@ mod tests {
     /// L'exemple complet du manuel (README) reste une configuration valide.
     #[test]
     fn readme_example_is_valid() {
+        // Fins de ligne \r\n possibles (Git sous Windows) : on cherche la fin de
+        // la ligne d'ouverture plutôt qu'un « ```toml\n » exact.
         let readme = include_str!("../../../README.md");
-        let start = readme.find("```toml\n").expect("bloc toml dans le README") + 8;
+        let fence = readme.find("```toml").expect("bloc toml dans le README");
+        let start = fence + readme[fence..].find('\n').unwrap() + 1;
         let end = start + readme[start..].find("```").unwrap();
         let config = Config::from_toml(&readme[start..end]).expect("TOML du README");
         config.hotkey.validate().unwrap();
