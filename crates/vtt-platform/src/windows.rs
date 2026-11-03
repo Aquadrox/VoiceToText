@@ -274,7 +274,9 @@ impl TextSink for ClipboardPaster {
         if !pasted {
             // Le texte reste dans le presse-papier : l'utilisateur peut coller à la main.
             return Err(Error::Sink(
-                "Ctrl+V refusé par Windows (application lancée en administrateur ?)".into(),
+                "Ctrl+V refusé par Windows (application lancée en administrateur ?) : \
+                 texte laissé dans le presse-papier"
+                    .into(),
             ));
         }
 

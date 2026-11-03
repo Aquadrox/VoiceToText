@@ -7,9 +7,11 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{App, Wry};
 
+use crate::controller::WorkerHandle;
 use crate::main_window::{self, Page};
 use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
+use crate::retry::{self, Delivery};
 
 /// Construit l'icône ; renvoie la ligne d'état du menu pour la mettre à jour.
 /// Entrées du menu mises à jour en cours de route.
@@ -18,7 +20,12 @@ pub struct TrayItems {
     pub update: MenuItem<Wry>,
 }
 
-pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<TrayItems> {
+pub fn build(
+    app: &App,
+    paths: &Paths,
+    last_raw: LastRaw,
+    worker: WorkerHandle,
+) -> tauri::Result<TrayItems> {
     let status = MenuItem::with_id(app, "status", "Démarrage…", false, None::<&str>)?;
     let open_main = MenuItem::with_id(app, "open", "Ouvrir VoiceToText", true, None::<&str>)?;
     let history = MenuItem::with_id(app, "history", "Historique…", true, None::<&str>)?;
@@ -26,6 +33,13 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<TrayI
         app,
         "copy_raw",
         "Copier la dernière dictée brute",
+        true,
+        None::<&str>,
+    )?;
+    let retry = MenuItem::with_id(
+        app,
+        "retry",
+        "Réessayer la dernière dictée (copie)",
         true,
         None::<&str>,
     )?;
@@ -55,6 +69,7 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<TrayI
             &open_main,
             &history,
             &copy_raw,
+            &retry,
             &settings,
             &config,
             &logs,
@@ -75,6 +90,7 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<TrayI
             "open" => main_window::open(app, Page::Home),
             "history" => main_window::open(app, Page::History),
             "copy_raw" => raw_paste::copy(&last_raw),
+            "retry" => retry::send(&worker, Delivery::Clipboard),
             "settings" => main_window::open(app, Page::Settings),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),

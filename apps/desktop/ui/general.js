@@ -28,6 +28,7 @@ function fillGeneral(view) {
   );
   $("hk-command").value = view.hotkey.command_key;
   $("hk-paste").value = view.hotkey.paste_raw;
+  $("hk-retry").value = view.hotkey.retry;
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
 
@@ -83,6 +84,7 @@ $("general-form").addEventListener("submit", async (event) => {
         key: $("hk-key").value,
         command_key: $("hk-command").value,
         paste_raw: $("hk-paste").value.trim(),
+        retry: $("hk-retry").value.trim(),
         min_hold_ms: Number($("hk-hold").value),
         hands_free: $("hk-handsfree").checked,
       },

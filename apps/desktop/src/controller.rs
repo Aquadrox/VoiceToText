@@ -19,6 +19,7 @@ use crate::history::{self, HistoryStore};
 use crate::model;
 use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
+use crate::retry::{ClipboardCopy, Delivery};
 use crate::settings;
 use crate::status::{Status, StatusReporter};
 
@@ -44,6 +45,8 @@ pub enum Work {
     Dictation(Job),
     /// Dictionnaire, snippets ou styles modifiés dans la fenêtre principale.
     Reconfigure(Reconfiguration),
+    /// Retraiter l'audio de la dernière dictée (« Réessayer »).
+    Retry(Delivery),
 }
 
 pub struct Reconfiguration {
@@ -144,6 +147,7 @@ fn run(
         pipeline,
         recorders,
         config.llm.pricing.clone(),
+        config.hotkey.retry.trim().to_owned(),
         Arc::clone(reporter),
         Arc::clone(&recording),
     );
@@ -210,6 +214,7 @@ fn command_key(config: &Config) -> Option<u32> {
 }
 
 /// Une dictée à traiter.
+#[derive(Clone)]
 pub struct Job {
     clip: AudioClip,
     target: Target,
@@ -282,10 +287,14 @@ impl Controls<'_> {
 
 /// Les dictées sont traitées une par une, hors du thread clavier, pour qu'une
 /// nouvelle dictée puisse commencer pendant la transcription de la précédente.
+///
+/// L'audio de la dernière dictée reste en mémoire (jamais sur disque) pour
+/// « Réessayer » : après une erreur, rien n'est perdu.
 fn spawn_worker(
     mut pipeline: Pipeline,
     recorders: Recorders,
     mut pricing: Pricing,
+    retry_shortcut: String,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
 ) -> mpsc::Sender<Work> {
@@ -293,13 +302,24 @@ fn spawn_worker(
     thread::Builder::new()
         .name("pipeline".into())
         .spawn(move || {
+            let mut last: Option<Job> = None;
             for work in rx {
-                let Job {
-                    clip,
-                    target,
-                    command,
-                } = match work {
-                    Work::Dictation(job) => job,
+                let (job, delivery) = match work {
+                    Work::Dictation(job) => (job, None),
+                    Work::Retry(delivery) => match &last {
+                        Some(job) => {
+                            if !recording.load(Ordering::SeqCst) {
+                                reporter.set(Status::Processing);
+                            }
+                            (job.clone(), Some(delivery))
+                        }
+                        None => {
+                            reporter.set(Status::Error(
+                                "aucune dictée à réessayer depuis le démarrage".into(),
+                            ));
+                            continue;
+                        }
+                    },
                     Work::Reconfigure(r) => {
                         pipeline.reconfigure(
                             &r.dictionary,
@@ -317,61 +337,122 @@ fn spawn_worker(
                         continue;
                     }
                 };
-                if let Some(app) = &target.app {
-                    log::info!("application cible : {app}");
-                }
-                let result = if command {
-                    run_command(&pipeline, &clip, &target)
-                } else {
-                    pipeline.run(&clip, &target)
+                // Réessayée par le raccourci : collée là où se trouve le
+                // curseur maintenant (le style suit cette fenêtre).
+                let target = match delivery {
+                    Some(Delivery::Paste) => vtt_platform::foreground_target(),
+                    _ => job.target.clone(),
                 };
+                let result = process(&pipeline, &job, &target, delivery, &retry_shortcut);
+                let failed = result.is_err();
+                // Un appui accidentel (silence, clip trop court) ne doit pas
+                // remplacer la dictée à réessayer.
+                let keep = !matches!(result, Ok(Outcome::Skipped));
                 match result {
                     Ok(outcome) => {
-                        if let Outcome::Inserted {
-                            post_process_error: Some(e),
-                            ..
-                        } = &outcome
-                        {
-                            log::warn!("nettoyage ignoré : {e}");
+                        // Une dictée réessayée n'est comptée qu'une fois dans
+                        // les statistiques ; son coût, lui, est bien réel.
+                        let stats = delivery.is_none();
+                        record(&recorders, &job, &target, &outcome, &pricing, stats);
+                        if delivery.is_some() && outcome == Outcome::Skipped {
+                            reporter.set(Status::Error(
+                                "la dernière dictée ne contenait aucune parole".into(),
+                            ));
+                            continue;
                         }
-                        if let Outcome::Inserted {
-                            raw,
-                            usage,
-                            command,
-                            ..
-                        } = &outcome
+                        if delivery == Some(Delivery::Clipboard)
+                            && matches!(outcome, Outcome::Inserted { .. })
                         {
-                            // La version brute d'une commande serait la consigne.
-                            if !command {
-                                raw_paste::remember(&recorders.last_raw, raw);
-                            }
-                            if let Some(usage) = usage {
-                                costs::record(&recorders.ledger, usage, &pricing);
-                            }
-                        }
-                        if let Outcome::Inserted { raw, command, .. } = &outcome {
-                            let words = raw.split_whitespace().count() as u64;
-                            costs::record_dictation(
-                                &recorders.ledger,
-                                words,
-                                clip.duration_ms(),
-                                *command,
+                            reporter.notify(
+                                "VoiceToText : dictée retraitée",
+                                "Le texte est dans le presse-papier : Ctrl+V pour le coller.",
                             );
                         }
-                        history::record(&recorders.history, &clip, &target, &outcome, &pricing);
                     }
                     Err(e) => {
-                        reporter.set(Status::Error(e.to_string()));
-                        continue;
+                        let hint = if retry_shortcut.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({retry_shortcut} pour réessayer)")
+                        };
+                        reporter.set(Status::Error(format!("{e}{hint}")));
                     }
                 }
-                if !recording.load(Ordering::SeqCst) {
+                if delivery.is_none() && keep {
+                    last = Some(job);
+                }
+                if !recording.load(Ordering::SeqCst) && !failed {
                     reporter.set(Status::Idle);
                 }
             }
         })
         .expect("création du thread pipeline");
     tx
+}
+
+/// Traite une dictée. `delivery` : `None` pour une nouvelle dictée, sinon
+/// « Réessayer » (collée dans la fenêtre active, ou copiée seulement).
+fn process(
+    pipeline: &Pipeline,
+    job: &Job,
+    target: &Target,
+    delivery: Option<Delivery>,
+    retry_shortcut: &str,
+) -> Result<Outcome, vtt_core::Error> {
+    if let Some(app) = &target.app {
+        log::info!("application cible : {app}");
+    }
+    if delivery.is_some() {
+        log::info!("nouvel essai de la dernière dictée");
+    }
+    match (job.command, delivery) {
+        (true, Some(Delivery::Clipboard)) => {
+            Err(vtt_core::Error::Sink(if retry_shortcut.is_empty() {
+                "une commande se réessaie avec le raccourci « Réessayer »".into()
+            } else {
+                format!("une commande se réessaie avec {retry_shortcut}, texte sélectionné")
+            }))
+        }
+        (true, _) => run_command(pipeline, &job.clip, target),
+        (false, Some(Delivery::Clipboard)) => pipeline.run_to(&job.clip, target, &ClipboardCopy),
+        (false, _) => pipeline.run(&job.clip, target),
+    }
+}
+
+/// Historique, coût et statistiques d'une dictée traitée.
+fn record(
+    recorders: &Recorders,
+    job: &Job,
+    target: &Target,
+    outcome: &Outcome,
+    pricing: &Pricing,
+    stats: bool,
+) {
+    let Outcome::Inserted {
+        raw,
+        usage,
+        command,
+        post_process_error,
+        ..
+    } = outcome
+    else {
+        return;
+    };
+    if let Some(e) = post_process_error {
+        log::warn!("nettoyage ignoré : {e}");
+    }
+    // La version brute d'une commande serait la consigne.
+    if !command {
+        raw_paste::remember(&recorders.last_raw, raw);
+    }
+    if let Some(usage) = usage {
+        costs::record(&recorders.ledger, usage, pricing);
+    }
+    if stats {
+        let words = raw.split_whitespace().count() as u64;
+        costs::record_dictation(&recorders.ledger, words, job.clip.duration_ms(), *command);
+    }
+    history::record(&recorders.history, &job.clip, target, outcome, pricing);
 }
 
 /// Command Mode : récupère la sélection (Ctrl+C simulé, une fois les touches

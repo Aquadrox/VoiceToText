@@ -11,6 +11,7 @@ mod model;
 mod paths;
 mod prompts;
 mod raw_paste;
+mod retry;
 mod settings;
 mod status;
 mod tray;
@@ -76,7 +77,9 @@ fn main() {
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();
-            let tray_items = tray::build(app, &paths, Arc::clone(&last_raw))?;
+            let worker = WorkerHandle::default();
+            app.manage(Arc::clone(&worker));
+            let tray_items = tray::build(app, &paths, Arc::clone(&last_raw), Arc::clone(&worker))?;
             let status_item = tray_items.status;
             app.manage(paths.clone());
             let reporter = Arc::new(StatusReporter::new(app.handle().clone(), status_item));
@@ -100,6 +103,7 @@ fn main() {
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
             raw_paste::register(app, &config.hotkey.paste_raw, Arc::clone(&last_raw));
+            retry::register(app, &config.hotkey.retry, Arc::clone(&worker));
             let recorders = Recorders {
                 history,
                 ledger,
@@ -110,8 +114,6 @@ fn main() {
             if config.updates.check {
                 updates::spawn_checks(app.handle().clone(), updates);
             }
-            let worker = WorkerHandle::default();
-            app.manage(Arc::clone(&worker));
             controller::spawn(reporter, recorders, worker, config, paths);
             Ok(())
         })

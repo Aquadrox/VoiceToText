@@ -1,17 +1,16 @@
 //! Réglages généraux : raccourcis, micro, modèle Whisper, mises à jour,
 //! démarrage avec Windows.
 
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use tauri_plugin_global_shortcut::Shortcut;
 use vtt_core::config::{AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig, UpdatesConfig};
 
 use crate::model::{self, ModelChoice};
 use crate::paths::Paths;
+use crate::retry;
 
 #[derive(Serialize)]
 pub struct AppSettingsView {
@@ -56,12 +55,8 @@ pub fn save_app_settings(
     updates: UpdatesConfig,
 ) -> Result<(), String> {
     hotkey.validate()?;
-    let paste_raw = hotkey.paste_raw.trim();
-    if !paste_raw.is_empty() && Shortcut::from_str(paste_raw).is_err() {
-        return Err(format!(
-            "raccourci « coller la version brute » invalide : {paste_raw} (ex. Alt+Shift+V)"
-        ));
-    }
+    retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
+    retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
     if !model::catalog(&paths.models_dir)
         .iter()
         .any(|m| m.file() == asr.model)
