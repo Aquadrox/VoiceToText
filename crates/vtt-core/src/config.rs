@@ -13,6 +13,8 @@ pub struct Config {
     pub audio: AudioConfig,
     pub asr: AsrConfig,
     pub llm: LlmConfig,
+    /// Configurations LLM enregistrées, pour passer de l'une à l'autre.
+    pub llm_profiles: Vec<LlmProfile>,
     pub history: HistoryConfig,
     pub updates: UpdatesConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
@@ -163,6 +165,44 @@ pub struct LlmConfig {
     pub extra_body: Map<String, Value>,
 }
 
+/// Configuration LLM enregistrée sous un nom (« DeepSeek », « Ollama du NAS »…).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LlmProfile {
+    pub name: String,
+    #[serde(flatten)]
+    pub llm: LlmConfig,
+}
+
+pub const MAX_LLM_PROFILES: usize = 30;
+
+/// Profils saisis dans l'interface : noms uniques, configurations valides,
+/// adresses normalisées.
+pub fn clean_llm_profiles(profiles: &[LlmProfile]) -> Result<Vec<LlmProfile>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::new();
+    for profile in profiles {
+        let name = profile.name.trim();
+        if name.is_empty() {
+            return Err("chaque profil a besoin d'un nom".into());
+        }
+        if !seen.insert(name.to_lowercase()) {
+            return Err(format!("nom de profil en double : « {name} »"));
+        }
+        let mut llm = profile.llm.clone();
+        llm.base_url = llm.normalized_base_url();
+        llm.validate()
+            .map_err(|e| format!("profil « {name} » : {e}"))?;
+        cleaned.push(LlmProfile {
+            name: name.to_owned(),
+            llm,
+        });
+    }
+    if cleaned.len() > MAX_LLM_PROFILES {
+        return Err(format!("au plus {MAX_LLM_PROFILES} profils"));
+    }
+    Ok(cleaned)
+}
+
 /// Délai accepté pour le nettoyage (les modèles locaux sont plus lents).
 pub const LLM_TIMEOUT_RANGE_MS: std::ops::RangeInclusive<u32> = 500..=60_000;
 
@@ -182,10 +222,43 @@ impl LlmConfig {
         (!host.is_empty()).then_some(host)
     }
 
-    /// Modèle tournant sur ce PC (Ollama, LM Studio…) : pas de clé requise,
-    /// HTTP simple accepté.
+    /// Serveur sur ce PC (`localhost`, `127.x.x.x`, `::1`).
+    pub fn is_loopback(&self) -> bool {
+        match self.host() {
+            Some("localhost" | "::1") => true,
+            Some(host) => host
+                .parse::<std::net::Ipv4Addr>()
+                .is_ok_and(|ip| ip.is_loopback()),
+            None => false,
+        }
+    }
+
+    /// Serveur sur ce PC ou sur le réseau local (Ollama, LM Studio…) : clé
+    /// facultative, HTTP simple accepté. La clé, elle, ne circule jamais en
+    /// clair hors de ce PC (voir [`LlmConfig::may_send_key`]).
     pub fn is_local(&self) -> bool {
-        matches!(self.host(), Some("localhost" | "127.0.0.1" | "::1"))
+        self.is_loopback()
+            || self.host().is_some_and(|host| {
+                host.ends_with(".local")
+                    || host
+                        .parse::<std::net::Ipv4Addr>()
+                        .is_ok_and(|ip| ip.is_private() || ip.is_link_local())
+            })
+    }
+
+    /// La clé API peut être envoyée : HTTPS, ou HTTP vers ce PC seulement.
+    pub fn may_send_key(&self) -> bool {
+        self.base_url.starts_with("https://") || self.is_loopback()
+    }
+
+    /// Adresse nettoyée : espaces et `/` final retirés, et `/chat/completions`
+    /// retiré s'il a été recopié (l'application l'ajoute elle-même).
+    pub fn normalized_base_url(&self) -> String {
+        let mut url = self.base_url.trim().trim_end_matches('/');
+        if let Some(stripped) = url.strip_suffix("/chat/completions") {
+            url = stripped.trim_end_matches('/');
+        }
+        url.to_owned()
     }
 
     /// Vérifie une configuration saisie dans les réglages.
@@ -196,7 +269,8 @@ impl LlmConfig {
         // La clé API part dans l'en-tête : jamais en clair sur le réseau.
         if !self.base_url.starts_with("https://") && !self.is_local() {
             return Err(
-                "adresse en https:// obligatoire (http:// seulement pour un modèle local)".into(),
+                "adresse en https:// obligatoire (http:// seulement sur ce PC ou le réseau local)"
+                    .into(),
             );
         }
         if self.model.trim().is_empty() {
@@ -548,6 +622,13 @@ mod tests {
         assert_eq!(llm("https://").host(), None);
         assert!(llm("http://127.0.0.1:1234/v1").is_local());
         assert!(!llm("https://api.openai.com/v1").is_local());
+        // Réseau local : clé facultative, mais jamais envoyée en clair.
+        let lan = llm("http://192.168.1.20:11434/v1");
+        assert!(lan.is_local() && !lan.is_loopback() && !lan.may_send_key());
+        assert!(llm("http://nas.local:11434/v1").is_local());
+        assert!(llm("http://localhost:11434/v1").may_send_key());
+        assert!(llm("https://api.z.ai/api/paas/v4").may_send_key());
+        assert!(!llm("http://8.8.8.8/v1").is_local());
     }
 
     #[test]
@@ -561,6 +642,9 @@ mod tests {
         };
         assert!(with(&|l| l.base_url = "http://api.openai.com/v1".into()).is_err());
         assert!(with(&|l| l.base_url = "http://localhost:11434/v1".into()).is_ok());
+        assert!(with(&|l| l.base_url = "http://192.168.1.20:11434/v1".into()).is_ok());
+        assert!(with(&|l| l.base_url = "http://10.0.0.5:8080/v1".into()).is_ok());
+        assert!(with(&|l| l.base_url = "http://203.0.113.7/v1".into()).is_err());
         assert!(with(&|l| l.base_url = "pas une url".into()).is_err());
         assert!(with(&|l| l.model = "  ".into()).is_err());
         assert!(with(&|l| l.timeout_ms = 100).is_err());
@@ -688,5 +772,63 @@ mod tests {
         assert_eq!(clean_snippets(&config.snippets).unwrap(), config.snippets);
         assert_eq!(clean_styles(&config.styles).unwrap(), config.styles);
         assert!(!config.styles[1].cleanup);
+        assert_eq!(
+            clean_llm_profiles(&config.llm_profiles).unwrap(),
+            config.llm_profiles
+        );
+        assert!(config.llm_profiles[0].llm.is_local());
+    }
+
+    #[test]
+    fn base_url_is_normalized() {
+        let llm = |url: &str| LlmConfig {
+            base_url: url.into(),
+            ..LlmConfig::default()
+        };
+        assert_eq!(
+            llm(" http://192.168.1.20:11434/v1/ ").normalized_base_url(),
+            "http://192.168.1.20:11434/v1"
+        );
+        assert_eq!(
+            llm("https://api.openai.com/v1/chat/completions").normalized_base_url(),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            llm("https://api.deepseek.com").normalized_base_url(),
+            "https://api.deepseek.com"
+        );
+    }
+
+    #[test]
+    fn llm_profiles_round_trip_and_validation() {
+        let mut config = Config::default();
+        let mut ollama = LlmConfig {
+            base_url: "http://192.168.1.20:11434/v1/".into(),
+            model: "qwen3:8b".into(),
+            timeout_ms: 15_000,
+            ..LlmConfig::default()
+        };
+        ollama.extra_body.clear();
+        config.llm_profiles = vec![
+            LlmProfile {
+                name: " Ollama du NAS ".into(),
+                llm: ollama.clone(),
+            },
+            LlmProfile {
+                name: "DeepSeek".into(),
+                llm: LlmConfig::default(),
+            },
+        ];
+        let parsed = Config::from_toml(&config.to_toml().unwrap()).unwrap();
+        assert_eq!(parsed, config);
+
+        let cleaned = clean_llm_profiles(&config.llm_profiles).unwrap();
+        assert_eq!(cleaned[0].name, "Ollama du NAS");
+        assert_eq!(cleaned[0].llm.base_url, "http://192.168.1.20:11434/v1");
+        let duplicate = [cleaned[1].clone(), cleaned[1].clone()];
+        assert!(clean_llm_profiles(&duplicate).is_err());
+        let mut invalid = cleaned[0].clone();
+        invalid.llm.model = String::new();
+        assert!(clean_llm_profiles(&[invalid]).is_err());
     }
 }

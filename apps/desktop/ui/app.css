@@ -541,3 +541,63 @@ ol.entries li {
 .banner[hidden] {
   display: none;
 }
+
+/* Diagnostic du test LLM */
+.diagnostic {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.diagnostic h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.diagnostic.ok h3 {
+  color: var(--ok);
+}
+
+.diagnostic.failed h3 {
+  color: var(--danger);
+}
+
+.diagnostic dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.diagnostic dt {
+  color: var(--muted);
+}
+
+.diagnostic dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.diagnostic .models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.diagnostic .models button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.profiles {
+  margin-top: 12px;
+}

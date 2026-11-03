@@ -74,8 +74,10 @@ pub struct LlmCleaner {
     /// L'API OpenAI refuse `temperature` et `max_tokens` sur ses modèles à
     /// raisonnement : on envoie `max_completion_tokens` et la température par défaut.
     openai: bool,
-    /// Modèle local : clé facultative.
+    /// Serveur sur ce PC ou le réseau local : clé facultative.
     local: bool,
+    /// HTTPS ou ce PC : la clé peut partir (jamais en clair sur le réseau).
+    may_send_key: bool,
     system_prompt: String,
     command_prompt: String,
     api_key: ApiKeyProvider,
@@ -95,11 +97,12 @@ impl LlmCleaner {
                 .into()
         };
         Self {
-            endpoint: format!("{}/chat/completions", config.base_url.trim_end_matches('/')),
+            endpoint: format!("{}/chat/completions", config.normalized_base_url()),
             model: config.model.clone(),
             extra_body: config.extra_body.clone(),
             openai: config.host() == Some("api.openai.com"),
             local: config.is_local(),
+            may_send_key: config.may_send_key(),
             system_prompt: with_dictionary(SYSTEM_PROMPT, dictionary),
             command_prompt: with_dictionary(COMMAND_PROMPT, dictionary),
             api_key,
@@ -156,7 +159,9 @@ impl LlmCleaner {
 impl LlmCleaner {
     /// Envoie la requête ; renvoie le texte de la réponse et les jetons facturés.
     fn send(&self, agent: &ureq::Agent, body: Value) -> Result<(String, Option<Usage>), Error> {
-        let key = (self.api_key)().filter(|k| !k.trim().is_empty());
+        let key = (self.api_key)()
+            .filter(|k| !k.trim().is_empty())
+            .filter(|_| self.may_send_key);
         if key.is_none() && !self.local {
             return Err(Error::PostProcess("aucune clé API enregistrée".into()));
         }
@@ -197,6 +202,121 @@ impl PostProcessor for LlmCleaner {
             usage,
         })
     }
+}
+
+impl LlmCleaner {
+    /// Adresse réellement appelée (affichée dans le diagnostic des réglages).
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// La clé enregistrée sera-t-elle envoyée ? (`false` : aucune clé, ou
+    /// adresse HTTP hors de ce PC.)
+    pub fn sends_key(&self) -> bool {
+        self.may_send_key && (self.api_key)().is_some_and(|k| !k.trim().is_empty())
+    }
+}
+
+/// Modèles proposés par le serveur (`GET {base_url}/models`, format OpenAI,
+/// aussi servi par Ollama et LM Studio).
+pub fn list_models(config: &LlmConfig, api_key: Option<String>) -> Result<Vec<String>, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut request = agent.get(&format!("{}/models", config.normalized_base_url()));
+    if let Some(key) = api_key.filter(|k| !k.trim().is_empty() && config.may_send_key()) {
+        request = request.header("Authorization", &format!("Bearer {}", key.trim()));
+    }
+    let mut response = request.call().map_err(|e| format!("requête : {e}"))?;
+    let status = response.status().as_u16();
+    let body: Value = response
+        .body_mut()
+        .read_json()
+        .map_err(|e| format!("HTTP {status}, réponse illisible : {e}"))?;
+    if status != 200 {
+        return Err(describe_http_error(status, &body));
+    }
+    let mut models: Vec<String> = body["data"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|m| m["id"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    Ok(models)
+}
+
+/// Pistes de correction pour une erreur du LLM, affichées dans les réglages.
+pub fn hints(config: &LlmConfig, error: &str) -> Vec<String> {
+    let url = config.normalized_base_url();
+    let lower = error.to_lowercase();
+    let mut hints = Vec::new();
+    let local_without_v1 = config.is_local() && !url.ends_with("/v1");
+    if lower.contains("http 404") || lower.contains("http 405") {
+        if local_without_v1 {
+            hints.push(format!(
+                "Ollama, LM Studio et la plupart des serveurs locaux attendent une adresse qui se \
+                 termine par /v1 : essayez {url}/v1"
+            ));
+        } else {
+            hints.push(format!(
+                "Cette adresse ne répond pas comme une API compatible OpenAI ({url}/chat/completions \
+                 introuvable). Vérifiez le chemin : souvent …/v1, sans /chat/completions."
+            ));
+        }
+    }
+    if lower.contains("http 401") || lower.contains("http 403") {
+        hints.push(
+            "Clé refusée : vérifiez qu'elle correspond à ce fournisseur (une clé est enregistrée \
+             par adresse)."
+                .into(),
+        );
+    }
+    if lower.contains("http 400") || lower.contains("http 422") {
+        hints.push(
+            "Requête refusée : nom de modèle inexact (voir la liste des modèles ci-dessous) ou \
+             paramètre supplémentaire non pris en charge (retirez « thinking » hors DeepSeek/GLM)."
+                .into(),
+        );
+    }
+    if lower.contains("http 402") {
+        hints.push("Solde du compte insuffisant chez le fournisseur.".into());
+    }
+    if lower.contains("connection refused") || lower.contains("refused") {
+        hints.push(format!(
+            "Rien n'écoute à cette adresse : le service est-il démarré, sur ce port ? Pour un \
+             Ollama sur une autre machine, il doit écouter sur le réseau (OLLAMA_HOST=0.0.0.0) \
+             et le pare-feu autoriser le port.{}",
+            if local_without_v1 {
+                " L'adresse se termine aussi généralement par /v1."
+            } else {
+                ""
+            }
+        ));
+    }
+    if lower.contains("dns") || lower.contains("resolve") || lower.contains("lookup") {
+        hints.push("Nom d'hôte introuvable : vérifiez l'adresse (faute de frappe ?).".into());
+    }
+    if lower.contains("timed out") || lower.contains("timeout") || lower.contains("délai") {
+        hints.push(
+            "Délai dépassé : augmentez le délai maximal. Un modèle local met souvent plusieurs \
+             secondes à se charger au premier appel."
+                .into(),
+        );
+    }
+    if lower.contains("aucune clé") {
+        hints.push("Aucune clé pour cette adresse : saisissez-la dans le champ Clé API.".into());
+    }
+    if hints.is_empty() && local_without_v1 {
+        hints.push(format!(
+            "Pour un serveur local, l'adresse se termine généralement par /v1 : {url}/v1"
+        ));
+    }
+    hints
 }
 
 fn with_dictionary(prompt: &str, dictionary: &[String]) -> String {
@@ -608,5 +728,50 @@ mod tests {
             "le texte ne doit pas apparaître : {err}"
         );
         assert!(accept(raw, "Écris-moi un poème.").is_ok());
+    }
+
+    #[test]
+    fn hints_explain_common_mistakes() {
+        let cfg = |url: &str| LlmConfig {
+            base_url: url.into(),
+            ..LlmConfig::default()
+        };
+        let ollama = cfg("http://192.168.1.20:11434");
+        let h = hints(&ollama, "HTTP 404 : requête refusée");
+        assert!(h[0].contains("http://192.168.1.20:11434/v1"), "{h:?}");
+        let h = hints(&ollama, "requête : io: Connection refused (os error 111)");
+        assert!(h.iter().any(|x| x.contains("OLLAMA_HOST")), "{h:?}");
+        let h = hints(
+            &cfg("https://api.deepseek.com"),
+            "HTTP 401 : clé API refusée",
+        );
+        assert!(h[0].contains("Clé refusée"));
+        assert!(hints(&cfg("https://api.deepseek.com"), "autre").is_empty());
+    }
+
+    #[test]
+    fn key_never_sent_in_clear_on_the_network() {
+        let (url, server) = serve_once(200, r#"{"choices":[{"message":{"content":"Ok."}}]}"#);
+        // 127.0.0.1 : ce PC → la clé part.
+        cleaner(&url, Some("sk-local")).process("ok", None).unwrap();
+        assert!(server.join().unwrap().contains("Bearer sk-local"));
+
+        let lan = cleaner("http://192.168.1.20:11434/v1", Some("sk-secret"));
+        assert!(!lan.sends_key());
+        assert_eq!(
+            lan.endpoint(),
+            "http://192.168.1.20:11434/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn models_are_listed() {
+        let (url, server) = serve_once(
+            200,
+            r#"{"object":"list","data":[{"id":"qwen3:8b"},{"id":"llama3.2:3b"}]}"#,
+        );
+        let models = list_models(&config(&url), Some("k".into())).unwrap();
+        assert_eq!(models, ["llama3.2:3b", "qwen3:8b"]);
+        assert!(server.join().unwrap().starts_with("GET /models"));
     }
 }

@@ -3,13 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use vtt_core::PostProcessor;
 use vtt_core::config::{self, Snippet, Style};
-use vtt_llm::LlmCleaner;
 
-use crate::controller::{Reconfiguration, Work, WorkerHandle};
+use crate::controller::{self, WorkerHandle};
 use crate::paths::Paths;
-use crate::settings;
+use crate::settings::SharedConfig;
 
 #[derive(Serialize)]
 pub struct VocabularyView {
@@ -48,44 +46,28 @@ pub struct Saved {
 #[tauri::command]
 pub fn save_vocabulary(
     paths: State<'_, Paths>,
+    config: State<'_, SharedConfig>,
     worker: State<'_, WorkerHandle>,
     update: VocabularyUpdate,
 ) -> Result<Saved, String> {
     // Repartir du fichier sur disque ; s'il est invalide, ne pas l'écraser.
-    let (mut config, error) = paths.load_config();
+    let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
         return Err(format!(
             "{error} : corrigez-le d'abord (menu « Modifier la configuration »)"
         ));
     }
     if let Some(words) = update.dictionary {
-        config.dictionary = config::clean_dictionary(&words)?;
+        updated.dictionary = config::clean_dictionary(&words)?;
     }
     if let Some(snippets) = update.snippets {
-        config.snippets = config::clean_snippets(&snippets)?;
+        updated.snippets = config::clean_snippets(&snippets)?;
     }
     if let Some(styles) = update.styles {
-        config.styles = config::clean_styles(&styles)?;
+        updated.styles = config::clean_styles(&styles)?;
     }
-    paths.write_config(&config)?;
-
-    let post_processor: Option<Box<dyn PostProcessor>> = config.llm.enabled.then(|| {
-        Box::new(LlmCleaner::new(
-            &config.llm,
-            &config.dictionary,
-            settings::api_key_provider(&config.llm),
-        )) as Box<dyn PostProcessor>
-    });
-    let sender = worker.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let applied = sender.is_some_and(|sender| {
-        sender
-            .send(Work::Reconfigure(Reconfiguration {
-                dictionary: config.dictionary,
-                snippets: config.snippets,
-                styles: config.styles,
-                post_processor,
-            }))
-            .is_ok()
-    });
+    paths.write_config(&updated)?;
+    let applied = controller::reconfigure(&worker, &updated);
+    *config.write().unwrap_or_else(|e| e.into_inner()) = updated;
     Ok(Saved { applied })
 }

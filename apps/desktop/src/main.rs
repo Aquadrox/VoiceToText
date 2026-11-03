@@ -16,10 +16,9 @@ mod tray;
 mod updates;
 mod vocabulary;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::{Manager, PhysicalPosition, WebviewWindow};
-use vtt_core::Config;
 use vtt_core::history::History;
 use vtt_core::usage::Ledger;
 
@@ -28,6 +27,7 @@ use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
 use crate::paths::Paths;
 use crate::raw_paste::LastRaw;
+use crate::settings::SharedConfig;
 use crate::status::{Status, StatusReporter};
 use crate::updates::Updates;
 
@@ -55,8 +55,10 @@ fn main() {
             settings::settings_view,
             settings::save_api_key,
             settings::delete_api_key,
-            settings::test_cleanup,
-            settings::save_llm_settings,
+            settings::key_status,
+            settings::test_llm_settings,
+            settings::apply_llm_settings,
+            settings::save_llm_profiles,
             history::history_view,
             history::clear_history,
             main_window::home_view,
@@ -75,8 +77,8 @@ fn main() {
             app.manage(paths.clone());
             let reporter = Arc::new(StatusReporter::new(app.handle().clone(), status_item));
             app.manage(Arc::clone(&reporter));
-            let config = Arc::new(config);
-            app.manage(Arc::clone(&config));
+            let shared: SharedConfig = Arc::new(RwLock::new(config.clone()));
+            app.manage(shared);
             let history: HistoryStore =
                 Arc::new(Mutex::new(config.history.enabled.then(|| {
                     History::open(paths.history_file.clone(), config.history.max_entries)
@@ -106,7 +108,7 @@ fn main() {
             }
             let worker = WorkerHandle::default();
             app.manage(Arc::clone(&worker));
-            controller::spawn(reporter, recorders, worker, Config::clone(&config), paths);
+            controller::spawn(reporter, recorders, worker, config, paths);
             Ok(())
         })
         .run(tauri::generate_context!())

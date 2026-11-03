@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use vtt_core::usage::{Summary, Totals};
 
 use crate::costs::{self, LedgerStore};
+use crate::settings::{self, SharedConfig};
 
 const LABEL: &str = "main";
 /// Jours affichés dans le graphique d'activité.
@@ -66,16 +67,13 @@ pub struct HomeView {
 }
 
 #[tauri::command]
-pub fn home_view(
-    ledger: State<'_, LedgerStore>,
-    config: State<'_, std::sync::Arc<vtt_core::Config>>,
-) -> HomeView {
+pub fn home_view(ledger: State<'_, LedgerStore>, config: State<'_, SharedConfig>) -> HomeView {
     HomeView {
         summary: costs::summary(&ledger),
         days: costs::last_days(&ledger, CHART_DAYS)
             .into_iter()
             .map(|(day, totals)| DayView { day, totals })
             .collect(),
-        currency: config.llm.pricing.currency.clone(),
+        currency: settings::read(&config).llm.pricing.currency.clone(),
     }
 }
