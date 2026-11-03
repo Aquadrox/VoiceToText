@@ -35,6 +35,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ⬜ Styles par application
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »
+- ⬜ Suivi du coût LLM : jetons consommés lus dans la réponse de l'API (`usage`, y compris le cache DeepSeek), coût calculé avec un tarif par modèle réglable (prix différents selon les fournisseurs), total par jour / mois, affiché dans les réglages puis le tableau de bord v0.4
 - ⬜ Fournisseur LLM au choix dans les réglages : URL, modèle (GLM, OpenAI, Mistral…), délai maximal, clé par fournisseur, bouton Tester. Paramètres propres à chaque fournisseur (ex. désactivation de la réflexion) gérés par préréglages. *Déjà possible à la main via `[llm]` dans config.toml.*
 
 ## v0.4 — Interface principale ⬜
@@ -58,6 +59,7 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 Accélérer la CI sans baisser la garde :
 
 - ⬜ Sur les PR, ne relancer que ce qui est touché : tests du crate modifié et de ceux qui en dépendent, installeur Windows seulement si du code Rust/UI/dépendances change (pas pour la doc)
+- ⬜ Les vérifications obligatoires `linux` et `windows` doivent toujours répondre sur une PR, même pour un changement de doc (répondre « rien à faire » en quelques secondes plutôt que sauter le workflow, sinon la PR reste bloquée). Pas de `[skip ci]` sur une branche de PR
 - ⬜ Suite complète + installeur toujours sur `main` et sur les tags : rien n'est publié sans tout repasser
 - ⬜ Cache de compilation plus efficace (sccache) pour whisper.cpp/Vulkan, l'étape la plus longue
 
