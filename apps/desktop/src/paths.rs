@@ -83,13 +83,19 @@ impl Paths {
     }
 
     fn save_config(&self, config: &Config) {
-        let written = config
-            .to_toml()
-            .map_err(|e| e.to_string())
-            .and_then(|s| fs::write(&self.config_file, s).map_err(|e| e.to_string()));
-        match written {
-            Ok(()) => log::info!("configuration écrite : {}", self.config_file.display()),
-            Err(e) => log::error!("écriture de la configuration : {e}"),
+        if let Err(e) = self.write_config(config) {
+            log::error!("{e}");
         }
+    }
+
+    /// Réécrit config.toml (les commentaires ajoutés à la main sont perdus).
+    pub fn write_config(&self, config: &Config) -> Result<(), String> {
+        let toml = config
+            .to_toml()
+            .map_err(|e| format!("configuration non enregistrable : {e}"))?;
+        fs::write(&self.config_file, toml)
+            .map_err(|e| format!("écriture de la configuration : {e}"))?;
+        log::info!("configuration écrite : {}", self.config_file.display());
+        Ok(())
     }
 }

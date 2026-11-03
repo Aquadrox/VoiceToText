@@ -45,11 +45,13 @@ fn main() {
             settings::save_api_key,
             settings::delete_api_key,
             settings::test_cleanup,
+            settings::save_llm_settings,
             history::history_view,
             history::clear_history,
         ])
         .setup(move |app| {
             let status_item = tray::build(app, &paths)?;
+            app.manage(paths.clone());
             let reporter = Arc::new(StatusReporter::new(app.handle().clone(), status_item));
             app.manage(Arc::clone(&reporter));
             let config = Arc::new(config);

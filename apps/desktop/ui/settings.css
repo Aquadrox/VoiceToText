@@ -96,8 +96,11 @@ label {
   margin-top: 8px;
 }
 
-input {
+input,
+select,
+textarea {
   flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 7px 10px;
   border: 1px solid var(--border);
@@ -167,4 +170,42 @@ thead th {
   color: var(--muted);
   font-weight: 600;
   font-size: 12px;
+}
+
+input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+
+textarea {
+  font: 12px/1.4 Consolas, "Cascadia Mono", monospace;
+  resize: vertical;
+}
+
+label.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+}
+
+.grid.four {
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 4px;
+}
+
+details {
+  margin-top: 14px;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
 }

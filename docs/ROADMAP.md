@@ -36,7 +36,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »
 - ✅ Suivi du coût LLM : jetons lus dans la réponse (`usage`, cache DeepSeek et OpenAI compris), coût estimé avec un tarif réglable (`[llm.pricing]`), totaux jour / mois / total dans « Réglages… » ; fichier `usage.json` sans aucun texte dicté
-- ⬜ Fournisseur LLM au choix dans les réglages : URL, modèle (GLM, OpenAI, Mistral…), délai maximal, clé par fournisseur, bouton Tester. Paramètres propres à chaque fournisseur (ex. désactivation de la réflexion) gérés par préréglages. *Déjà possible à la main via `[llm]` dans config.toml.*
+- ✅ Fournisseur LLM au choix dans « Réglages… » : préréglages DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, Ollama local, ou adresse libre ; modèle, délai, tarif, paramètres propres au fournisseur (`extra_body`) ; une clé par fournisseur ; modèle local sans clé
 
 ## v0.4 — Interface principale ⬜
 

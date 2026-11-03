@@ -18,10 +18,14 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 - AltGr + une autre touche (`@`, `#`, `€`…) fonctionne normalement : la dictée est annulée.
 - Icône de notification : état, historique des dictées, réglages, configuration, journaux, redémarrage.
 
-### Nettoyage du texte (DeepSeek)
+### Nettoyage du texte (LLM)
+
+DeepSeek par défaut :
 
 1. Créer une clé sur [platform.deepseek.com](https://platform.deepseek.com) (compte crédité).
 2. Icône de notification → **Réglages…** → coller la clé → **Enregistrer** → **Tester**.
+
+Autre fournisseur : **Réglages…** → **Fournisseur** (GLM/Z.ai, OpenAI, Mistral, OpenRouter, Ollama sur le PC, ou toute API compatible OpenAI) → modèle, délai, tarif → **Enregistrer et redémarrer**, puis saisir la clé de ce fournisseur. Chaque fournisseur garde sa propre clé.
 
 Sans clé, le texte brut de Whisper est inséré.
 
@@ -54,6 +58,10 @@ input_per_million = 0.30
 cached_input_per_million = 0.006
 output_per_million = 1.20
 currency = "USD"
+
+# Champs propres au fournisseur ajoutés à chaque requête.
+[llm.extra_body]
+thinking = { type = "disabled" }   # DeepSeek / GLM : pas de « réflexion » (lente)
 
 [history]
 enabled = true       # dictées conservées sur ce PC uniquement
