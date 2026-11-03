@@ -22,7 +22,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Les jobs `linux` et `windows` sont obligatoires pour merger : ils
@@ -71,7 +71,7 @@ jobs:
       # D: est le disque du dépôt (D:\a\VoiceToText\VoiceToText).
       CARGO_TARGET_DIR: D:\t
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Les jobs `linux` et `windows` sont obligatoires pour merger : ils
@@ -128,7 +128,7 @@ jobs:
             exit 1
           fi
           npx --yes @tauri-apps/cli@^2 build --bundles nsis --config updater.conf.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.changes.outputs.code == 'true'
         with:
           name: VoiceToText-installeur-windows
@@ -145,7 +145,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-installeur-windows
       # Manifeste lu par l'application (releases/latest/download/latest.json) :
