@@ -14,6 +14,7 @@ pub struct Config {
     pub asr: AsrConfig,
     pub llm: LlmConfig,
     pub history: HistoryConfig,
+    pub updates: UpdatesConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     pub snippets: Vec<Snippet>,
@@ -258,6 +259,20 @@ impl Default for LlmConfig {
             pricing: Pricing::default(),
             extra_body: deepseek_extra_body(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    /// Vérifier régulièrement si une nouvelle version est publiée (GitHub).
+    /// L'installation ne se fait jamais sans l'accord de l'utilisateur.
+    pub check: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self { check: true }
     }
 }
 
@@ -655,5 +670,23 @@ mod tests {
             "même touche"
         );
         assert!(with(&|h| h.min_hold_ms = 10).is_err());
+    }
+
+    /// L'exemple complet du manuel (README) reste une configuration valide.
+    #[test]
+    fn readme_example_is_valid() {
+        // Fins de ligne \r\n possibles (Git sous Windows) : on cherche la fin de
+        // la ligne d'ouverture plutôt qu'un « ```toml\n » exact.
+        let readme = include_str!("../../../README.md");
+        let fence = readme.find("```toml").expect("bloc toml dans le README");
+        let start = fence + readme[fence..].find('\n').unwrap() + 1;
+        let end = start + readme[start..].find("```").unwrap();
+        let config = Config::from_toml(&readme[start..end]).expect("TOML du README");
+        config.hotkey.validate().unwrap();
+        config.llm.validate().unwrap();
+        clean_dictionary(&config.dictionary).unwrap();
+        assert_eq!(clean_snippets(&config.snippets).unwrap(), config.snippets);
+        assert_eq!(clean_styles(&config.styles).unwrap(), config.styles);
+        assert!(!config.styles[1].cleanup);
     }
 }

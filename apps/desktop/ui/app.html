@@ -21,6 +21,10 @@
         <!-- Accueil -->
         <section class="page" id="page-accueil" hidden>
           <h1>Accueil</h1>
+          <div id="update-banner" class="banner" hidden>
+            <span id="update-text"></span>
+            <button id="update-install" class="primary">Mettre à jour</button>
+          </div>
           <div class="tiles">
             <div class="tile">
               <div class="value" id="home-words">–</div>
@@ -176,6 +180,18 @@
                 <input id="asr-gpu" type="checkbox" />
                 Utiliser la carte graphique (beaucoup plus rapide)
               </label>
+            </section>
+
+            <section>
+              <h2>Mises à jour</h2>
+              <label class="inline">
+                <input id="updates-check" type="checkbox" />
+                Rechercher les nouvelles versions (GitHub, toutes les 6 h ; installation seulement sur votre clic)
+              </label>
+              <p class="muted small">
+                Version installée : <span id="current-version"></span>. Chaque mise à jour est signée ;
+                sa signature est vérifiée avant installation.
+              </p>
             </section>
 
             <div class="row">

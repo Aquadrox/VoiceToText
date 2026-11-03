@@ -12,7 +12,13 @@ use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
 
 /// Construit l'icône ; renvoie la ligne d'état du menu pour la mettre à jour.
-pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuItem<Wry>> {
+/// Entrées du menu mises à jour en cours de route.
+pub struct TrayItems {
+    pub status: MenuItem<Wry>,
+    pub update: MenuItem<Wry>,
+}
+
+pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<TrayItems> {
     let status = MenuItem::with_id(app, "status", "Démarrage…", false, None::<&str>)?;
     let open_main = MenuItem::with_id(app, "open", "Ouvrir VoiceToText", true, None::<&str>)?;
     let history = MenuItem::with_id(app, "history", "Historique…", true, None::<&str>)?;
@@ -32,6 +38,13 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuI
         None::<&str>,
     )?;
     let logs = MenuItem::with_id(app, "logs", "Ouvrir les journaux", true, None::<&str>)?;
+    let update = MenuItem::with_id(
+        app,
+        "update",
+        "Rechercher une mise à jour",
+        true,
+        None::<&str>,
+    )?;
     let restart = MenuItem::with_id(app, "restart", "Redémarrer", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -45,6 +58,7 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuI
             &settings,
             &config,
             &logs,
+            &update,
             &restart,
             &PredefinedMenuItem::separator(app)?,
             &quit,
@@ -64,6 +78,7 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuI
             "settings" => main_window::open(app, Page::Settings),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),
+            "update" => crate::updates::on_tray_click(app),
             "restart" => app.restart(),
             "quit" => app.exit(0),
             _ => {}
@@ -72,7 +87,7 @@ pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuI
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    Ok(status)
+    Ok(TrayItems { status, update })
 }
 
 fn open_in_editor(file: &Path) {

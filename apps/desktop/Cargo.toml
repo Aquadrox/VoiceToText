@@ -12,12 +12,16 @@ tauri-build = { version = "2", features = [] }
 dirs = "6"
 log.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2 = "0.10"
 simplelog = "0.12"
 tauri = { version = "2.12", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
+tokio = { version = "1", features = ["time"] }
 ureq = "3"
 vtt-asr = { path = "../../crates/vtt-asr" }
 vtt-core = { path = "../../crates/vtt-core" }

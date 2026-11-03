@@ -522,3 +522,22 @@ ol.entries li {
 #general-result {
   margin-bottom: 16px;
 }
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.banner span {
+  flex: 1;
+}
+
+.banner[hidden] {
+  display: none;
+}

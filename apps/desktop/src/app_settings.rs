@@ -1,5 +1,5 @@
-//! Réglages généraux : raccourcis, micro, modèle Whisper, démarrage avec
-//! Windows.
+//! Réglages généraux : raccourcis, micro, modèle Whisper, mises à jour,
+//! démarrage avec Windows.
 
 use std::str::FromStr;
 use std::thread;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_global_shortcut::Shortcut;
-use vtt_core::config::{AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig};
+use vtt_core::config::{AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig, UpdatesConfig};
 
 use crate::model::{self, ModelChoice};
 use crate::paths::Paths;
@@ -18,6 +18,7 @@ pub struct AppSettingsView {
     hotkey: HotkeyConfig,
     audio: AudioConfig,
     asr: AsrConfig,
+    updates: UpdatesConfig,
     keys: &'static [&'static str],
     microphones: Vec<String>,
     models: Vec<ModelChoice>,
@@ -34,6 +35,7 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         hotkey: config.hotkey,
         audio: config.audio,
         asr: config.asr,
+        updates: config.updates,
         keys: HOTKEY_NAMES,
         microphones: vtt_platform::audio::input_devices(),
         models: model::catalog(&paths.models_dir),
@@ -51,6 +53,7 @@ pub fn save_app_settings(
     hotkey: HotkeyConfig,
     audio: AudioConfig,
     asr: AsrConfig,
+    updates: UpdatesConfig,
 ) -> Result<(), String> {
     hotkey.validate()?;
     let paste_raw = hotkey.paste_raw.trim();
@@ -76,6 +79,7 @@ pub fn save_app_settings(
     // La langue n'est pas encore réglable : seuls le modèle et le GPU changent.
     config.asr.model = asr.model;
     config.asr.use_gpu = asr.use_gpu;
+    config.updates = updates;
     paths.write_config(&config)?;
     log::info!("réglages généraux enregistrés, redémarrage");
     thread::spawn(move || {

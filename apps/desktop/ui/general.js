@@ -49,6 +49,7 @@ function fillGeneral(view) {
   );
   $("asr-model").value = view.asr.model;
   $("asr-gpu").checked = view.asr.use_gpu;
+  $("updates-check").checked = view.updates.check;
 }
 
 async function showGeneral() {
@@ -58,6 +59,8 @@ async function showGeneral() {
     $("autostart").checked = view.autostart;
     if (!generalFilled) fillGeneral(view);
     generalFilled = true;
+    const status = await invoke("update_status");
+    $("current-version").textContent = status.current;
   } catch (e) {
     showGeneralResult(String(e), true);
   }
@@ -85,6 +88,7 @@ $("general-form").addEventListener("submit", async (event) => {
       },
       audio: { device: $("audio-device").value },
       asr: { model: $("asr-model").value, use_gpu: $("asr-gpu").checked },
+      updates: { check: $("updates-check").checked },
     });
     showGeneralResult("Enregistré. Redémarrage de VoiceToText…");
   } catch (e) {
