@@ -136,6 +136,63 @@
         <section class="page" id="page-reglages" hidden>
           <h1>Réglages</h1>
 
+          <form id="general-form">
+            <section>
+              <h2>Raccourcis</h2>
+              <div class="grid even">
+                <div>
+                  <label for="hk-key">Dictée (maintenir)</label>
+                  <select id="hk-key"></select>
+                </div>
+                <div>
+                  <label for="hk-command">Command Mode (avec la touche de dictée)</label>
+                  <select id="hk-command"></select>
+                </div>
+                <div>
+                  <label for="hk-paste">Coller la version brute</label>
+                  <input id="hk-paste" type="text" placeholder="Alt+Shift+V (vide : désactivé)" spellcheck="false" />
+                </div>
+                <div>
+                  <label for="hk-hold">Appui minimal (ms)</label>
+                  <input id="hk-hold" type="number" min="50" max="1000" step="10" required />
+                </div>
+              </div>
+              <label class="inline">
+                <input id="hk-handsfree" type="checkbox" />
+                Mains libres : deux appuis courts → dictée sans tenir la touche (Échap annule)
+              </label>
+            </section>
+
+            <section>
+              <h2>Micro et transcription</h2>
+              <label for="audio-device">Micro</label>
+              <select id="audio-device"></select>
+              <label for="asr-model">Modèle Whisper</label>
+              <select id="asr-model"></select>
+              <p class="muted small">
+                Un nouveau modèle est téléchargé au redémarrage (progression dans la pastille).
+              </p>
+              <label class="inline">
+                <input id="asr-gpu" type="checkbox" />
+                Utiliser la carte graphique (beaucoup plus rapide)
+              </label>
+            </section>
+
+            <div class="row">
+              <button id="general-save" type="submit" class="primary">Enregistrer et redémarrer</button>
+            </div>
+            <div id="general-result" class="result" hidden></div>
+          </form>
+
+          <section>
+            <h2>Démarrage</h2>
+            <label class="inline">
+              <input id="autostart" type="checkbox" />
+              Lancer VoiceToText à l'ouverture de session Windows (discret, dans la zone de notification)
+            </label>
+            <p id="autostart-status" class="muted small"></p>
+          </section>
+
           <section>
             <h2>Nettoyage du texte</h2>
             <p class="muted">
@@ -295,6 +352,7 @@
     <script src="home.js"></script>
     <script src="history.js"></script>
     <script src="vocabulary.js"></script>
+    <script src="general.js"></script>
     <script src="settings.js"></script>
     <script src="app.js"></script>
   </body>

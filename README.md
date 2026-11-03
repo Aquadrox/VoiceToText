@@ -40,11 +40,14 @@ Configuration : `%APPDATA%\VoiceToText\config.toml`. Dictionnaire, snippets et s
 dictionary = ["Aquadrox", "Tauri"]
 
 [hotkey]
-key = "AltGr"        # ou RightCtrl, CapsLock, ScrollLock, Pause, Insert, Menu, F1…F24
+key = "AltGr"        # ou RightCtrl, RightShift, CapsLock, ScrollLock, Pause, Insert, Menu, F1…F24
 min_hold_ms = 250
 hands_free = true    # double appui → mains libres
 paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
+
+[audio]
+device = ""          # nom du micro ; vide = micro par défaut de Windows
 
 [asr]
 model = "ggml-large-v3-turbo-q8_0.bin"

@@ -514,3 +514,11 @@ ol.entries li {
 .save-bar .error {
   color: var(--danger);
 }
+
+#general-form > .row {
+  margin-bottom: 16px;
+}
+
+#general-result {
+  margin-bottom: 16px;
+}
