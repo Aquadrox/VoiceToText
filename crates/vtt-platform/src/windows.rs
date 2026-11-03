@@ -17,6 +17,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_RMENU,
     VK_V,
 };
+use windows::Win32::UI::Shell::{
+    QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
     HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, SetWindowsHookExW, WH_KEYBOARD_LL, WM_KEYDOWN,
@@ -205,6 +208,17 @@ fn process_name(pid: u32) -> Option<String> {
     queried.ok()?;
     let path = String::from_utf16_lossy(&path[..len as usize]);
     path.rsplit('\\').next().map(str::to_owned)
+}
+
+/// Une application occupe l'écran en plein écran (jeu, vidéo, présentation) :
+/// Windows suspend alors ses propres notifications.
+pub fn fullscreen_app_running() -> bool {
+    matches!(
+        unsafe { SHQueryUserNotificationState() },
+        Ok(state) if state == QUNS_BUSY
+            || state == QUNS_RUNNING_D3D_FULL_SCREEN
+            || state == QUNS_PRESENTATION_MODE
+    )
 }
 
 /// Attente maximale de la copie après le Ctrl+C simulé.

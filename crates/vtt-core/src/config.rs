@@ -145,6 +145,12 @@ pub struct AsrConfig {
     /// Code langue ISO 639-1 imposé à Whisper.
     pub language: String,
     pub use_gpu: bool,
+    /// Décharge le modèle (mémoire graphique libérée) après ce nombre de
+    /// minutes sans dicter ; 0 : jamais. Il est rechargé pendant la dictée
+    /// suivante.
+    pub unload_after_min: u32,
+    /// Décharge le modèle tant qu'un jeu ou une vidéo est en plein écran.
+    pub unload_in_fullscreen: bool,
 }
 
 impl Default for AsrConfig {
@@ -153,9 +159,14 @@ impl Default for AsrConfig {
             model: "ggml-large-v3-turbo-q8_0.bin".into(),
             language: "fr".into(),
             use_gpu: true,
+            unload_after_min: 0,
+            unload_in_fullscreen: false,
         }
     }
 }
+
+/// Délais proposés dans les réglages pour décharger le modèle (minutes).
+pub const UNLOAD_AFTER_CHOICES: &[u32] = &[0, 5, 15, 30, 60];
 
 /// Nettoyage du texte par un LLM exposant une API compatible OpenAI.
 ///
