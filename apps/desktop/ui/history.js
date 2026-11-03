@@ -36,7 +36,9 @@ function render() {
 function renderEntry(entry) {
   const item = $("entry").content.firstElementChild.cloneNode(true);
   const seconds = Math.round(entry.duration_ms / 1000);
-  item.querySelector(".when").textContent = `${dateFormat.format(new Date(entry.at_ms))} · ${seconds} s`;
+  const app = entry.app ? ` · ${entry.app}` : "";
+  item.querySelector(".when").textContent =
+    `${dateFormat.format(new Date(entry.at_ms))} · ${seconds} s${app}`;
   item.querySelector(".badge").textContent = entry.snippet
     ? "snippet"
     : entry.cleanup_failed

@@ -16,6 +16,8 @@ pub struct Config {
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     pub snippets: Vec<Snippet>,
+    /// Consignes de nettoyage selon l'application de destination.
+    pub styles: Vec<Style>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -198,6 +200,50 @@ impl Default for HistoryConfig {
     }
 }
 
+/// Style de nettoyage pour certaines applications, choisi d'après la fenêtre
+/// active au début de la dictée. Le premier style qui correspond s'applique.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Style {
+    /// Nom de l'exécutable, ex. "slack.exe" (casse ignorée).
+    pub apps: Vec<String>,
+    /// Morceau du titre de la fenêtre, ex. "Gmail" (casse ignorée) : pour les
+    /// sites ouverts dans un navigateur.
+    pub titles: Vec<String>,
+    /// Consignes ajoutées au nettoyage, ex. « ton décontracté ».
+    pub instructions: String,
+    /// `false` : insérer la transcription brute dans ces applications.
+    pub cleanup: bool,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            apps: Vec::new(),
+            titles: Vec::new(),
+            instructions: String::new(),
+            cleanup: true,
+        }
+    }
+}
+
+impl Style {
+    pub fn matches(&self, app: Option<&str>, title: Option<&str>) -> bool {
+        let app_matches = app.is_some_and(|app| {
+            let app = app.rsplit(['\\', '/']).next().unwrap_or(app);
+            self.apps.iter().any(|a| a.trim().eq_ignore_ascii_case(app))
+        });
+        let title_matches = title.is_some_and(|title| {
+            let title = title.to_lowercase();
+            self.titles
+                .iter()
+                .map(|t| t.trim().to_lowercase())
+                .any(|t| !t.is_empty() && title.contains(&t))
+        });
+        app_matches || title_matches
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snippet {
     /// Phrase prononcée, ex. "ma signature".
@@ -318,6 +364,33 @@ mod tests {
         assert!(with(&|l| l.pricing.output_per_million = -1.0).is_err());
         assert!(with(&|l| l.pricing.input_per_million = f64::NAN).is_err());
         assert!(with(&|l| l.pricing.currency = "euro".into()).is_err());
+    }
+
+    #[test]
+    fn style_matches_app_or_title() {
+        let style = Style {
+            apps: vec!["Slack.exe".into()],
+            titles: vec!["Gmail".into(), " ".into()],
+            ..Style::default()
+        };
+        assert!(style.matches(Some("slack.exe"), None));
+        assert!(style.matches(Some(r"C:\Program Files\Slack\slack.exe"), None));
+        assert!(style.matches(Some("chrome.exe"), Some("Boîte de réception - GMAIL")));
+        assert!(!style.matches(Some("chrome.exe"), Some("Recherche Google")));
+        assert!(!style.matches(None, None));
+        // Un titre vide dans la liste ne correspond pas à tout.
+        assert!(!style.matches(None, Some("n'importe quoi")));
+    }
+
+    #[test]
+    fn styles_parse_from_toml() {
+        let config = Config::from_toml(
+            "[[styles]]\napps = [\"code.exe\"]\ncleanup = false\n\n[[styles]]\ntitles = [\"Gmail\"]\ninstructions = \"Ton soigné.\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.styles.len(), 2);
+        assert!(!config.styles[0].cleanup);
+        assert!(config.styles[1].cleanup, "cleanup vaut true par défaut");
     }
 
     #[test]

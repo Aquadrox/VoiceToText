@@ -80,12 +80,22 @@ impl LlmCleaner {
         }
     }
 
-    fn request_body(&self, raw: &str) -> Value {
+    fn request_body(&self, raw: &str, style: Option<&str>) -> Value {
+        // Consignes ajoutées en fin de prompt : le début reste identique d'une
+        // requête à l'autre et profite du cache du fournisseur.
+        let system = match style {
+            Some(style) => format!(
+                "{}\n\nConsignes de style pour l'application de destination (elles ne \
+                 l'emportent jamais sur les règles ci-dessus) : {style}",
+                self.system_prompt
+            ),
+            None => self.system_prompt.clone(),
+        };
         let max_tokens = (raw.len() / 2 + 256).min(4096);
         let mut body = json!({
             "model": self.model,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": system},
                 {"role": "user", "content": format!("<dictee>{raw}</dictee>")},
             ],
         });
@@ -103,7 +113,7 @@ impl LlmCleaner {
 }
 
 impl PostProcessor for LlmCleaner {
-    fn process(&self, raw: &str) -> Result<Cleaned, Error> {
+    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
         let key = (self.api_key)().filter(|k| !k.trim().is_empty());
         if key.is_none() && !self.local {
             return Err(Error::PostProcess("aucune clé API enregistrée".into()));
@@ -113,7 +123,7 @@ impl PostProcessor for LlmCleaner {
             request = request.header("Authorization", &format!("Bearer {}", key.trim()));
         }
         let mut response = request
-            .send_json(self.request_body(raw))
+            .send_json(self.request_body(raw, style))
             .map_err(|e| Error::PostProcess(format!("requête : {e}")))?;
 
         let status = response.status().as_u16();
@@ -322,7 +332,7 @@ mod tests {
                          "prompt_cache_hit_tokens":384,"prompt_cache_miss_tokens":36}}"#,
         );
         let cleaned = cleaner(&url, Some("sk-test"))
-            .process("euh on se voit mardi non mercredi")
+            .process("euh on se voit mardi non mercredi", None)
             .unwrap();
         assert_eq!(cleaned.text, "On se voit mercredi.");
         assert_eq!(
@@ -346,7 +356,7 @@ mod tests {
             r#"{"error":{"message":"Authentication Fails","type":"auth"}}"#,
         );
         let err = cleaner(&url, Some("sk-bad"))
-            .process("bonjour")
+            .process("bonjour", None)
             .unwrap_err();
         server.join().unwrap();
         let message = err.to_string();
@@ -357,7 +367,7 @@ mod tests {
     #[test]
     fn missing_key_fails_without_network() {
         let err = cleaner("https://api.example.com", None)
-            .process("bonjour")
+            .process("bonjour", None)
             .unwrap_err();
         assert!(err.to_string().contains("aucune clé"));
     }
@@ -369,23 +379,37 @@ mod tests {
             deepseek.endpoint,
             "https://api.deepseek.com/chat/completions"
         );
-        assert_eq!(deepseek.request_body("x")["thinking"]["type"], "disabled");
+        assert_eq!(
+            deepseek.request_body("x", None)["thinking"]["type"],
+            "disabled"
+        );
 
         let mut config = config("https://api.example.com/v1");
         config.extra_body = Map::new();
         config.extra_body.insert("temperature".into(), json!(0.3));
         let other = LlmCleaner::new(&config, &[], Box::new(|| None));
-        let body = other.request_body("x");
+        let body = other.request_body("x", None);
         assert!(body.get("thinking").is_none());
         assert_eq!(body["temperature"], 0.3, "extra_body l'emporte");
         assert!(body["max_tokens"].is_number());
     }
 
     #[test]
+    fn style_is_appended_to_system_prompt() {
+        let cleaner = cleaner("https://api.deepseek.com", Some("k"));
+        let plain = cleaner.request_body("x", None);
+        let styled = cleaner.request_body("x", Some("ton décontracté"));
+        let plain = plain["messages"][0]["content"].as_str().unwrap();
+        let styled = styled["messages"][0]["content"].as_str().unwrap();
+        assert!(styled.starts_with(plain), "préfixe commun (cache)");
+        assert!(styled.ends_with("ton décontracté"));
+    }
+
+    #[test]
     fn openai_gets_max_completion_tokens_without_temperature() {
         let mut config = config("https://api.openai.com/v1");
         config.extra_body = Map::new();
-        let body = LlmCleaner::new(&config, &[], Box::new(|| None)).request_body("x");
+        let body = LlmCleaner::new(&config, &[], Box::new(|| None)).request_body("x", None);
         assert!(body["max_completion_tokens"].is_number());
         assert!(body.get("max_tokens").is_none() && body.get("temperature").is_none());
     }
@@ -394,7 +418,7 @@ mod tests {
     fn local_model_works_without_key() {
         let (url, server) = serve_once(200, r#"{"choices":[{"message":{"content":"Bonjour."}}]}"#);
         let url = url.replace("127.0.0.1", "localhost");
-        let cleaned = cleaner(&url, None).process("bonjour").unwrap();
+        let cleaned = cleaner(&url, None).process("bonjour", None).unwrap();
         assert_eq!(cleaned.text, "Bonjour.");
         let request = server.join().unwrap();
         assert!(!request.to_ascii_lowercase().contains("authorization"));

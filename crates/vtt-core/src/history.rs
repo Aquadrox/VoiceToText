@@ -25,6 +25,9 @@ pub struct Entry {
     /// Le nettoyage a échoué : le texte brut a été inséré.
     #[serde(default)]
     pub cleanup_failed: bool,
+    /// Application de destination, ex. "slack.exe".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
 }
 
 pub struct History {
@@ -125,6 +128,7 @@ mod tests {
             text: format!("propre {i}"),
             snippet: false,
             cleanup_failed: false,
+            app: None,
         }
     }
 

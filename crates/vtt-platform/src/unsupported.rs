@@ -27,6 +27,10 @@ pub fn key_is_down(_key: u32) -> bool {
 
 pub fn suppress_menu_activation(_trigger: u32) {}
 
+pub fn foreground_target() -> vtt_core::Target {
+    vtt_core::Target::default()
+}
+
 pub fn modifiers_down() -> bool {
     false
 }

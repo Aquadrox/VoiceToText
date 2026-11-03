@@ -10,7 +10,7 @@ use std::time::Duration;
 use vtt_asr::WhisperTranscriber;
 use vtt_core::config::Pricing;
 use vtt_core::hotkey::{Action, PushToTalk};
-use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor};
+use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
 use vtt_llm::LlmCleaner;
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, now_ms};
@@ -89,9 +89,13 @@ fn run(
         None
     };
     let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster))
-        .with_snippets(&config.snippets);
+        .with_snippets(&config.snippets)
+        .with_styles(&config.styles);
     if !config.snippets.is_empty() {
         log::info!("{} snippet(s) chargé(s)", config.snippets.len());
+    }
+    if !config.styles.is_empty() {
+        log::info!("{} style(s) par application", config.styles.len());
     }
 
     let recording = Arc::new(AtomicBool::new(false));
@@ -102,7 +106,15 @@ fn run(
         Arc::clone(reporter),
         Arc::clone(&recording),
     );
-    let recorder = Recorder::spawn();
+    let mut controls = Controls {
+        recorder: Recorder::spawn(),
+        recording,
+        reporter,
+        clips,
+        trigger,
+        key_name: &config.hotkey.key,
+        target: Target::default(),
+    };
 
     let (keys_tx, keys) = mpsc::channel();
     vtt_platform::spawn_keyboard_hook(keys_tx)?;
@@ -118,15 +130,7 @@ fn run(
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => return Err("hook clavier arrêté".into()),
         };
-        handle(
-            action,
-            &recorder,
-            &recording,
-            reporter,
-            &clips,
-            trigger,
-            &config.hotkey.key,
-        );
+        controls.handle(action);
 
         // Filet de sécurité : relâchement non reçu par le hook, ou durée maximale.
         // En mains libres, la touche est relâchée exprès : seule la durée compte.
@@ -140,55 +144,55 @@ fn run(
             };
             if released || elapsed > max_ms {
                 log::info!("relâchement forcé après {elapsed} ms");
-                let action = ptt.force_release(now);
-                handle(
-                    action,
-                    &recorder,
-                    &recording,
-                    reporter,
-                    &clips,
-                    trigger,
-                    &config.hotkey.key,
-                );
+                controls.handle(ptt.force_release(now));
             }
         }
     }
 }
 
-fn handle(
-    action: Option<Action>,
-    recorder: &Recorder,
-    recording: &AtomicBool,
-    reporter: &StatusReporter,
-    clips: &mpsc::Sender<AudioClip>,
+/// Ce que le thread clavier pilote : micro, état affiché, file des dictées.
+struct Controls<'a> {
+    recorder: Recorder,
+    recording: Arc<AtomicBool>,
+    reporter: &'a StatusReporter,
+    clips: mpsc::Sender<(AudioClip, Target)>,
     trigger: u32,
-    key_name: &str,
-) {
-    match action {
-        Some(Action::Start) => match recorder.start() {
-            Ok(()) => {
-                recording.store(true, Ordering::SeqCst);
-                vtt_platform::suppress_menu_activation(trigger);
-                reporter.set(Status::Listening);
+    key_name: &'a str,
+    /// Fenêtre de destination, relevée au début de la dictée (le focus peut
+    /// changer pendant la transcription).
+    target: Target,
+}
+
+impl Controls<'_> {
+    fn handle(&mut self, action: Option<Action>) {
+        match action {
+            Some(Action::Start) => match self.recorder.start() {
+                Ok(()) => {
+                    self.target = vtt_platform::foreground_target();
+                    self.recording.store(true, Ordering::SeqCst);
+                    vtt_platform::suppress_menu_activation(self.trigger);
+                    self.reporter.set(Status::Listening);
+                }
+                Err(e) => self.reporter.set(Status::Error(e)),
+            },
+            Some(Action::HandsFree) => {
+                log::info!("mode mains libres");
+                self.reporter
+                    .set(Status::HandsFree(self.key_name.to_owned()));
             }
-            Err(e) => reporter.set(Status::Error(e)),
-        },
-        Some(Action::HandsFree) => {
-            log::info!("mode mains libres");
-            reporter.set(Status::HandsFree(key_name.to_owned()));
+            Some(Action::Cancel) => {
+                self.recorder.stop();
+                self.recording.store(false, Ordering::SeqCst);
+                self.reporter.set(Status::Idle);
+            }
+            Some(Action::Stop) => {
+                let clip = self.recorder.stop();
+                self.recording.store(false, Ordering::SeqCst);
+                self.reporter.set(Status::Processing);
+                let _ = self.clips.send((clip, std::mem::take(&mut self.target)));
+            }
+            None => {}
         }
-        Some(Action::Cancel) => {
-            recorder.stop();
-            recording.store(false, Ordering::SeqCst);
-            reporter.set(Status::Idle);
-        }
-        Some(Action::Stop) => {
-            let clip = recorder.stop();
-            recording.store(false, Ordering::SeqCst);
-            reporter.set(Status::Processing);
-            let _ = clips.send(clip);
-        }
-        None => {}
     }
 }
 
@@ -200,13 +204,16 @@ fn spawn_worker(
     pricing: Pricing,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
-) -> mpsc::Sender<AudioClip> {
-    let (tx, rx) = mpsc::channel::<AudioClip>();
+) -> mpsc::Sender<(AudioClip, Target)> {
+    let (tx, rx) = mpsc::channel::<(AudioClip, Target)>();
     thread::Builder::new()
         .name("pipeline".into())
         .spawn(move || {
-            for clip in rx {
-                match pipeline.run(&clip) {
+            for (clip, target) in rx {
+                if let Some(app) = &target.app {
+                    log::info!("application cible : {app}");
+                }
+                match pipeline.run(&clip, &target) {
                     Ok(outcome) => {
                         if let Outcome::Inserted {
                             post_process_error: Some(e),
@@ -221,7 +228,7 @@ fn spawn_worker(
                                 costs::record(&recorders.ledger, usage, &pricing);
                             }
                         }
-                        history::record(&recorders.history, &clip, &outcome);
+                        history::record(&recorders.history, &clip, &target, &outcome);
                     }
                     Err(e) => {
                         reporter.set(Status::Error(e.to_string()));
