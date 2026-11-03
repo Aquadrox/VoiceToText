@@ -7,6 +7,7 @@ mod history;
 mod logging;
 mod model;
 mod paths;
+mod raw_paste;
 mod settings;
 mod status;
 mod tray;
@@ -18,9 +19,11 @@ use vtt_core::Config;
 use vtt_core::history::History;
 use vtt_core::usage::Ledger;
 
+use crate::controller::Recorders;
 use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
 use crate::paths::Paths;
+use crate::raw_paste::LastRaw;
 use crate::status::{Status, StatusReporter};
 
 /// Marge entre la pastille et le bas de la zone de travail (au-dessus de la barre des tâches).
@@ -39,6 +42,7 @@ fn main() {
     tauri::Builder::default()
         // Une seconde instance installerait un second hook clavier : on l'interdit.
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status::current_status,
             settings::settings_view,
@@ -50,7 +54,8 @@ fn main() {
             history::clear_history,
         ])
         .setup(move |app| {
-            let status_item = tray::build(app, &paths)?;
+            let last_raw = LastRaw::default();
+            let status_item = tray::build(app, &paths, Arc::clone(&last_raw))?;
             app.manage(paths.clone());
             let reporter = Arc::new(StatusReporter::new(app.handle().clone(), status_item));
             app.manage(Arc::clone(&reporter));
@@ -72,7 +77,13 @@ fn main() {
                 Some(e) => reporter.set(Status::Error(e)),
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
-            controller::spawn(reporter, history, ledger, Config::clone(&config), paths);
+            raw_paste::register(app, &config.hotkey.paste_raw, Arc::clone(&last_raw));
+            let recorders = Recorders {
+                history,
+                ledger,
+                last_raw,
+            };
+            controller::spawn(reporter, recorders, Config::clone(&config), paths);
             Ok(())
         })
         .run(tauri::generate_context!())

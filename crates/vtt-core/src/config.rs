@@ -27,6 +27,9 @@ pub struct HotkeyConfig {
     pub min_hold_ms: u32,
     /// Double appui court → dictée mains libres (nouvel appui pour finir, Échap pour annuler).
     pub hands_free: bool,
+    /// Raccourci qui colle la transcription brute (sans nettoyage) de la
+    /// dernière dictée, ex. "Alt+Shift+V". Vide : désactivé.
+    pub paste_raw: String,
 }
 
 impl Default for HotkeyConfig {
@@ -35,6 +38,7 @@ impl Default for HotkeyConfig {
             key: "AltGr".into(),
             min_hold_ms: 250,
             hands_free: true,
+            paste_raw: "Alt+Shift+V".into(),
         }
     }
 }

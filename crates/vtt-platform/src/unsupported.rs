@@ -27,6 +27,14 @@ pub fn key_is_down(_key: u32) -> bool {
 
 pub fn suppress_menu_activation(_trigger: u32) {}
 
+pub fn modifiers_down() -> bool {
+    false
+}
+
+pub fn copy_text(_text: &str) -> Result<(), String> {
+    Err(format!("presse-papier {MESSAGE}"))
+}
+
 pub struct ClipboardPaster;
 
 impl TextSink for ClipboardPaster {

@@ -8,11 +8,19 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{App, Wry};
 
 use crate::paths::Paths;
+use crate::raw_paste::{self, LastRaw};
 
 /// Construit l'icône ; renvoie la ligne d'état du menu pour la mettre à jour.
-pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
+pub fn build(app: &App, paths: &Paths, last_raw: LastRaw) -> tauri::Result<MenuItem<Wry>> {
     let status = MenuItem::with_id(app, "status", "Démarrage…", false, None::<&str>)?;
     let history = MenuItem::with_id(app, "history", "Historique…", true, None::<&str>)?;
+    let copy_raw = MenuItem::with_id(
+        app,
+        "copy_raw",
+        "Copier la dernière dictée brute",
+        true,
+        None::<&str>,
+    )?;
     let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
     let config = MenuItem::with_id(
         app,
@@ -30,6 +38,7 @@ pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
             &status,
             &PredefinedMenuItem::separator(app)?,
             &history,
+            &copy_raw,
             &settings,
             &config,
             &logs,
@@ -47,6 +56,7 @@ pub fn build(app: &App, paths: &Paths) -> tauri::Result<MenuItem<Wry>> {
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "history" => crate::history::open(app),
+            "copy_raw" => raw_paste::copy(&last_raw),
             "settings" => crate::settings::open(app),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),

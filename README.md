@@ -17,6 +17,7 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 - **Maintenir AltGr**, parler, **relâcher** : le texte est collé dans l'application active.
 - AltGr + une autre touche (`@`, `#`, `€`…) fonctionne normalement : la dictée est annulée.
 - **Mains libres** : deux appuis courts sur AltGr → la dictée continue sans tenir la touche (pastille verte). Un appui sur AltGr la termine, **Échap** l'annule. Limite : 10 min.
+- **Version brute** : si le nettoyage a trop réécrit, **Ctrl+Z** puis **Alt+Maj+V** colle la transcription Whisper de la dernière dictée, telle quelle. Aussi dans le menu de l'icône : « Copier la dernière dictée brute ».
 - Icône de notification : état, historique des dictées, réglages, configuration, journaux, redémarrage.
 
 ### Nettoyage du texte (LLM)
@@ -41,6 +42,7 @@ dictionary = ["Aquadrox", "Tauri"]
 key = "AltGr"        # ou RightCtrl, CapsLock, ScrollLock, Pause, Insert, Menu, F1…F24
 min_hold_ms = 250
 hands_free = true    # double appui → mains libres
+paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
 
 [asr]
 model = "ggml-large-v3-turbo-q8_0.bin"
