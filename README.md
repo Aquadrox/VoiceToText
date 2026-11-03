@@ -22,6 +22,7 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 11. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
 12. [Dépannage](#dépannage)
 13. [Développement](#développement)
+14. [Licence](#licence)
 
 ## Installation
 
@@ -298,3 +299,9 @@ Documentation technique :
 - [Fonctions](docs/FONCTIONS.md)
 - [Architecture et choix techniques](docs/ARCHITECTURE.md)
 - [Roadmap et avancement](docs/ROADMAP.md)
+
+## Licence
+
+[MIT](LICENSE) © 2026 Florian Langlois : utilisation, modification et redistribution libres, y compris dans d'autres projets, à condition de conserver la mention de copyright. Logiciel fourni sans garantie.
+
+Composants tiers : [whisper.cpp](https://github.com/ggml-org/whisper.cpp) et les modèles [Whisper](https://github.com/openai/whisper) (MIT), [Tauri](https://tauri.app) (MIT / Apache 2.0). Le service LLM choisi (DeepSeek, OpenAI…) reste soumis à ses propres conditions d'utilisation.

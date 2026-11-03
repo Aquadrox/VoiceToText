@@ -4,6 +4,7 @@ description = "Transcription locale via whisper.cpp"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [features]
 # Accélération GPU via Vulkan (pilote NVIDIA/AMD/Intel, rien à embarquer).
