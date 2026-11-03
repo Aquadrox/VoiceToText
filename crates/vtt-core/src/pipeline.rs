@@ -6,6 +6,7 @@
 use std::time::Instant;
 
 use crate::config::Snippet;
+use crate::usage::Usage;
 use crate::{audio, text};
 
 /// Fréquence attendue par Whisper.
@@ -43,8 +44,15 @@ pub trait Transcriber: Send + Sync {
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error>;
 }
 
+/// Texte nettoyé et, si le fournisseur l'indique, les jetons facturés.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cleaned {
+    pub text: String,
+    pub usage: Option<Usage>,
+}
+
 pub trait PostProcessor: Send + Sync {
-    fn process(&self, raw: &str) -> Result<String, Error>;
+    fn process(&self, raw: &str) -> Result<Cleaned, Error>;
 }
 
 pub trait TextSink: Send + Sync {
@@ -64,6 +72,8 @@ pub enum Outcome {
         /// La dictée était le déclencheur d'un snippet : son texte a été
         /// inséré tel quel, sans passer par le LLM.
         snippet: bool,
+        /// Jetons facturés par le LLM pour cette dictée.
+        usage: Option<Usage>,
     },
 }
 
@@ -145,17 +155,20 @@ impl Pipeline {
                 text: snippet.to_owned(),
                 post_process_error: None,
                 snippet: true,
+                usage: None,
             });
         }
 
         // Un échec du LLM ne doit jamais faire perdre la dictée.
         let started = Instant::now();
-        let (text, post_process_error) = match &self.post_processor {
-            None => (raw.clone(), None),
+        let (text, post_process_error, usage) = match &self.post_processor {
+            None => (raw.clone(), None, None),
             Some(processor) => match processor.process(&raw) {
-                Ok(text) if !text.trim().is_empty() => (text.trim().to_owned(), None),
-                Ok(_) => (raw.clone(), Some("réponse vide".to_owned())),
-                Err(err) => (raw.clone(), Some(err.to_string())),
+                Ok(cleaned) if !cleaned.text.trim().is_empty() => {
+                    (cleaned.text.trim().to_owned(), None, cleaned.usage)
+                }
+                Ok(cleaned) => (raw.clone(), Some("réponse vide".to_owned()), cleaned.usage),
+                Err(err) => (raw.clone(), Some(err.to_string()), None),
             },
         };
 
@@ -163,8 +176,11 @@ impl Pipeline {
 
         let started = Instant::now();
         self.sink.insert(&text)?;
+        let tokens = usage.map_or(String::new(), |u| {
+            format!(" ({} + {} jetons)", u.input_tokens, u.output_tokens)
+        });
         log::info!(
-            "dictée de {} ms : ASR {asr_ms} ms, nettoyage {post_ms} ms, insertion {} ms",
+            "dictée de {} ms : ASR {asr_ms} ms, nettoyage {post_ms} ms{tokens}, insertion {} ms",
             clip.duration_ms(),
             started.elapsed().as_millis()
         );
@@ -173,6 +189,7 @@ impl Pipeline {
             text,
             post_process_error,
             snippet: false,
+            usage,
         })
     }
 }
@@ -189,16 +206,25 @@ mod tests {
         }
     }
 
+    const USAGE: Usage = Usage {
+        input_tokens: 120,
+        cached_input_tokens: 100,
+        output_tokens: 8,
+    };
+
     struct Upper;
     impl PostProcessor for Upper {
-        fn process(&self, raw: &str) -> Result<String, Error> {
-            Ok(raw.to_uppercase())
+        fn process(&self, raw: &str) -> Result<Cleaned, Error> {
+            Ok(Cleaned {
+                text: raw.to_uppercase(),
+                usage: Some(USAGE),
+            })
         }
     }
 
     struct Failing;
     impl PostProcessor for Failing {
-        fn process(&self, _: &str) -> Result<String, Error> {
+        fn process(&self, _: &str) -> Result<Cleaned, Error> {
             Err(Error::PostProcess("délai dépassé".into()))
         }
     }
@@ -266,6 +292,7 @@ mod tests {
                 text: "BONJOUR".into(),
                 post_process_error: None,
                 snippet: false,
+                usage: Some(USAGE),
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
@@ -312,6 +339,7 @@ mod tests {
                 text: "Florian\nVoiceToText".into(),
                 post_process_error: None,
                 snippet: true,
+                usage: None,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["Florian\nVoiceToText"]);

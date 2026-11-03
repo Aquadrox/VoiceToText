@@ -66,6 +66,32 @@ pub struct LlmConfig {
     pub model: String,
     /// Au-delà de ce délai, le texte brut est inséré.
     pub timeout_ms: u32,
+    /// Tarif du modèle, pour estimer le coût du nettoyage.
+    pub pricing: Pricing,
+}
+
+/// Prix par million de jetons. À ajuster si le modèle ou le fournisseur change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pricing {
+    pub input_per_million: f64,
+    /// Jetons d'entrée servis par le cache du fournisseur.
+    pub cached_input_per_million: f64,
+    pub output_per_million: f64,
+    pub currency: String,
+}
+
+/// deepseek-flash au tarif plein (heures de pointe) : estimation haute, les
+/// heures creuses coûtent moitié moins. Source : api-docs.deepseek.com, 11/2026.
+impl Default for Pricing {
+    fn default() -> Self {
+        Self {
+            input_per_million: 0.30,
+            cached_input_per_million: 0.006,
+            output_per_million: 1.20,
+            currency: "USD".into(),
+        }
+    }
 }
 
 impl Default for LlmConfig {
@@ -75,6 +101,7 @@ impl Default for LlmConfig {
             base_url: "https://api.deepseek.com".into(),
             model: "deepseek-flash".into(),
             timeout_ms: 3000,
+            pricing: Pricing::default(),
         }
     }
 }

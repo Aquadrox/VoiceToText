@@ -29,13 +29,13 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Snippets : dicter seulement le déclencheur insère le texte fixe, sans LLM (config.toml en attendant l'interface v0.4)
 - ✅ Historique : 1000 dernières dictées sur le PC, fenêtre « Historique… » (recherche, brut/nettoyé, copier, tout effacer)
 
-## v0.3 — Confort ⬜
+## v0.3 — Confort 🚧
 
 - ⬜ Mode mains libres (double appui)
 - ⬜ Styles par application
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »
-- ⬜ Suivi du coût LLM : jetons consommés lus dans la réponse de l'API (`usage`, y compris le cache DeepSeek), coût calculé avec un tarif par modèle réglable (prix différents selon les fournisseurs), total par jour / mois, affiché dans les réglages puis le tableau de bord v0.4
+- ✅ Suivi du coût LLM : jetons lus dans la réponse (`usage`, cache DeepSeek et OpenAI compris), coût estimé avec un tarif réglable (`[llm.pricing]`), totaux jour / mois / total dans « Réglages… » ; fichier `usage.json` sans aucun texte dicté
 - ⬜ Fournisseur LLM au choix dans les réglages : URL, modèle (GLM, OpenAI, Mistral…), délai maximal, clé par fournisseur, bouton Tester. Paramètres propres à chaque fournisseur (ex. désactivation de la réflexion) gérés par préréglages. *Déjà possible à la main via `[llm]` dans config.toml.*
 
 ## v0.4 — Interface principale ⬜

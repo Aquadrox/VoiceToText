@@ -10,8 +10,9 @@ pub mod history;
 pub mod hotkey;
 pub mod pipeline;
 pub mod text;
+pub mod usage;
 
 pub use config::Config;
 pub use pipeline::{
-    AudioClip, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, TextSink, Transcriber,
+    AudioClip, Cleaned, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, TextSink, Transcriber,
 };

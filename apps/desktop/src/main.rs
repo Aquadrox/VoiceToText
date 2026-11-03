@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod controller;
+mod costs;
 mod history;
 mod logging;
 mod model;
@@ -15,7 +16,9 @@ use std::sync::{Arc, Mutex};
 use tauri::{Manager, PhysicalPosition, WebviewWindow};
 use vtt_core::Config;
 use vtt_core::history::History;
+use vtt_core::usage::Ledger;
 
+use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
 use crate::paths::Paths;
 use crate::status::{Status, StatusReporter};
@@ -56,6 +59,8 @@ fn main() {
                     History::open(paths.history_file.clone(), config.history.max_entries)
                 })));
             app.manage(Arc::clone(&history));
+            let ledger: LedgerStore = Arc::new(Mutex::new(Ledger::open(paths.usage_file.clone())));
+            app.manage(Arc::clone(&ledger));
 
             if let Some(overlay) = app.get_webview_window("overlay") {
                 show_overlay(&overlay)?;
@@ -65,7 +70,7 @@ fn main() {
                 Some(e) => reporter.set(Status::Error(e)),
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
-            controller::spawn(reporter, history, Config::clone(&config), paths);
+            controller::spawn(reporter, history, ledger, Config::clone(&config), paths);
             Ok(())
         })
         .run(tauri::generate_context!())

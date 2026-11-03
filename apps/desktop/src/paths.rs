@@ -18,6 +18,7 @@ pub struct Paths {
     pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub history_file: PathBuf,
+    pub usage_file: PathBuf,
 }
 
 impl Paths {
@@ -33,6 +34,7 @@ impl Paths {
             models_dir: data_dir.join("models"),
             logs_dir: data_dir.join("logs"),
             history_file: data_dir.join("history.jsonl"),
+            usage_file: data_dir.join("usage.json"),
         }
     }
 
