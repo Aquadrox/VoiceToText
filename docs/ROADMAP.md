@@ -35,6 +35,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ⬜ Styles par application
 - ⬜ Command Mode
 - ⬜ Raccourci « coller la version brute »
+- ⬜ Fournisseur LLM au choix dans les réglages : URL, modèle (GLM, OpenAI, Mistral…), délai maximal, clé par fournisseur, bouton Tester. Paramètres propres à chaque fournisseur (ex. désactivation de la réflexion) gérés par préréglages. *Déjà possible à la main via `[llm]` dans config.toml.*
 
 ## v0.4 — Interface principale ⬜
 
@@ -43,6 +44,14 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ⬜ Tableau de bord : statistiques (mots dictés, vitesse, temps gagné, nombre de dictées)
 - ⬜ Historique consultable (brut / nettoyé, copier, recoller)
 - ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
+
+## Outillage ⬜
+
+Accélérer la CI sans baisser la garde :
+
+- ⬜ Sur les PR, ne relancer que ce qui est touché : tests du crate modifié et de ceux qui en dépendent, installeur Windows seulement si du code Rust/UI/dépendances change (pas pour la doc)
+- ⬜ Suite complète + installeur toujours sur `main` et sur les tags : rien n'est publié sans tout repasser
+- ⬜ Cache de compilation plus efficace (sccache) pour whisper.cpp/Vulkan, l'étape la plus longue
 
 ## Plus tard
 
