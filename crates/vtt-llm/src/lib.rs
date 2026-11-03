@@ -6,7 +6,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use vtt_core::config::LlmConfig;
-use vtt_core::{Error, PostProcessor};
+use vtt_core::usage::Usage;
+use vtt_core::{Cleaned, Error, PostProcessor};
 
 /// Fournit la clé API au moment de l'appel : une clé saisie dans les
 /// réglages est prise en compte sans redémarrer.
@@ -89,7 +90,7 @@ impl LlmCleaner {
 }
 
 impl PostProcessor for LlmCleaner {
-    fn process(&self, raw: &str) -> Result<String, Error> {
+    fn process(&self, raw: &str) -> Result<Cleaned, Error> {
         let key = (self.api_key)()
             .filter(|k| !k.trim().is_empty())
             .ok_or_else(|| Error::PostProcess("aucune clé API enregistrée".into()))?;
@@ -108,8 +109,11 @@ impl PostProcessor for LlmCleaner {
         if status != 200 {
             return Err(Error::PostProcess(describe_http_error(status, &body)));
         }
-        let content = parse_content(body)?;
-        accept(raw, &content)
+        let (content, usage) = parse_response(body)?;
+        Ok(Cleaned {
+            text: accept(raw, &content)?,
+            usage,
+        })
     }
 }
 
@@ -154,6 +158,39 @@ fn describe_http_error(status: u16, body: &Value) -> String {
 #[derive(Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    usage: Option<ApiUsage>,
+}
+
+/// Format OpenAI, avec les variantes de cache de DeepSeek et d'OpenAI.
+#[derive(Deserialize)]
+struct ApiUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
+    /// DeepSeek.
+    prompt_cache_hit_tokens: Option<u64>,
+    /// OpenAI.
+    prompt_tokens_details: Option<PromptTokensDetails>,
+}
+
+#[derive(Deserialize)]
+struct PromptTokensDetails {
+    cached_tokens: Option<u64>,
+}
+
+impl From<ApiUsage> for Usage {
+    fn from(u: ApiUsage) -> Self {
+        let cached = u
+            .prompt_cache_hit_tokens
+            .or(u.prompt_tokens_details.and_then(|d| d.cached_tokens))
+            .unwrap_or(0);
+        Usage {
+            input_tokens: u.prompt_tokens,
+            cached_input_tokens: cached,
+            output_tokens: u.completion_tokens,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -166,15 +203,16 @@ struct Message {
     content: Option<String>,
 }
 
-fn parse_content(body: Value) -> Result<String, Error> {
+fn parse_response(body: Value) -> Result<(String, Option<Usage>), Error> {
     let response: ChatResponse = serde_json::from_value(body)
         .map_err(|e| Error::PostProcess(format!("format de réponse inattendu : {e}")))?;
-    response
+    let content = response
         .choices
         .into_iter()
         .next()
         .and_then(|c| c.message.content)
-        .ok_or_else(|| Error::PostProcess("réponse sans texte".into()))
+        .ok_or_else(|| Error::PostProcess("réponse sans texte".into()))?;
+    Ok((content, response.usage.map(Usage::from)))
 }
 
 /// Retire les balises ou guillemets que le modèle aurait recopiés et rejette
@@ -264,12 +302,22 @@ mod tests {
     fn cleans_text_through_http() {
         let (url, server) = serve_once(
             200,
-            r#"{"choices":[{"message":{"role":"assistant","content":"On se voit mercredi."}}]}"#,
+            r#"{"choices":[{"message":{"role":"assistant","content":"On se voit mercredi."}}],
+                "usage":{"prompt_tokens":420,"completion_tokens":9,"total_tokens":429,
+                         "prompt_cache_hit_tokens":384,"prompt_cache_miss_tokens":36}}"#,
         );
-        let text = cleaner(&url, Some("sk-test"))
+        let cleaned = cleaner(&url, Some("sk-test"))
             .process("euh on se voit mardi non mercredi")
             .unwrap();
-        assert_eq!(text, "On se voit mercredi.");
+        assert_eq!(cleaned.text, "On se voit mercredi.");
+        assert_eq!(
+            cleaned.usage,
+            Some(Usage {
+                input_tokens: 420,
+                cached_input_tokens: 384,
+                output_tokens: 9,
+            })
+        );
         let request = server.join().unwrap();
         assert!(request.starts_with("POST /chat/completions"));
         assert!(request.contains("Bearer sk-test"));
@@ -309,6 +357,21 @@ mod tests {
         assert_eq!(deepseek.request_body("x")["thinking"]["type"], "disabled");
         let other = cleaner("https://api.example.com/v1", Some("k"));
         assert!(other.request_body("x").get("thinking").is_none());
+    }
+
+    #[test]
+    fn usage_reads_openai_cache_and_tolerates_absence() {
+        let body = json!({
+            "choices": [{"message": {"content": "Ok."}}],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 2,
+                      "prompt_tokens_details": {"cached_tokens": 32}},
+        });
+        let (_, usage) = parse_response(body).unwrap();
+        assert_eq!(usage.unwrap().cached_input_tokens, 32);
+
+        let (_, usage) =
+            parse_response(json!({"choices": [{"message": {"content": "Ok."}}]})).unwrap();
+        assert_eq!(usage, None);
     }
 
     #[test]

@@ -54,6 +54,7 @@ h2 {
 }
 
 section {
+  margin-bottom: 16px;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -142,4 +143,28 @@ button.danger {
 
 .result.error {
   color: var(--danger);
+}
+
+table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+th:first-child {
+  text-align: left;
+}
+
+thead th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
 }

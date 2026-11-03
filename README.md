@@ -47,6 +47,14 @@ base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
 timeout_ms = 3000
 
+# Tarif par million de jetons, pour le coût estimé (Réglages… → Consommation).
+# Défaut : deepseek-flash au plein tarif ; à adapter si le modèle change.
+[llm.pricing]
+input_per_million = 0.30
+cached_input_per_million = 0.006
+output_per_million = 1.20
+currency = "USD"
+
 [history]
 enabled = true       # dictées conservées sur ce PC uniquement
 max_entries = 1000

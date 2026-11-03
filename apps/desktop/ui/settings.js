@@ -1,6 +1,7 @@
-// Réglages : clé API du LLM (enregistrement, suppression, test).
+// Réglages : clé API du LLM (enregistrement, suppression, test), consommation.
 const { invoke } = window.__TAURI__.core;
 const $ = (id) => document.getElementById(id);
+let currency = "USD";
 
 async function refresh() {
   const view = await invoke("settings_view");
@@ -11,6 +12,31 @@ async function refresh() {
   status.classList.toggle("ok", view.has_api_key);
   $("delete").hidden = !view.has_api_key;
   $("test").disabled = !view.has_api_key;
+  currency = view.currency;
+  renderUsage(view.usage);
+}
+
+const integer = new Intl.NumberFormat("fr-FR");
+
+function formatCost(value) {
+  // Montants minuscules (une dictée ≈ 0,0001 $) : chiffres significatifs.
+  const tiny = value > 0 && value < 0.01;
+  const precision = tiny ? { maximumSignificantDigits: 2 } : { minimumFractionDigits: 2 };
+  try {
+    return new Intl.NumberFormat("fr-FR", { style: "currency", currency, ...precision }).format(value);
+  } catch {
+    return `${tiny ? value.toPrecision(2) : value.toFixed(2)} ${currency}`;
+  }
+}
+
+function renderUsage(usage) {
+  for (const row of document.querySelectorAll("#usage tbody tr")) {
+    const totals = usage[row.dataset.period];
+    const [requests, tokens, cost] = row.querySelectorAll("td");
+    requests.textContent = integer.format(totals.requests);
+    tokens.textContent = integer.format(totals.input_tokens + totals.output_tokens);
+    cost.textContent = formatCost(totals.cost);
+  }
 }
 
 function showResult(text, isError = false) {
@@ -55,7 +81,10 @@ $("test").addEventListener("click", () =>
   busy($("test"), async () => {
     showResult("Test en cours…");
     const t = await invoke("test_cleanup");
-    showResult(`Avant : ${t.input}\n\nAprès : ${t.output}\n\n${t.duration_ms} ms`);
+    const tokens = t.usage
+      ? ` · ${t.usage.input_tokens} + ${t.usage.output_tokens} jetons · ${formatCost(t.cost)}`
+      : "";
+    showResult(`Avant : ${t.input}\n\nAprès : ${t.output}\n\n${t.duration_ms} ms${tokens}`);
   }),
 );
 

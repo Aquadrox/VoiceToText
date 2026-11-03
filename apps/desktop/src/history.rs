@@ -21,6 +21,7 @@ pub fn record(store: &HistoryStore, clip: &AudioClip, outcome: &Outcome) {
         text,
         post_process_error,
         snippet,
+        ..
     } = outcome
     else {
         return;

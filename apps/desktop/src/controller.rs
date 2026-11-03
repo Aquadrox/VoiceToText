@@ -8,12 +8,14 @@ use std::thread;
 use std::time::Duration;
 
 use vtt_asr::WhisperTranscriber;
+use vtt_core::config::Pricing;
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor};
 use vtt_llm::LlmCleaner;
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, now_ms};
 
+use crate::costs::{self, LedgerStore};
 use crate::history::{self, HistoryStore};
 use crate::model;
 use crate::paths::Paths;
@@ -28,11 +30,17 @@ const POLL: Duration = Duration::from_millis(100);
 /// jour après le passage dans le hook.
 const KEY_STATE_GRACE_MS: u64 = 300;
 
-pub fn spawn(reporter: Arc<StatusReporter>, history: HistoryStore, config: Config, paths: Paths) {
+pub fn spawn(
+    reporter: Arc<StatusReporter>,
+    history: HistoryStore,
+    ledger: LedgerStore,
+    config: Config,
+    paths: Paths,
+) {
     thread::Builder::new()
         .name("controller".into())
         .spawn(move || {
-            if let Err(e) = run(&reporter, history, &config, &paths) {
+            if let Err(e) = run(&reporter, history, ledger, &config, &paths) {
                 reporter.set(Status::Error(e));
             }
         })
@@ -42,6 +50,7 @@ pub fn spawn(reporter: Arc<StatusReporter>, history: HistoryStore, config: Confi
 fn run(
     reporter: &Arc<StatusReporter>,
     history: HistoryStore,
+    ledger: LedgerStore,
     config: &Config,
     paths: &Paths,
 ) -> Result<(), String> {
@@ -83,9 +92,14 @@ fn run(
     }
 
     let recording = Arc::new(AtomicBool::new(false));
+    let recorders = Recorders {
+        history,
+        ledger,
+        pricing: config.llm.pricing.clone(),
+    };
     let clips = spawn_worker(
         pipeline,
-        history,
+        recorders,
         Arc::clone(reporter),
         Arc::clone(&recording),
     );
@@ -153,9 +167,16 @@ fn handle(
 
 /// Les dictées sont traitées une par une, hors du thread clavier, pour qu'une
 /// nouvelle dictée puisse commencer pendant la transcription de la précédente.
+/// Ce qui est enregistré après chaque dictée.
+struct Recorders {
+    history: HistoryStore,
+    ledger: LedgerStore,
+    pricing: Pricing,
+}
+
 fn spawn_worker(
     pipeline: Pipeline,
-    history: HistoryStore,
+    recorders: Recorders,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
 ) -> mpsc::Sender<AudioClip> {
@@ -173,7 +194,13 @@ fn spawn_worker(
                         {
                             log::warn!("nettoyage ignoré : {e}");
                         }
-                        history::record(&history, &clip, &outcome);
+                        if let Outcome::Inserted {
+                            usage: Some(usage), ..
+                        } = &outcome
+                        {
+                            costs::record(&recorders.ledger, usage, &recorders.pricing);
+                        }
+                        history::record(&recorders.history, &clip, &outcome);
                     }
                     Err(e) => {
                         reporter.set(Status::Error(e.to_string()));
