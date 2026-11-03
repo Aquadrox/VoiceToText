@@ -19,7 +19,7 @@ Dictée vocale universelle, inspirée de Wispr Flow : maintenir **AltGr**, parle
 - **Mains libres** : deux appuis courts sur AltGr → la dictée continue sans tenir la touche (pastille verte). Un appui sur AltGr la termine, **Échap** l'annule. Limite : 10 min.
 - **Command Mode** : sélectionner un texte, maintenir **AltGr + Ctrl droit**, dicter une consigne (« traduis en anglais », « rends plus formel », « résume en trois points »), relâcher : la sélection est remplacée par le résultat. Sans sélection, le texte demandé est rédigé à l'emplacement du curseur (« écris un mail pour décaler la réunion à jeudi »). Nécessite le LLM. Pastille orange. Désactivé dans les terminaux (une réponse piégée par le texte sélectionné y serait exécutée au collage).
 - **Version brute** : si le nettoyage a trop réécrit, **Ctrl+Z** puis **Alt+Maj+V** colle la transcription Whisper de la dernière dictée, telle quelle. Aussi dans le menu de l'icône : « Copier la dernière dictée brute ».
-- Icône de notification : état, historique des dictées, réglages, configuration, journaux, redémarrage.
+- Icône de notification : état, **Ouvrir VoiceToText** (accueil et statistiques, historique avec le coût de chaque dictée, réglages), configuration, journaux, redémarrage. La fenêtre ne s'ouvre jamais d'elle-même.
 
 ### Nettoyage du texte (LLM)
 

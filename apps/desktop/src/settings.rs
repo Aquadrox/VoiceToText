@@ -1,12 +1,12 @@
-//! Fenêtre de réglages (provisoire, en attendant l'interface principale) :
-//! fournisseur LLM, clé API, test, consommation.
+//! Page Réglages de la fenêtre principale : fournisseur LLM, clé API, test,
+//! consommation.
 
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, State};
 use vtt_core::config::LlmConfig;
 use vtt_core::usage::{Summary, Usage};
 use vtt_core::{Config, PostProcessor};
@@ -38,24 +38,6 @@ fn secret_name(llm: &LlmConfig) -> String {
 pub fn api_key_provider(llm: &LlmConfig) -> ApiKeyProvider {
     let name = secret_name(llm);
     Box::new(move || vtt_platform::load_secret(&name))
-}
-
-pub fn open(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
-    }
-    let built = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("VoiceToText — Réglages")
-        .inner_size(560.0, 860.0)
-        .min_inner_size(420.0, 400.0)
-        .center()
-        .build();
-    if let Err(e) = built {
-        log::error!("ouverture des réglages : {e}");
-    }
 }
 
 #[derive(Serialize)]

@@ -1,44 +1,47 @@
-// Historique des dictées : liste, recherche, copie, effacement.
-// Le texte dicté est inséré avec textContent uniquement (jamais innerHTML).
-const { invoke } = window.__TAURI__.core;
-const $ = (id) => document.getElementById(id);
-
-const dateFormat = new Intl.DateTimeFormat("fr-FR", {
+// Historique des dictées : liste, recherche, coût par entrée, copie, effacement.
+const historyDateFormat = new Intl.DateTimeFormat("fr-FR", {
   dateStyle: "short",
   timeStyle: "short",
 });
-let entries = [];
+let historyEntries = [];
 
-async function refresh() {
+async function showHistory() {
   try {
     const view = await invoke("history_view");
-    entries = view.entries;
-    $("disabled").hidden = view.enabled;
-    $("clear").disabled = entries.length === 0;
-    render();
+    historyEntries = view.entries;
+    $("history-disabled").hidden = view.enabled;
+    $("history-clear").disabled = historyEntries.length === 0;
+    renderHistory();
   } catch (e) {
-    $("empty").hidden = false;
-    $("empty").textContent = `Lecture impossible : ${e}`;
+    $("history-empty").hidden = false;
+    $("history-empty").textContent = `Lecture impossible : ${e}`;
   }
 }
 
-function render() {
-  const query = $("search").value.trim().toLowerCase();
+function renderHistory() {
+  const query = $("history-search").value.trim().toLowerCase();
   const shown = query
-    ? entries.filter((e) => `${e.text}\n${e.raw}`.toLowerCase().includes(query))
-    : entries;
-  const list = $("list");
-  list.replaceChildren(...shown.map(renderEntry));
-  $("empty").hidden = shown.length > 0;
-  $("empty").textContent = query ? "Aucun résultat." : "Aucune dictée pour l'instant.";
+    ? historyEntries.filter((e) => `${e.text}\n${e.raw}`.toLowerCase().includes(query))
+    : historyEntries;
+  $("history-list").replaceChildren(...shown.map(renderEntry));
+  $("history-empty").hidden = shown.length > 0;
+  $("history-empty").textContent = query ? "Aucun résultat." : "Aucune dictée pour l'instant.";
 }
 
 function renderEntry(entry) {
-  const item = $("entry").content.firstElementChild.cloneNode(true);
-  const seconds = Math.round(entry.duration_ms / 1000);
-  const app = entry.app ? ` · ${entry.app}` : "";
-  item.querySelector(".when").textContent =
-    `${dateFormat.format(new Date(entry.at_ms))} · ${seconds} s${app}`;
+  const item = $("history-entry").content.firstElementChild.cloneNode(true);
+  const meta = [
+    historyDateFormat.format(new Date(entry.at_ms)),
+    `${Math.round(entry.duration_ms / 1000)} s`,
+  ];
+  if (entry.app) meta.push(entry.app);
+  if (entry.cost != null) meta.push(formatCost(entry.cost, entry.currency ?? "USD"));
+  item.querySelector(".when").textContent = meta.join(" · ");
+  if (entry.usage) {
+    item.querySelector(".when").title =
+      `${integer.format(entry.usage.input_tokens)} jetons envoyés, ` +
+      `${integer.format(entry.usage.output_tokens)} reçus`;
+  }
   item.querySelector(".badge").textContent = entry.command
     ? "commande"
     : entry.snippet
@@ -65,12 +68,12 @@ function renderEntry(entry) {
   return item;
 }
 
-$("search").addEventListener("input", render);
+$("history-search").addEventListener("input", renderHistory);
 
 // Effacement en deux clics : le premier arme le bouton pendant 4 s.
 let clearArmed = null;
-$("clear").addEventListener("click", async () => {
-  const button = $("clear");
+$("history-clear").addEventListener("click", async () => {
+  const button = $("history-clear");
   if (!clearArmed) {
     button.textContent = "Confirmer l'effacement";
     clearArmed = setTimeout(() => {
@@ -85,10 +88,8 @@ $("clear").addEventListener("click", async () => {
   try {
     await invoke("clear_history");
   } finally {
-    await refresh();
+    await showHistory();
   }
 });
 
-// Les nouvelles dictées apparaissent quand on revient sur la fenêtre.
-window.addEventListener("focus", refresh);
-refresh();
+registerPage("historique", { show: showHistory });
