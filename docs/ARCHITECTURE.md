@@ -3,8 +3,8 @@
 ## Pipeline
 
 ```
-[Hook clavier] → [Capture micro] → [ASR Whisper] → [Nettoyage LLM] → [Snippets] → [Insertion]
-  AltGr down       cpal, 16 kHz mono   local GPU       DeepSeek API                   presse-papier + Ctrl+V
+[Hook clavier] → [Capture micro] → [ASR Whisper] → [Snippets ?] → [Nettoyage LLM] → [Insertion]
+  AltGr down       cpal, 16 kHz mono   local GPU       texte fixe     DeepSeek API      presse-papier + Ctrl+V
   AltGr up ────────────────────────────────▶ déclenche le traitement
 ```
 

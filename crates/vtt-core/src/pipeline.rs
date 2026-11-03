@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use crate::config::Snippet;
 use crate::{audio, text};
 
 /// Fréquence attendue par Whisper.
@@ -60,6 +61,9 @@ pub enum Outcome {
         text: String,
         /// Le nettoyage a échoué et le texte brut a été inséré à la place.
         post_process_error: Option<String>,
+        /// La dictée était le déclencheur d'un snippet : son texte a été
+        /// inséré tel quel, sans passer par le LLM.
+        snippet: bool,
     },
 }
 
@@ -67,6 +71,8 @@ pub struct Pipeline {
     transcriber: Box<dyn Transcriber>,
     post_processor: Option<Box<dyn PostProcessor>>,
     sink: Box<dyn TextSink>,
+    /// Déclencheur normalisé → texte à insérer.
+    snippets: Vec<(String, String)>,
 }
 
 impl Pipeline {
@@ -79,7 +85,26 @@ impl Pipeline {
             transcriber,
             post_processor,
             sink,
+            snippets: Vec::new(),
         }
+    }
+
+    /// Les déclencheurs vides (ou faits uniquement de ponctuation) sont ignorés.
+    pub fn with_snippets(mut self, snippets: &[Snippet]) -> Self {
+        self.snippets = snippets
+            .iter()
+            .map(|s| (text::normalize_phrase(&s.trigger), s.text.clone()))
+            .filter(|(trigger, _)| !trigger.is_empty())
+            .collect();
+        self
+    }
+
+    fn snippet_for(&self, raw: &str) -> Option<(usize, &str)> {
+        let phrase = text::normalize_phrase(raw);
+        self.snippets
+            .iter()
+            .position(|(trigger, _)| *trigger == phrase)
+            .map(|i| (i, self.snippets[i].1.as_str()))
     }
 
     pub fn run(&self, clip: &AudioClip) -> Result<Outcome, Error> {
@@ -102,6 +127,25 @@ impl Pipeline {
                 transcribed.chars().count()
             );
             return Ok(Outcome::Skipped);
+        }
+
+        // Snippet : la dictée entière est un déclencheur → texte fixe, sans LLM.
+        // Le journal ne contient que son numéro (le texte peut être personnel).
+        if let Some((index, snippet)) = self.snippet_for(&raw) {
+            let started = Instant::now();
+            self.sink.insert(snippet)?;
+            log::info!(
+                "dictée de {} ms : ASR {asr_ms} ms, snippet n°{}, insertion {} ms",
+                clip.duration_ms(),
+                index + 1,
+                started.elapsed().as_millis()
+            );
+            return Ok(Outcome::Inserted {
+                raw,
+                text: snippet.to_owned(),
+                post_process_error: None,
+                snippet: true,
+            });
         }
 
         // Un échec du LLM ne doit jamais faire perdre la dictée.
@@ -128,6 +172,7 @@ impl Pipeline {
             raw,
             text,
             post_process_error,
+            snippet: false,
         })
     }
 }
@@ -220,6 +265,7 @@ mod tests {
                 raw: "bonjour".into(),
                 text: "BONJOUR".into(),
                 post_process_error: None,
+                snippet: false,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
@@ -240,5 +286,51 @@ mod tests {
             other => panic!("inattendu : {other:?}"),
         }
         assert_eq!(*sink.0.lock().unwrap(), ["bonjour"]);
+    }
+
+    fn snippets() -> Vec<Snippet> {
+        vec![
+            Snippet {
+                trigger: "?!".into(),
+                text: "jamais inséré".into(),
+            },
+            Snippet {
+                trigger: "Ma signature".into(),
+                text: "Florian\nVoiceToText".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn snippet_trigger_inserts_text_without_llm() {
+        let (p, sink) = pipeline("  ma signature. ", Some(Box::new(Failing)));
+        let p = p.with_snippets(&snippets());
+        assert_eq!(
+            p.run(&clip_ms(1000)).unwrap(),
+            Outcome::Inserted {
+                raw: "ma signature.".into(),
+                text: "Florian\nVoiceToText".into(),
+                post_process_error: None,
+                snippet: true,
+            }
+        );
+        assert_eq!(*sink.0.lock().unwrap(), ["Florian\nVoiceToText"]);
+    }
+
+    #[test]
+    fn trigger_inside_longer_dictation_is_not_a_snippet() {
+        let (p, sink) = pipeline("voici ma signature", Some(Box::new(Upper)));
+        let p = p.with_snippets(&snippets());
+        assert!(matches!(
+            p.run(&clip_ms(1000)).unwrap(),
+            Outcome::Inserted { snippet: false, .. }
+        ));
+        assert_eq!(*sink.0.lock().unwrap(), ["VOICI MA SIGNATURE"]);
+    }
+
+    #[test]
+    fn punctuation_only_trigger_is_ignored() {
+        let (p, _) = pipeline("bonjour", None);
+        assert_eq!(p.with_snippets(&snippets()).snippets.len(), 1);
     }
 }

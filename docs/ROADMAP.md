@@ -26,7 +26,7 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 - ✅ Dictionnaire perso (`dictionary` dans config.toml) → indice pour Whisper et le LLM
 - ✅ Validé sur le PC : nettoyage 720–1070 ms par dictée, préchauffage 0,2 s (modèle en cache)
 - ✅ Journal daté, purgé au-delà de 3 Mo (garde les 100 dernières lignes)
-- ⬜ Snippets
+- ✅ Snippets : dicter seulement le déclencheur insère le texte fixe, sans LLM (config.toml en attendant l'interface v0.4)
 - ⬜ Historique
 
 ## v0.3 — Confort ⬜

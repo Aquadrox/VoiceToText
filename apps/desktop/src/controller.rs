@@ -70,7 +70,11 @@ fn run(reporter: &Arc<StatusReporter>, config: &Config, paths: &Paths) -> Result
         log::info!("nettoyage désactivé (llm.enabled = false)");
         None
     };
-    let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster));
+    let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster))
+        .with_snippets(&config.snippets);
+    if !config.snippets.is_empty() {
+        log::info!("{} snippet(s) chargé(s)", config.snippets.len());
+    }
 
     let recording = Arc::new(AtomicBool::new(false));
     let clips = spawn_worker(pipeline, Arc::clone(reporter), Arc::clone(&recording));

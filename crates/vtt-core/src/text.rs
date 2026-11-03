@@ -21,6 +21,31 @@ fn is_hallucination(sentence: &str) -> bool {
         || s.starts_with("merci d’avoir regardé")
 }
 
+/// Forme comparable d'une phrase dictée : minuscules, sans accents ni
+/// ponctuation, espaces simples. « Ma signature ! » → « ma signature ».
+///
+/// Sert à reconnaître un déclencheur de snippet quelle que soit la façon dont
+/// Whisper l'a ponctué ou capitalisé.
+pub fn normalize_phrase(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars().flat_map(char::to_lowercase) {
+        match c {
+            'à' | 'â' | 'ä' | 'á' => out.push('a'),
+            'é' | 'è' | 'ê' | 'ë' => out.push('e'),
+            'î' | 'ï' | 'í' => out.push('i'),
+            'ô' | 'ö' | 'ó' => out.push('o'),
+            'ù' | 'û' | 'ü' | 'ú' => out.push('u'),
+            'ÿ' => out.push('y'),
+            'ç' => out.push('c'),
+            'œ' => out.push_str("oe"),
+            'æ' => out.push_str("ae"),
+            c if c.is_alphanumeric() => out.push(c),
+            _ => out.push(' '),
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Découpe après `.`, `!`, `?` ou `…` (sauf si collé à la suite, ex. « Amara.org »),
 /// en gardant ponctuation et espaces.
 fn split_sentences(text: &str) -> Vec<&str> {
@@ -59,6 +84,21 @@ fn split_sentences(text: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_phrase_ignores_case_accents_and_punctuation() {
+        assert_eq!(normalize_phrase("  Ma Signature ! "), "ma signature");
+        assert_eq!(
+            normalize_phrase("Mon adresse e-mail."),
+            "mon adresse e mail"
+        );
+        assert_eq!(
+            normalize_phrase("Réponse « type », s'il te plaît…"),
+            "reponse type s il te plait"
+        );
+        assert_eq!(normalize_phrase("Cœur ÇA"), "coeur ca");
+        assert_eq!(normalize_phrase("?!"), "");
+    }
 
     #[test]
     fn keeps_normal_text() {

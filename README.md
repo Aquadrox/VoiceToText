@@ -46,6 +46,18 @@ enabled = true
 base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
 timeout_ms = 3000
+
+# Snippets : dicter seulement le déclencheur insère le texte tel quel
+# (sans LLM). Casse, accents et ponctuation ne comptent pas.
+[[snippets]]
+trigger = "ma signature"
+text = """
+Florian
+VoiceToText"""
+
+[[snippets]]
+trigger = "mon adresse mail"
+text = "prenom.nom@example.com"
 ```
 
 Journaux : `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé automatiquement au-delà de 3 Mo, les 100 dernières lignes sont gardées).
