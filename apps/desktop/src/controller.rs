@@ -259,7 +259,7 @@ fn spawn_worker(
                     log::info!("application cible : {app}");
                 }
                 let result = if command {
-                    run_command(&pipeline, &clip)
+                    run_command(&pipeline, &clip, &target)
                 } else {
                     pipeline.run(&clip, &target)
                 };
@@ -305,12 +305,21 @@ fn spawn_worker(
 
 /// Command Mode : récupère la sélection (Ctrl+C simulé, une fois les touches
 /// du raccourci relâchées) puis applique la consigne dictée.
-fn run_command(pipeline: &Pipeline, clip: &AudioClip) -> Result<Outcome, vtt_core::Error> {
+fn run_command(
+    pipeline: &Pipeline,
+    clip: &AudioClip,
+    target: &Target,
+) -> Result<Outcome, vtt_core::Error> {
+    if target.is_terminal() {
+        // Refus avant le Ctrl+C simulé, qui interromprait le programme en
+        // cours dans une console.
+        return pipeline.run_command(clip, target, None);
+    }
     if !raw_paste::wait_modifiers_released() {
         return Err(vtt_core::Error::Sink(
             "Command Mode : touches du raccourci toujours enfoncées".into(),
         ));
     }
     let selection = vtt_platform::copy_selection();
-    pipeline.run_command(clip, selection.as_deref())
+    pipeline.run_command(clip, target, selection.as_deref())
 }

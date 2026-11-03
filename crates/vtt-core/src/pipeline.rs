@@ -39,6 +39,29 @@ pub struct Target {
     pub title: Option<String>,
 }
 
+/// Consoles où un texte collé contenant un retour à la ligne est exécuté.
+const TERMINALS: &[&str] = &[
+    "windowsterminal.exe",
+    "wt.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "conhost.exe",
+    "openconsole.exe",
+    "mintty.exe",
+    "alacritty.exe",
+    "wezterm-gui.exe",
+    "putty.exe",
+];
+
+impl Target {
+    pub fn is_terminal(&self) -> bool {
+        self.app
+            .as_deref()
+            .is_some_and(|app| TERMINALS.iter().any(|t| t.eq_ignore_ascii_case(app)))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("transcription : {0}")]
@@ -259,7 +282,20 @@ impl Pipeline {
 
     /// Command Mode : la dictée est une consigne appliquée à `selection`. En
     /// cas d'échec rien n'est inséré : la sélection reste intacte.
-    pub fn run_command(&self, clip: &AudioClip, selection: Option<&str>) -> Result<Outcome, Error> {
+    ///
+    /// Refusé dans un terminal : une réponse piégée par le texte sélectionné
+    /// (injection de consignes) y serait exécutée dès le collage.
+    pub fn run_command(
+        &self,
+        clip: &AudioClip,
+        target: &Target,
+        selection: Option<&str>,
+    ) -> Result<Outcome, Error> {
+        if target.is_terminal() {
+            return Err(Error::Sink(
+                "Command Mode désactivé dans les terminaux (sécurité)".into(),
+            ));
+        }
         let Some(processor) = &self.post_processor else {
             return Err(Error::PostProcess(
                 "Command Mode : le nettoyage LLM est désactivé".into(),
@@ -542,7 +578,10 @@ mod tests {
     #[test]
     fn command_applies_instruction_to_selection() {
         let (p, sink) = pipeline(" traduis en anglais ", Some(Box::new(Upper)));
-        match p.run_command(&clip_ms(1000), Some("bonjour")).unwrap() {
+        match p
+            .run_command(&clip_ms(1000), &no_target(), Some("bonjour"))
+            .unwrap()
+        {
             Outcome::Inserted {
                 raw,
                 text,
@@ -557,7 +596,7 @@ mod tests {
             }
             other => panic!("inattendu : {other:?}"),
         }
-        p.run_command(&clip_ms(1000), None).unwrap();
+        p.run_command(&clip_ms(1000), &no_target(), None).unwrap();
         assert_eq!(
             *sink.0.lock().unwrap(),
             ["traduis en anglais → bonjour", "traduis en anglais → ∅"]
@@ -567,9 +606,16 @@ mod tests {
     #[test]
     fn command_failure_inserts_nothing() {
         let (p, sink) = pipeline("traduis", Some(Box::new(Failing)));
-        assert!(p.run_command(&clip_ms(1000), Some("bonjour")).is_err());
+        assert!(
+            p.run_command(&clip_ms(1000), &no_target(), Some("bonjour"))
+                .is_err()
+        );
         let (without_llm, _) = pipeline("traduis", None);
-        assert!(without_llm.run_command(&clip_ms(1000), Some("x")).is_err());
+        assert!(
+            without_llm
+                .run_command(&clip_ms(1000), &no_target(), Some("x"))
+                .is_err()
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
@@ -577,9 +623,21 @@ mod tests {
     fn short_command_is_skipped() {
         let (p, sink) = pipeline("traduis", Some(Box::new(Upper)));
         assert_eq!(
-            p.run_command(&clip_ms(200), Some("x")).unwrap(),
+            p.run_command(&clip_ms(200), &no_target(), Some("x"))
+                .unwrap(),
             Outcome::Skipped
         );
         assert!(sink.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn command_is_refused_in_terminals() {
+        let (p, sink) = pipeline("liste les fichiers", Some(Box::new(Upper)));
+        let err = p
+            .run_command(&clip_ms(1000), &target("WindowsTerminal.exe"), Some("x"))
+            .unwrap_err();
+        assert!(err.to_string().contains("terminaux"));
+        assert!(sink.0.lock().unwrap().is_empty());
+        assert!(!target("notepad.exe").is_terminal());
     }
 }
