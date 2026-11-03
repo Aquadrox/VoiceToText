@@ -421,3 +421,96 @@ ol.entries li {
 .entries summary {
   font-weight: normal;
 }
+
+/* Dictionnaire, snippets, styles */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chips li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.chips button {
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+}
+
+.chips button:hover {
+  color: var(--danger);
+}
+
+.cards .card {
+  margin-bottom: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.card-header label {
+  flex: 1;
+  margin-top: 0;
+}
+
+.card-header .style-name {
+  flex: 1;
+}
+
+.card-header button.danger {
+  margin-left: 0;
+}
+
+.card label {
+  font-weight: 600;
+}
+
+.card label input,
+.card label textarea {
+  display: block;
+  margin-top: 4px;
+  font-weight: normal;
+}
+
+.card textarea {
+  font: inherit;
+}
+
+.grid.even {
+  grid-template-columns: 1fr 1fr;
+}
+
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 0;
+  background: var(--bg);
+}
+
+.save-bar .dirty {
+  color: var(--warning-fg);
+}
+
+.save-bar .error {
+  color: var(--danger);
+}

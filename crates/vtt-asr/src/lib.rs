@@ -15,7 +15,8 @@ const MIN_SAMPLES: usize = SAMPLE_RATE as usize * 11 / 10;
 pub struct WhisperTranscriber {
     language: String,
     /// Mots du dictionnaire, donnés à Whisper comme contexte pour l'orthographe.
-    initial_prompt: Option<String>,
+    /// Modifiable à chaud depuis la fenêtre principale.
+    initial_prompt: Mutex<Option<String>>,
     n_threads: i32,
     // Un seul état réutilisé : en créer un par dictée réallouerait les tampons GPU.
     state: Mutex<WhisperState>,
@@ -54,14 +55,9 @@ impl WhisperTranscriber {
         let n_threads = std::thread::available_parallelism()
             .map(|n| n.get().min(8) as i32)
             .unwrap_or(4);
-        let words: Vec<&str> = dictionary
-            .iter()
-            .map(|w| w.trim())
-            .filter(|w| !w.is_empty())
-            .collect();
         let transcriber = Self {
             language: language.to_owned(),
-            initial_prompt: (!words.is_empty()).then(|| words.join(", ")),
+            initial_prompt: Mutex::new(vocabulary_prompt(dictionary)),
             n_threads,
             state: Mutex::new(state),
         };
@@ -78,8 +74,29 @@ impl WhisperTranscriber {
     }
 }
 
+fn vocabulary_prompt(dictionary: &[String]) -> Option<String> {
+    let words: Vec<&str> = dictionary
+        .iter()
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .collect();
+    (!words.is_empty()).then(|| words.join(", "))
+}
+
 impl Transcriber for WhisperTranscriber {
+    fn set_vocabulary(&self, words: &[String]) {
+        *self
+            .initial_prompt
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = vocabulary_prompt(words);
+    }
+
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error> {
+        let prompt = self
+            .initial_prompt
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some(&self.language));
         params.set_translate(false);
@@ -93,7 +110,7 @@ impl Transcriber for WhisperTranscriber {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-        if let Some(prompt) = &self.initial_prompt {
+        if let Some(prompt) = &prompt {
             params.set_initial_prompt(prompt);
         }
 

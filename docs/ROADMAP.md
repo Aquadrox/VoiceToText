@@ -45,7 +45,8 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Fenêtre principale (menu latéral), ouverte seulement depuis l'icône : l'application reste discrète
 - ✅ Accueil : mots dictés, temps gagné (frappe à 40 mots/min), vitesse de parole, coût du mois, mots par jour sur 30 jours ; compteurs par jour sans texte, conservés si l'historique est effacé
 - ✅ Historique intégré, avec le coût de chaque dictée (jetons au survol)
-- ⬜ Réglages complets : raccourci, micro, modèle, LLM, dictionnaire, snippets, démarrage avec Windows
+- ✅ Pages Dictionnaire, Snippets et Styles (modèles Messagerie / E-mail / Code, ordre de priorité) : enregistrées dans config.toml et appliquées à chaud, sans recharger le modèle
+- ⬜ Réglages complets : raccourcis, micro, modèle Whisper, démarrage avec Windows
 
 ## v0.5 — Distribution et mises à jour ⬜
 

@@ -32,7 +32,7 @@ Autre fournisseur : **Réglages…** → **Fournisseur** (GLM/Z.ai, OpenAI, Mist
 
 Sans clé, le texte brut de Whisper est inséré.
 
-Configuration : `%APPDATA%\VoiceToText\config.toml` (redémarrer après modification).
+Configuration : `%APPDATA%\VoiceToText\config.toml`. Dictionnaire, snippets et styles se modifient aussi dans la fenêtre principale (**Ouvrir VoiceToText**), appliqués sans redémarrer ; les autres modifications à la main demandent un redémarrage.
 
 ```toml
 # Noms propres, jargon : orthographe transmise à Whisper et au LLM.
