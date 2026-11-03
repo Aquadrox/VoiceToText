@@ -11,6 +11,9 @@ use tauri::{AppHandle, Emitter, State, Wry};
 pub enum Status {
     Idle,
     Listening,
+    /// Enregistrement mains libres ; contient le nom du raccourci.
+    #[serde(rename = "handsfree")]
+    HandsFree(String),
     Processing,
     Loading(String),
     Error(String),
@@ -21,6 +24,9 @@ impl Status {
         match self {
             Status::Idle => "Prêt — maintenir le raccourci pour dicter".into(),
             Status::Listening => "Écoute…".into(),
+            Status::HandsFree(key) => {
+                format!("Mains libres — {key} pour terminer, Échap pour annuler")
+            }
             Status::Processing => "Transcription…".into(),
             Status::Loading(message) => message.clone(),
             Status::Error(message) => format!("Erreur : {message}"),

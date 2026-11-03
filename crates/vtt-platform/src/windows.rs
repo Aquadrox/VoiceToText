@@ -40,6 +40,7 @@ pub fn key_code(name: &str) -> Option<u32> {
         "pause" => 0x13,
         "insert" => 0x2D,
         "menu" | "apps" => 0x5D,
+        "escape" | "esc" => 0x1B,
         _ => {
             let n: u16 = name.strip_prefix('f')?.parse().ok()?;
             if !(1..=24).contains(&n) {

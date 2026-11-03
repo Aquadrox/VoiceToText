@@ -25,6 +25,8 @@ pub struct HotkeyConfig {
     pub key: String,
     /// Appui plus court que ce seuil : ignoré (évite les déclenchements accidentels).
     pub min_hold_ms: u32,
+    /// Double appui court → dictée mains libres (nouvel appui pour finir, Échap pour annuler).
+    pub hands_free: bool,
 }
 
 impl Default for HotkeyConfig {
@@ -32,6 +34,7 @@ impl Default for HotkeyConfig {
         Self {
             key: "AltGr".into(),
             min_hold_ms: 250,
+            hands_free: true,
         }
     }
 }
