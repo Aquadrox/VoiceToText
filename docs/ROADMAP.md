@@ -54,7 +54,7 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ⬜ Publication automatisée par la CI à chaque tag (installeur + manifeste `latest.json`)
 - ⬜ Réglage : mise à jour automatique ou simple avertissement
 
-## Outillage ✅
+## Outillage 🚧
 
 Accélérer la CI sans baisser la garde :
 
@@ -65,6 +65,7 @@ Accélérer la CI sans baisser la garde :
 - ✅ Cache de compilation corrigé : rust-cache recevait un chemin absolu (`C:\t`) qu'il collait derrière le dépôt, et ne sauvegardait donc aucun fichier compilé ; chemin relatif (`D:\t`), cache alimenté par `main` et réutilisé par les PR
 - ✅ CLI Tauri précompilée via npm au lieu de `cargo install` (10 min de compilation à chaque cache vide)
 - ✅ Un nouveau push sur une PR annule la vérification précédente
+- ⬜ (priorité basse) Actions encore sur Node.js 20, forcées sur Node.js 24 par GitHub (avertissement en CI, ex. `actions/upload-artifact@v4`) : passer aux versions majeures suivantes des actions concernées
 
 ## Plus tard
 
