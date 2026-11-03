@@ -74,6 +74,11 @@ pub enum Error {
 
 pub trait Transcriber: Send + Sync {
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error>;
+
+    /// Dictionnaire modifié dans l'interface : nouveaux mots à privilégier.
+    fn set_vocabulary(&self, words: &[String]) {
+        let _ = words;
+    }
 }
 
 /// Texte nettoyé et, si le fournisseur l'indique, les jetons facturés.
@@ -156,14 +161,34 @@ impl Pipeline {
             .find(|(_, s)| s.matches(target.app.as_deref(), target.title.as_deref()))
     }
 
-    /// Les déclencheurs vides (ou faits uniquement de ponctuation) sont ignorés.
     pub fn with_snippets(mut self, snippets: &[Snippet]) -> Self {
+        self.set_snippets(snippets);
+        self
+    }
+
+    /// Les déclencheurs vides (ou faits uniquement de ponctuation) sont ignorés.
+    fn set_snippets(&mut self, snippets: &[Snippet]) {
         self.snippets = snippets
             .iter()
             .map(|s| (text::normalize_phrase(&s.trigger), s.text.clone()))
             .filter(|(trigger, _)| !trigger.is_empty())
             .collect();
-        self
+    }
+
+    /// Applique à chaud un dictionnaire, des snippets, des styles et un
+    /// nettoyage (reconstruit avec le nouveau dictionnaire) modifiés dans
+    /// l'interface, sans recharger le modèle.
+    pub fn reconfigure(
+        &mut self,
+        dictionary: &[String],
+        snippets: &[Snippet],
+        styles: &[Style],
+        post_processor: Option<Box<dyn PostProcessor>>,
+    ) {
+        self.transcriber.set_vocabulary(dictionary);
+        self.post_processor = post_processor;
+        self.set_snippets(snippets);
+        self.styles = styles.to_vec();
     }
 
     fn snippet_for(&self, raw: &str) -> Option<(usize, &str)> {
@@ -639,5 +664,26 @@ mod tests {
         assert!(err.to_string().contains("terminaux"));
         assert!(sink.0.lock().unwrap().is_empty());
         assert!(!target("notepad.exe").is_terminal());
+    }
+
+    #[test]
+    fn reconfigure_applies_new_snippets_styles_and_processor() {
+        let (mut p, sink) = pipeline("ma signature", None);
+        p.run(&clip_ms(1000), &target("slack.exe")).unwrap();
+        p.reconfigure(
+            &["Aquadrox".into()],
+            &snippets(),
+            &styles(),
+            Some(Box::new(Upper)),
+        );
+        p.run(&clip_ms(1000), &target("slack.exe")).unwrap();
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            ["ma signature", "Florian\nVoiceToText"]
+        );
+        let (mut p, sink) = pipeline("salut", None);
+        p.reconfigure(&[], &[], &styles(), Some(Box::new(Upper)));
+        p.run(&clip_ms(1000), &target("slack.exe")).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["SALUT [décontracté]"]);
     }
 }

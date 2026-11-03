@@ -1,14 +1,14 @@
 //! Chef d'orchestre : charge le modèle, écoute le clavier, pilote le micro
 //! et confie chaque enregistrement au pipeline.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use vtt_asr::WhisperTranscriber;
-use vtt_core::config::Pricing;
+use vtt_core::config::{Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
 use vtt_llm::LlmCleaner;
@@ -40,11 +40,36 @@ pub struct Recorders {
     pub last_raw: LastRaw,
 }
 
-pub fn spawn(reporter: Arc<StatusReporter>, recorders: Recorders, config: Config, paths: Paths) {
+/// Travail confié au thread de traitement.
+pub enum Work {
+    Dictation(Job),
+    /// Dictionnaire, snippets ou styles modifiés dans la fenêtre principale.
+    Reconfigure(Reconfiguration),
+}
+
+pub struct Reconfiguration {
+    pub dictionary: Vec<String>,
+    pub snippets: Vec<Snippet>,
+    pub styles: Vec<Style>,
+    /// Nettoyage reconstruit avec le nouveau dictionnaire (`None` : désactivé).
+    pub post_processor: Option<Box<dyn PostProcessor>>,
+}
+
+/// Accès au thread de traitement depuis l'interface ; `None` tant que le
+/// modèle n'est pas chargé.
+pub type WorkerHandle = Arc<Mutex<Option<mpsc::Sender<Work>>>>;
+
+pub fn spawn(
+    reporter: Arc<StatusReporter>,
+    recorders: Recorders,
+    worker: WorkerHandle,
+    config: Config,
+    paths: Paths,
+) {
     thread::Builder::new()
         .name("controller".into())
         .spawn(move || {
-            if let Err(e) = run(&reporter, recorders, &config, &paths) {
+            if let Err(e) = run(&reporter, recorders, &worker, &config, &paths) {
                 reporter.set(Status::Error(e));
             }
         })
@@ -54,6 +79,7 @@ pub fn spawn(reporter: Arc<StatusReporter>, recorders: Recorders, config: Config
 fn run(
     reporter: &Arc<StatusReporter>,
     recorders: Recorders,
+    worker: &WorkerHandle,
     config: &Config,
     paths: &Paths,
 ) -> Result<(), String> {
@@ -106,6 +132,7 @@ fn run(
         Arc::clone(reporter),
         Arc::clone(&recording),
     );
+    *worker.lock().unwrap_or_else(|e| e.into_inner()) = Some(clips.clone());
     let mut controls = Controls {
         recorder: Recorder::spawn(),
         recording,
@@ -166,7 +193,7 @@ fn command_key(config: &Config) -> Option<u32> {
 }
 
 /// Une dictée à traiter.
-struct Job {
+pub struct Job {
     clip: AudioClip,
     target: Target,
     /// Command Mode : la dictée est une consigne pour le texte sélectionné.
@@ -178,7 +205,7 @@ struct Controls<'a> {
     recorder: Recorder,
     recording: Arc<AtomicBool>,
     reporter: &'a StatusReporter,
-    clips: mpsc::Sender<Job>,
+    clips: mpsc::Sender<Work>,
     trigger: u32,
     key_name: &'a str,
     /// Fenêtre de destination, relevée au début de la dictée (le focus peut
@@ -225,11 +252,11 @@ impl Controls<'_> {
                 let clip = self.recorder.stop();
                 self.recording.store(false, Ordering::SeqCst);
                 self.reporter.set(Status::Processing);
-                let _ = self.clips.send(Job {
+                let _ = self.clips.send(Work::Dictation(Job {
                     clip,
                     target: std::mem::take(&mut self.target),
                     command: std::mem::take(&mut self.command),
-                });
+                }));
             }
             None => {}
         }
@@ -239,22 +266,39 @@ impl Controls<'_> {
 /// Les dictées sont traitées une par une, hors du thread clavier, pour qu'une
 /// nouvelle dictée puisse commencer pendant la transcription de la précédente.
 fn spawn_worker(
-    pipeline: Pipeline,
+    mut pipeline: Pipeline,
     recorders: Recorders,
     pricing: Pricing,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
-) -> mpsc::Sender<Job> {
-    let (tx, rx) = mpsc::channel::<Job>();
+) -> mpsc::Sender<Work> {
+    let (tx, rx) = mpsc::channel::<Work>();
     thread::Builder::new()
         .name("pipeline".into())
         .spawn(move || {
-            for Job {
-                clip,
-                target,
-                command,
-            } in rx
-            {
+            for work in rx {
+                let Job {
+                    clip,
+                    target,
+                    command,
+                } = match work {
+                    Work::Dictation(job) => job,
+                    Work::Reconfigure(r) => {
+                        pipeline.reconfigure(
+                            &r.dictionary,
+                            &r.snippets,
+                            &r.styles,
+                            r.post_processor,
+                        );
+                        log::info!(
+                            "vocabulaire appliqué : {} mot(s), {} snippet(s), {} style(s)",
+                            r.dictionary.len(),
+                            r.snippets.len(),
+                            r.styles.len()
+                        );
+                        continue;
+                    }
+                };
                 if let Some(app) = &target.app {
                     log::info!("application cible : {app}");
                 }

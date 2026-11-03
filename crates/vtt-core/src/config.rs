@@ -263,6 +263,115 @@ fn deepseek_extra_body() -> Map<String, Value> {
     extra
 }
 
+/// Limites des saisies de l'interface (garde-fous contre une config géante
+/// qui alourdirait chaque requête).
+pub const MAX_DICTIONARY_WORDS: usize = 500;
+pub const MAX_WORD_CHARS: usize = 80;
+pub const MAX_SNIPPETS: usize = 200;
+pub const MAX_SNIPPET_CHARS: usize = 20_000;
+pub const MAX_STYLES: usize = 100;
+pub const MAX_INSTRUCTIONS_CHARS: usize = 2_000;
+
+/// Dictionnaire saisi dans l'interface : mots nettoyés, doublons retirés
+/// (casse ignorée), ordre conservé.
+pub fn clean_dictionary(words: &[String]) -> Result<Vec<String>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::new();
+    for word in words.iter().map(|w| w.trim()).filter(|w| !w.is_empty()) {
+        if word.chars().count() > MAX_WORD_CHARS {
+            return Err(format!(
+                "mot trop long (plus de {MAX_WORD_CHARS} caractères)"
+            ));
+        }
+        if seen.insert(word.to_lowercase()) {
+            cleaned.push(word.to_owned());
+        }
+    }
+    if cleaned.len() > MAX_DICTIONARY_WORDS {
+        return Err(format!("au plus {MAX_DICTIONARY_WORDS} mots"));
+    }
+    Ok(cleaned)
+}
+
+/// Snippets saisis dans l'interface : lignes vides retirées, déclencheurs
+/// distincts (après normalisation : casse, accents, ponctuation).
+pub fn clean_snippets(snippets: &[Snippet]) -> Result<Vec<Snippet>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::new();
+    for snippet in snippets {
+        let trigger = snippet.trigger.trim();
+        if trigger.is_empty() && snippet.text.trim().is_empty() {
+            continue;
+        }
+        let normalized = crate::text::normalize_phrase(trigger);
+        if normalized.is_empty() {
+            return Err("chaque snippet a besoin d'un déclencheur (des mots)".into());
+        }
+        if snippet.text.trim().is_empty() {
+            return Err(format!("snippet « {trigger} » : texte vide"));
+        }
+        if snippet.text.chars().count() > MAX_SNIPPET_CHARS {
+            return Err(format!(
+                "snippet « {trigger} » : plus de {MAX_SNIPPET_CHARS} caractères"
+            ));
+        }
+        if !seen.insert(normalized) {
+            return Err(format!("déclencheur en double : « {trigger} »"));
+        }
+        cleaned.push(Snippet {
+            trigger: trigger.to_owned(),
+            text: snippet.text.clone(),
+        });
+    }
+    if cleaned.len() > MAX_SNIPPETS {
+        return Err(format!("au plus {MAX_SNIPPETS} snippets"));
+    }
+    Ok(cleaned)
+}
+
+/// Styles saisis dans l'interface : listes nettoyées, chaque style vise au
+/// moins une application ou un titre.
+pub fn clean_styles(styles: &[Style]) -> Result<Vec<Style>, String> {
+    let clean_list = |items: &[String]| -> Vec<String> {
+        items
+            .iter()
+            .map(|i| i.trim().to_owned())
+            .filter(|i| !i.is_empty())
+            .collect()
+    };
+    let mut cleaned = Vec::new();
+    for (index, style) in styles.iter().enumerate() {
+        let apps = clean_list(&style.apps);
+        let titles = clean_list(&style.titles);
+        let instructions = style.instructions.trim().to_owned();
+        if apps.is_empty() && titles.is_empty() {
+            if instructions.is_empty() {
+                continue;
+            }
+            return Err(format!(
+                "style n°{} : indiquez au moins une application ou un titre",
+                index + 1
+            ));
+        }
+        if instructions.chars().count() > MAX_INSTRUCTIONS_CHARS {
+            return Err(format!(
+                "style n°{} : consignes de plus de {MAX_INSTRUCTIONS_CHARS} caractères",
+                index + 1
+            ));
+        }
+        cleaned.push(Style {
+            apps,
+            titles,
+            instructions,
+            cleanup: style.cleanup,
+        });
+    }
+    if cleaned.len() > MAX_STYLES {
+        return Err(format!("au plus {MAX_STYLES} styles"));
+    }
+    Ok(cleaned)
+}
+
 /// Anciens noms de modèles LLM → nom actuel.
 const RENAMED_LLM_MODELS: &[(&str, &str)] = &[("deepseek-v4-flash", "deepseek-flash")];
 
@@ -400,5 +509,55 @@ mod tests {
     #[test]
     fn unknown_key_is_ignored() {
         assert!(Config::from_toml("obsolete = 1\n").is_ok());
+    }
+
+    #[test]
+    fn dictionary_is_trimmed_and_deduplicated() {
+        let words = ["  Tauri ", "", "tauri", "Aquadrox"].map(String::from);
+        assert_eq!(clean_dictionary(&words).unwrap(), ["Tauri", "Aquadrox"]);
+        assert!(clean_dictionary(&["x".repeat(81)]).is_err());
+        assert!(clean_dictionary(&vec!["a".into(); 1]).is_ok());
+        let many: Vec<String> = (0..501).map(|i| format!("mot{i}")).collect();
+        assert!(clean_dictionary(&many).is_err());
+    }
+
+    #[test]
+    fn snippets_are_validated() {
+        let snippet = |t: &str, x: &str| Snippet {
+            trigger: t.into(),
+            text: x.into(),
+        };
+        let cleaned =
+            clean_snippets(&[snippet(" ma signature ", "Florian"), snippet("", "  ")]).unwrap();
+        assert_eq!(cleaned, [snippet("ma signature", "Florian")]);
+        assert!(
+            clean_snippets(&[snippet("?!", "x")]).is_err(),
+            "déclencheur sans mots"
+        );
+        assert!(
+            clean_snippets(&[snippet("adresse", " ")]).is_err(),
+            "texte vide"
+        );
+        assert!(
+            clean_snippets(&[snippet("Mon adresse", "a"), snippet("mon adresse !", "b")]).is_err(),
+            "doublon après normalisation"
+        );
+    }
+
+    #[test]
+    fn styles_are_validated() {
+        let style = |apps: &[&str], instructions: &str| Style {
+            apps: apps.iter().map(|a| a.to_string()).collect(),
+            instructions: instructions.into(),
+            ..Style::default()
+        };
+        let cleaned =
+            clean_styles(&[style(&[" slack.exe ", ""], " court "), style(&[], "")]).unwrap();
+        assert_eq!(cleaned, [style(&["slack.exe"], "court")]);
+        assert!(
+            clean_styles(&[style(&[], "ton soigné")]).is_err(),
+            "aucune cible"
+        );
+        assert!(clean_styles(&[style(&["a.exe"], &"x".repeat(2001))]).is_err());
     }
 }

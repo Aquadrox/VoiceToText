@@ -11,6 +11,9 @@
         <div class="brand">VoiceToText</div>
         <a href="#accueil">Accueil</a>
         <a href="#historique">Historique</a>
+        <a href="#dictionnaire">Dictionnaire</a>
+        <a href="#snippets">Snippets</a>
+        <a href="#styles">Styles</a>
         <a href="#reglages">Réglages</a>
       </nav>
 
@@ -72,6 +75,61 @@
           <p id="history-disabled" class="warning" hidden>Historique désactivé dans config.toml.</p>
           <p id="history-empty" class="muted" hidden>Aucune dictée pour l'instant.</p>
           <ol id="history-list" class="entries"></ol>
+        </section>
+
+        <!-- Dictionnaire -->
+        <section class="page" id="page-dictionnaire" hidden>
+          <h1>Dictionnaire</h1>
+          <p class="muted">
+            Noms propres, jargon, sigles : leur orthographe est transmise à Whisper et au LLM.
+          </p>
+          <form id="dict-form" class="row">
+            <input id="dict-input" type="text" placeholder="Ajouter un mot…" spellcheck="false" maxlength="80" />
+            <button type="submit">Ajouter</button>
+          </form>
+          <ul id="dict-list" class="chips"></ul>
+          <p id="dict-empty" class="muted" hidden>Aucun mot pour l'instant.</p>
+          <div class="save-bar">
+            <button id="dict-save" class="primary">Enregistrer</button>
+            <span id="dict-status" class="muted small"></span>
+          </div>
+        </section>
+
+        <!-- Snippets -->
+        <section class="page" id="page-snippets" hidden>
+          <h1>Snippets</h1>
+          <p class="muted">
+            Dicter <strong>seulement</strong> le déclencheur insère le texte tel quel, sans LLM.
+            Casse, accents et ponctuation ne comptent pas.
+          </p>
+          <div id="snippet-list" class="cards"></div>
+          <div class="row">
+            <button id="snippet-add">+ Ajouter un snippet</button>
+          </div>
+          <div class="save-bar">
+            <button id="snippet-save" class="primary">Enregistrer</button>
+            <span id="snippet-status" class="muted small"></span>
+          </div>
+        </section>
+
+        <!-- Styles -->
+        <section class="page" id="page-styles" hidden>
+          <h1>Styles par application</h1>
+          <p class="muted">
+            D'après la fenêtre active au début de la dictée : consignes ajoutées au nettoyage, ou
+            texte brut. Le premier style qui correspond s'applique (ordre de la liste).
+          </p>
+          <div id="style-list" class="cards"></div>
+          <div class="row">
+            <button id="style-add">+ Style vide</button>
+            <button data-template="messagerie">+ Messagerie</button>
+            <button data-template="email">+ E-mail</button>
+            <button data-template="code">+ Code</button>
+          </div>
+          <div class="save-bar">
+            <button id="style-save" class="primary">Enregistrer</button>
+            <span id="style-status" class="muted small"></span>
+          </div>
         </section>
 
         <!-- Réglages -->
@@ -205,9 +263,38 @@
       </li>
     </template>
 
+    <template id="snippet-card">
+      <section class="card">
+        <div class="card-header">
+          <label>Déclencheur <input class="trigger" type="text" placeholder="ma signature" spellcheck="false" /></label>
+          <button class="remove danger" title="Supprimer">Supprimer</button>
+        </div>
+        <label>Texte inséré <textarea class="text" rows="3"></textarea></label>
+      </section>
+    </template>
+
+    <template id="style-card">
+      <section class="card">
+        <div class="card-header">
+          <strong class="style-name"></strong>
+          <button class="up" title="Monter (priorité plus haute)">↑</button>
+          <button class="remove danger" title="Supprimer">Supprimer</button>
+        </div>
+        <div class="grid even">
+          <label>Applications (exécutables, séparés par des virgules)
+            <input class="apps" type="text" placeholder="slack.exe, discord.exe" spellcheck="false" /></label>
+          <label>Titre de fenêtre contenant (séparés par des virgules)
+            <input class="titles" type="text" placeholder="Gmail, WhatsApp" spellcheck="false" /></label>
+        </div>
+        <label class="inline"><input class="cleanup" type="checkbox" /> Nettoyer avec le LLM (sinon : texte brut)</label>
+        <label>Consignes de style <textarea class="instructions" rows="2" placeholder="Ton conversationnel, phrases courtes."></textarea></label>
+      </section>
+    </template>
+
     <script src="common.js"></script>
     <script src="home.js"></script>
     <script src="history.js"></script>
+    <script src="vocabulary.js"></script>
     <script src="settings.js"></script>
     <script src="app.js"></script>
   </body>

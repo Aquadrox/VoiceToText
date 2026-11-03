@@ -12,6 +12,7 @@ mod raw_paste;
 mod settings;
 mod status;
 mod tray;
+mod vocabulary;
 
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +21,7 @@ use vtt_core::Config;
 use vtt_core::history::History;
 use vtt_core::usage::Ledger;
 
-use crate::controller::Recorders;
+use crate::controller::{Recorders, WorkerHandle};
 use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
 use crate::paths::Paths;
@@ -54,6 +55,8 @@ fn main() {
             history::history_view,
             history::clear_history,
             main_window::home_view,
+            vocabulary::vocabulary_view,
+            vocabulary::save_vocabulary,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();
@@ -85,7 +88,9 @@ fn main() {
                 ledger,
                 last_raw,
             };
-            controller::spawn(reporter, recorders, Config::clone(&config), paths);
+            let worker = WorkerHandle::default();
+            app.manage(Arc::clone(&worker));
+            controller::spawn(reporter, recorders, worker, Config::clone(&config), paths);
             Ok(())
         })
         .run(tauri::generate_context!())
