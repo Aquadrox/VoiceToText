@@ -1,7 +1,7 @@
 //! Intégration Windows : hook clavier bas niveau et insertion par Ctrl+V.
 
-use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -365,6 +365,100 @@ pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
         return path.to_owned();
     }
     std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..len]))
+}
+
+/// Clics de la souris (bouton gauche ou droit), envoyés en pixels de l'écran
+/// tant que l'enregistreur vit (capture commentée).
+static CLICK_SENDER: Mutex<Option<Sender<(i32, i32)>>> = Mutex::new(None);
+
+pub struct ClickRecorder {
+    thread_id: u32,
+}
+
+impl ClickRecorder {
+    /// Installe un hook souris le temps de la capture ; aucun clic n'est bloqué.
+    pub fn start(tx: Sender<(i32, i32)>) -> Result<Self, String> {
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+        use windows::Win32::UI::WindowsAndMessaging::{UnhookWindowsHookEx, WH_MOUSE_LL};
+
+        *CLICK_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        thread::Builder::new()
+            .name("mouse-hook".into())
+            .spawn(move || unsafe {
+                let module = GetModuleHandleW(None).ok().map(|m| HINSTANCE(m.0));
+                match SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0) {
+                    Ok(hook) => {
+                        let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                        let mut msg = MSG::default();
+                        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {}
+                        let _ = UnhookWindowsHookEx(hook);
+                    }
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(format!("installation du hook souris : {e}")));
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        let thread_id = ready_rx
+            .recv()
+            .map_err(|_| "thread du hook souris arrêté".to_owned())??;
+        Ok(Self { thread_id })
+    }
+}
+
+impl Drop for ClickRecorder {
+    fn drop(&mut self) {
+        use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        *CLICK_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // SAFETY: fin de la boucle de messages du thread du hook.
+        let _ = unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
+    }
+}
+
+unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        LLMHF_INJECTED, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_RBUTTONDOWN,
+    };
+    if code == HC_ACTION as i32 && matches!(wparam.0 as u32, WM_LBUTTONDOWN | WM_RBUTTONDOWN) {
+        // SAFETY: pour WH_MOUSE_LL, lparam pointe vers un MSLLHOOKSTRUCT valide.
+        let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        if info.flags & LLMHF_INJECTED == 0
+            && let Some(tx) = CLICK_SENDER
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+        {
+            let _ = tx.send((info.pt.x, info.pt.y));
+        }
+    }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+/// Rectangle (pixels de l'écran) de la fenêtre au premier plan, sans les
+/// bordures invisibles de Windows 10/11.
+pub fn foreground_rect() -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    // SAFETY: rectangle de la taille annoncée.
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.0.is_null() {
+            return None;
+        }
+        let mut rect = RECT::default();
+        let framed = DwmGetWindowAttribute(
+            window,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            (&mut rect as *mut RECT).cast(),
+            std::mem::size_of::<RECT>() as u32,
+        );
+        if framed.is_err() {
+            GetWindowRect(window, &mut rect).ok()?;
+        }
+        Some((rect.left, rect.top, rect.right, rect.bottom))
+    }
 }
 
 /// Capture de l'écran principal (pixels physiques), en RGBA. Les fenêtres

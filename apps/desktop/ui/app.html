@@ -417,12 +417,32 @@
               </p>
               <label for="capture-template">Texte rédigé par le LLM</label>
               <select id="capture-template"></select>
+              <label for="capture-area">Capturer</label>
+              <select id="capture-area">
+                <option value="ecran">Tout l'écran principal</option>
+                <option value="fenetre">La fenêtre active au démarrage</option>
+                <option value="zone">Une zone tracée à la souris au démarrage</option>
+              </select>
+              <label class="inline">
+                <input id="capture-clicks" type="checkbox" />
+                Les clics sont des moments clés (cercle rouge sur l'image)
+              </label>
               <label for="capture-keep">Garder les captures sur le disque</label>
               <select id="capture-keep"></select>
+              <label class="inline">
+                <input id="capture-vision" type="checkbox" />
+                Faire décrire les images par le LLM (modèle qui lit les images)
+              </label>
+              <p id="capture-vision-warning" class="warning" hidden>
+                Les images annotées sont alors envoyées au fournisseur LLM : elles quittent le PC.
+                Évitez avec des informations confidentielles à l'écran.
+              </p>
+              <label for="capture-vision-profile">Fournisseur pour les images</label>
+              <select id="capture-vision-profile"></select>
               <p class="muted small">
                 Non gardées : seule la dernière reste en mémoire (menu de l'icône → Coller la
-                dernière capture commentée). Les captures d'écran ne quittent jamais le PC ; seul
-                le texte de la narration est envoyé au LLM.
+                dernière capture commentée). Sans la description des images, les captures d'écran
+                ne quittent jamais le PC : seul le texte de la narration est envoyé au LLM.
               </p>
             </section>
 

@@ -291,6 +291,16 @@ pub struct CapturesConfig {
     /// Captures gardées sur le disque ce nombre de jours ; 0 : jamais (seule
     /// la dernière reste en mémoire).
     pub keep_days: u32,
+    /// Ce qui est capturé : « ecran » (principal), « fenetre » (active au
+    /// démarrage) ou « zone » (tracée à la souris).
+    pub area: String,
+    /// Les clics sont des moments clés (cercle sur l'image).
+    pub clicks: bool,
+    /// Envoyer les images au LLM pour qu'il les décrive (modèle qui lit les
+    /// images ; elles quittent alors le PC).
+    pub vision: bool,
+    /// Profil LLM pour la description des images ; vide : fournisseur actif.
+    pub vision_profile: String,
 }
 
 impl Default for CapturesConfig {
@@ -298,9 +308,16 @@ impl Default for CapturesConfig {
         Self {
             template: "explication".into(),
             keep_days: 0,
+            area: "ecran".into(),
+            clicks: true,
+            vision: false,
+            vision_profile: String::new(),
         }
     }
 }
+
+/// Zones de capture proposées.
+pub const CAPTURE_AREAS: &[&str] = &["ecran", "fenetre", "zone"];
 
 /// Modèle « narration seule » (sans LLM).
 pub const CAPTURE_RAW_TEMPLATE: &str = "brut";

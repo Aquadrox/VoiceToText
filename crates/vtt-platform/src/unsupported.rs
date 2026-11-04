@@ -120,3 +120,15 @@ pub fn exclude_from_capture(_hwnd: isize) {}
 pub fn paste_image(_image: &vtt_core::annotation::Image) -> Result<(), String> {
     Err(format!("collage d'image {MESSAGE}"))
 }
+
+pub struct ClickRecorder;
+
+impl ClickRecorder {
+    pub fn start(_tx: Sender<(i32, i32)>) -> Result<Self, String> {
+        Err(format!("hook souris {MESSAGE}"))
+    }
+}
+
+pub fn foreground_rect() -> Option<(i32, i32, i32, i32)> {
+    None
+}

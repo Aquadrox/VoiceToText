@@ -10,6 +10,9 @@ const FADE_MS = 650;
 let strokes = [];
 let current = null;
 let drawing = false;
+/** Tracé de la zone à capturer : { start: [x, y], end: [x, y] } ou null. */
+let zone = null;
+let choosingZone = false;
 
 function resize() {
   const ratio = window.devicePixelRatio || 1;
@@ -29,6 +32,41 @@ function finishStroke() {
   current = null;
 }
 
+// Zone : glisser pour tracer le rectangle ; Échap : tout l'écran.
+function endZone(rect) {
+  choosingZone = false;
+  zone = null;
+  document.body.classList.remove("drawing");
+  window.__TAURI__.core.invoke("annotate_zone", { zone: rect }).catch(() => {});
+}
+
+function startZone() {
+  choosingZone = true;
+  zone = null;
+  document.body.classList.add("drawing");
+}
+window.__TAURI__.event.listen("ink-zone", startZone);
+// Page chargée après l'événement : l'état le dit.
+window.__TAURI__.core
+  .invoke("annotate_state")
+  .then((state) => state.choosing_zone && !choosingZone && startZone())
+  .catch(() => {});
+
+document.addEventListener("mousedown", (event) => {
+  if (choosingZone) zone = { start: [event.clientX, event.clientY], end: [event.clientX, event.clientY] };
+});
+
+document.addEventListener("mouseup", () => {
+  if (!choosingZone || !zone) return;
+  const [x0, y0] = zone.start;
+  const [x1, y1] = zone.end;
+  endZone([Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (choosingZone && event.key === "Escape") endZone(null);
+});
+
 window.__TAURI__.event.listen("ink-draw", (event) => {
   drawing = Boolean(event.payload);
   document.body.classList.toggle("drawing", drawing);
@@ -36,6 +74,7 @@ window.__TAURI__.event.listen("ink-draw", (event) => {
 });
 
 document.addEventListener("mousemove", (event) => {
+  if (choosingZone && zone) zone.end = [event.clientX, event.clientY];
   if (!drawing) return;
   if (!current) {
     current = { points: [], endedAt: null };
@@ -62,6 +101,25 @@ function render(now) {
     context.stroke();
   }
   context.globalAlpha = 1;
+  if (choosingZone) {
+    // Écran voilé, zone tracée en clair.
+    context.fillStyle = "rgba(0, 0, 0, 0.35)";
+    context.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    if (zone) {
+      const [x0, y0] = zone.start;
+      const [x1, y1] = zone.end;
+      const [x, y, w, h] = [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)];
+      context.clearRect(x, y, w, h);
+      context.strokeStyle = INK;
+      context.lineWidth = 2;
+      context.strokeRect(x, y, w, h);
+    } else {
+      context.fillStyle = "white";
+      context.font = "600 20px 'Segoe UI', system-ui, sans-serif";
+      context.textAlign = "center";
+      context.fillText("Tracez la zone à capturer (Échap : tout l'écran)", window.innerWidth / 2, 48);
+    }
+  }
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);

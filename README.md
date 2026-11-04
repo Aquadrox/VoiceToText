@@ -173,12 +173,18 @@ Montrer plutôt qu'écrire : expliquer un bug, une idée ou une consigne en parl
 2. **Tenez Alt+Maj+A** et bougez la souris : vous dessinez à l'écran (sans cliquer). Le trait s'efface au bout d'une seconde, mais il est gardé sur les images.
 3. **Alt+Maj+A** à nouveau (appui court) pour arrêter. VoiceToText :
    - transcrit votre narration mot par mot ;
-   - choisit les **moments clés** : chaque trait dessiné, et les mots qui désignent l'écran (« ici », « là », « ça », « regarde »…), au plus 6 ;
+   - choisit les **moments clés** : chaque trait dessiné, chaque clic (cercle rouge), et les mots qui désignent l'écran (« ici », « là », « ça », « regarde »…), au plus 6 ;
    - prend l'écran de ces moments, y dessine vos traits, et les réunit en une **planche numérotée** ;
    - fait rédiger le texte par le LLM selon le modèle choisi (**Explication**, **Rapport de bug**, **Consigne pour une IA**, ou **Narration seule** sans LLM), avec des repères `[image 1]`… ;
    - **colle la planche puis le texte** dans l'application active.
 
-Menu de l'icône → **Coller la dernière capture commentée** pour la coller ailleurs. Réglages → **Capture commentée** : modèle de texte, conservation sur le disque (non par défaut : seule la dernière reste en mémoire ; 1, 7 ou 30 jours). La pastille et l'encre n'apparaissent jamais sur les captures. Écran principal seulement ; 5 minutes au plus.
+Menu de l'icône → **Coller la dernière capture commentée** pour la coller ailleurs. Réglages → **Capture commentée** :
+- **Capturer** : tout l'écran principal, la **fenêtre active** au démarrage, ou une **zone** tracée à la souris au démarrage (Échap : tout l'écran) ;
+- clics comme moments clés (oui par défaut) ;
+- modèle de texte ; conservation sur le disque (non par défaut : seule la dernière reste en mémoire ; 1, 7 ou 30 jours) ;
+- **Faire décrire les images par le LLM** (non par défaut) : les images annotées sont envoyées à un modèle qui lit les images (fournisseur actif ou un profil, par exemple un modèle OpenAI ou Mistral avec vision), pour un texte plus précis (boutons, messages d'erreur visibles). **Les images quittent alors le PC.** Si le modèle refuse les images, le texte est rédigé sans elles.
+
+La pastille et l'encre n'apparaissent jamais sur les captures. Écran principal ; 5 minutes au plus.
 
 ## La fenêtre principale
 
@@ -330,7 +336,8 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Export des réglages | Fichier `.toml` où vous le choisissez ; **jamais de clé API** |
 | Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
 | Titre de la fenêtre active | Sert à choisir un style ; ni stocké, ni journalisé, ni envoyé |
-| Captures d'écran (capture commentée) | Restent sur le PC : en mémoire, ou dans `captures\` si vous choisissez de les garder ; **jamais envoyées** (seul le texte de la narration va au LLM) |
+| Captures d'écran (capture commentée) | Restent sur le PC : en mémoire, ou dans `captures\` si vous choisissez de les garder ; **jamais envoyées**, sauf si vous activez « Faire décrire les images par le LLM » |
+| Clics de la souris | Pendant une capture commentée seulement (position et moment), pour marquer les images ; ni stockés à part, ni envoyés |
 | Programmes qui utilisent le micro | Nom seulement, lu chaque seconde pour la détection d'appel ; ni stocké, ni envoyé (désactivable) |
 | Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
 
@@ -378,6 +385,10 @@ language = "anglais"   # langue d'arrivée du mode traduction
 [captures]
 template = "explication"  # "explication", "bug", "consigne" ou "brut" (sans LLM)
 keep_days = 0             # captures gardées sur le disque ; 0 = jamais
+area = "ecran"            # "ecran", "fenetre" (active) ou "zone" (tracée)
+clicks = true             # clics = moments clés
+vision = false            # envoyer les images au LLM pour les décrire
+vision_profile = ""       # profil LLM pour les images ; "" = fournisseur actif
 
 [meetings]
 audio = "temporaire"   # "memoire", "temporaire" (chiffré, supprimé à la fin) ou "conserve"

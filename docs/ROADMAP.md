@@ -121,7 +121,7 @@ Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcriptio
 - ✅ Correctif v0.12.1 : boutons radio des réglages des réunions alignés
 - ✅ Page Réunions : liste, transcription Moi / Eux horodatée (en direct), compte rendu, renommer, copier, exporter en Markdown, supprimer ; durée de conservation réglable
 
-## v0.13 — Capture commentée 🚧
+## v0.13 — Capture commentée ✅
 
 Montrer plutôt qu'écrire : parler et dessiner sur l'écran, et obtenir un texte et des images prêts à coller (Slack, Jira, mail, ChatGPT, Claude…).
 
@@ -130,8 +130,8 @@ Montrer plutôt qu'écrire : parler et dessiner sur l'écran, et obtenir un text
 - ✅ Résultat : planche d'images numérotées et annotées + texte mis en forme par le LLM selon un modèle au choix (explication ; rapport de bug : étapes, attendu, obtenu ; consigne pour une IA ; narration seule), collés dans l'application active ; « Coller la dernière capture commentée »
 - ✅ Pastille et encre exclues des captures d'écran
 - ✅ Captures gardées ou non sur le disque (non par défaut ; 1, 7 ou 30 jours)
-- ⬜ Option (désactivée par défaut) : description des images par une IA qui « voit » ; les captures quittent alors le PC, c'est dit clairement (v0.13.1)
-- ⬜ Une fenêtre ou une zone plutôt que l'écran principal ; clics enregistrés comme moments clés (v0.13.1)
+- ✅ Option (désactivée par défaut, v0.13.1) : description des images par un LLM qui les lit (fournisseur actif ou profil dédié) ; avertissement : les images quittent le PC ; repli sur le texte seul si le modèle les refuse
+- ✅ Fenêtre active ou zone tracée à la souris plutôt que l'écran entier ; clics enregistrés comme moments clés, cerclés sur l'image (v0.13.1)
 
 ## v0.14 — Conférences et recherche ⬜
 

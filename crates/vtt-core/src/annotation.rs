@@ -94,6 +94,22 @@ impl Image {
         out
     }
 
+    /// Partie de l'image (bornée à l'image).
+    pub fn crop(&self, region: &Region) -> Image {
+        let x = region.x.min(self.width.saturating_sub(1));
+        let y = region.y.min(self.height.saturating_sub(1));
+        let width = region.width.clamp(1, self.width - x);
+        let height = region.height.clamp(1, self.height - y);
+        let mut out = Image::new(width, height, [0, 0, 0, 255]);
+        for row in 0..height {
+            let src = (((y + row) * self.width + x) * 4) as usize;
+            let dst = (row * width * 4) as usize;
+            out.rgba[dst..dst + width as usize * 4]
+                .copy_from_slice(&self.rgba[src..src + width as usize * 4]);
+        }
+        out
+    }
+
     fn blit(&mut self, other: &Image, x: u32, y: u32) {
         for row in 0..other.height.min(self.height.saturating_sub(y)) {
             let width = other.width.min(self.width.saturating_sub(x)) as usize * 4;
@@ -102,6 +118,30 @@ impl Image {
             self.rgba[dst..dst + width].copy_from_slice(&other.rgba[src..src + width]);
         }
     }
+}
+
+/// Zone capturée, en pixels de l'écran (fenêtre active ou zone choisie).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Region {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Region {
+    /// Point de l'écran ramené dans la zone.
+    pub fn local(&self, (x, y): (f32, f32)) -> (f32, f32) {
+        (x - self.x as f32, y - self.y as f32)
+    }
+}
+
+/// Clic pendant la capture, en pixels de l'écran.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Click {
+    pub x: f32,
+    pub y: f32,
+    pub at_ms: u64,
 }
 
 /// Trait dessiné pendant la capture, en pixels de l'écran capturé.
@@ -139,6 +179,24 @@ pub fn draw_strokes(image: &mut Image, strokes: &[&Stroke]) {
     }
 }
 
+/// Cercle autour d'un clic (rouge, liseré blanc).
+pub fn draw_click(image: &mut Image, (x, y): (f32, f32)) {
+    let radius = (image.width as f32 / 70.0).clamp(14.0, 40.0);
+    let thickness = (radius / 6.0).max(3.0);
+    for (width, color) in [(thickness + 3.0, INK_HALO), (thickness, INK)] {
+        let steps = (radius * 8.0) as u32;
+        for i in 0..steps {
+            let angle = i as f32 / steps as f32 * std::f32::consts::TAU;
+            image.disc(
+                x + radius * angle.cos(),
+                y + radius * angle.sin(),
+                width / 2.0,
+                color,
+            );
+        }
+    }
+}
+
 /// Mots qui désignent quelque chose à l'écran.
 const POINTING: &[&str] = &[
     "ici", "là", "ça", "ceci", "cela", "celui-ci", "celle-ci", "regarde", "regardez", "voilà",
@@ -154,10 +212,15 @@ fn normalize(word: &str) -> String {
         .to_lowercase()
 }
 
-/// Moments à illustrer : fin de chaque trait (priorité), mots qui désignent
-/// l'écran, et la fin de la capture s'il n'y a rien d'autre. Triés, espacés
-/// d'au moins 1,5 s, au plus [`MAX_MOMENTS`].
-pub fn key_moments(words: &[Word], strokes: &[Stroke], duration_ms: u64) -> Vec<u64> {
+/// Moments à illustrer : fin de chaque trait (priorité), clics, mots qui
+/// désignent l'écran, et la fin de la capture s'il n'y a rien d'autre.
+/// Triés, espacés d'au moins 1,5 s, au plus [`MAX_MOMENTS`].
+pub fn key_moments(
+    words: &[Word],
+    strokes: &[Stroke],
+    clicks: &[Click],
+    duration_ms: u64,
+) -> Vec<u64> {
     let mut chosen: Vec<u64> = Vec::new();
     let add = |at: u64, chosen: &mut Vec<u64>| {
         if chosen.len() < MAX_MOMENTS && chosen.iter().all(|c| c.abs_diff(at) >= MIN_GAP_MS) {
@@ -166,6 +229,9 @@ pub fn key_moments(words: &[Word], strokes: &[Stroke], duration_ms: u64) -> Vec<
     };
     for stroke in strokes {
         add(stroke.end_ms, &mut chosen);
+    }
+    for click in clicks {
+        add(click.at_ms, &mut chosen);
     }
     for word in words {
         if POINTING.contains(&normalize(&word.text).as_str()) {
@@ -321,8 +387,17 @@ mod tests {
             end_ms: 1_500,
         }];
         // Trait à 1,5 s ; « ici » (1,1 s) trop proche ; « là » à 5,7 s.
-        assert_eq!(key_moments(&words, &strokes, 7_000), [1_500, 5_700]);
-        assert_eq!(key_moments(&words[..2], &[], 3_000), [3_000]);
+        assert_eq!(key_moments(&words, &strokes, &[], 7_000), [1_500, 5_700]);
+        assert_eq!(key_moments(&words[..2], &[], &[], 3_000), [3_000]);
+        let click = Click {
+            x: 0.0,
+            y: 0.0,
+            at_ms: 3_200,
+        };
+        assert_eq!(
+            key_moments(&words, &strokes, &[click], 7_000),
+            [1_500, 3_200, 5_700]
+        );
         assert_eq!(
             transcript_with_markers(&words, &[1_500, 5_700]),
             "Le bouton ici, ne [image 1] marche pas. Et là [image 2] non plus."
@@ -368,6 +443,31 @@ mod tests {
         // Pastille « 1 » dans le coin de la première image.
         assert_eq!(sheet.get(12 + 9, 12 + 9), INK);
         assert_eq!(contact_sheet(&[]), None);
+
+        // Zone : fenêtre de 100 × 50 à (300, 100) ; clic dessiné dedans.
+        let mut screen = Image::new(800, 600, [0, 0, 0, 255]);
+        screen.put(300, 100, [9, 9, 9, 255]);
+        let region = Region {
+            x: 300,
+            y: 100,
+            width: 100,
+            height: 50,
+        };
+        let mut window = screen.crop(&region);
+        assert_eq!((window.width, window.height), (100, 50));
+        assert_eq!(window.get(0, 0), [9, 9, 9, 255]);
+        assert_eq!(region.local((350.0, 125.0)), (50.0, 25.0));
+        draw_click(&mut window, (50.0, 25.0));
+        assert_eq!(window.get(50, 25), [0, 0, 0, 255], "centre du cercle vide");
+        assert_eq!(window.get(50 + 14, 25), INK);
+        // Zone qui dépasse l'écran : bornée.
+        let clipped = screen.crop(&Region {
+            x: 780,
+            y: 590,
+            width: 100,
+            height: 100,
+        });
+        assert_eq!((clipped.width, clipped.height), (20, 10));
         let single = contact_sheet(&[Image::new(800, 600, [1, 2, 3, 255])]).unwrap();
         assert_eq!(single.width, 800 + 24);
     }
