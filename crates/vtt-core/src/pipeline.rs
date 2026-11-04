@@ -173,6 +173,11 @@ impl PostProcessor for WithFallback {
 
 pub trait TextSink: Send + Sync {
     fn insert(&self, text: &str) -> Result<(), Error>;
+
+    /// Annule la dernière insertion (« annule la dernière dictée »).
+    fn undo(&self) -> Result<(), Error> {
+        Err(Error::Sink("annulation non prise en charge".into()))
+    }
 }
 
 /// Résultat d'une dictée, conservé pour l'historique.
@@ -180,6 +185,8 @@ pub trait TextSink: Send + Sync {
 pub enum Outcome {
     /// Clip trop court, silence ou hallucination : rien n'a été inséré.
     Skipped,
+    /// Commande vocale « annule la dernière dictée » : Ctrl+Z envoyé.
+    Undone,
     Inserted {
         raw: String,
         text: String,
@@ -204,6 +211,8 @@ pub struct Pipeline {
     /// Déclencheur normalisé → texte à insérer.
     snippets: Vec<(String, String)>,
     styles: Vec<Style>,
+    /// Commandes vocales (mise en page, annulation) reconnues.
+    voice_commands: bool,
 }
 
 impl Pipeline {
@@ -218,7 +227,13 @@ impl Pipeline {
             sink,
             snippets: Vec::new(),
             styles: Vec::new(),
+            voice_commands: false,
         }
+    }
+
+    pub fn with_voice_commands(mut self, enabled: bool) -> Self {
+        self.voice_commands = enabled;
+        self
     }
 
     pub fn with_styles(mut self, styles: &[Style]) -> Self {
@@ -324,6 +339,11 @@ impl Pipeline {
         let Some((raw, asr_ms)) = self.transcribe(clip)? else {
             return Ok(Outcome::Skipped);
         };
+        if self.voice_commands && text::is_undo_command(&raw) {
+            sink.undo()?;
+            log::info!("commande vocale : annulation de la dernière dictée");
+            return Ok(Outcome::Undone);
+        }
 
         // Snippet : la dictée entière est un déclencheur → texte fixe, sans LLM.
         // Le journal ne contient que son numéro (le texte peut être personnel).
@@ -346,6 +366,14 @@ impl Pipeline {
                 fallback: None,
             });
         }
+
+        // Retours à la ligne dictés, avant le LLM (il les conserve) ; la
+        // version brute les contient aussi.
+        let raw = if self.voice_commands {
+            text::apply_layout_commands(&raw)
+        } else {
+            raw
+        };
 
         // Un échec du LLM ne doit jamais faire perdre la dictée.
         let style = self.style_for(target);
@@ -388,6 +416,11 @@ impl Pipeline {
         };
 
         let post_ms = started.elapsed().as_millis();
+        // « nouvelle ligne » en fin de dictée : le LLM rogne les retours finaux.
+        let mut text = text;
+        if raw.ends_with('\n') && !text.ends_with('\n') {
+            text.push('\n');
+        }
 
         let started = Instant::now();
         sink.insert(&text)?;
@@ -520,6 +553,11 @@ mod tests {
     impl TextSink for Recorder {
         fn insert(&self, text: &str) -> Result<(), Error> {
             self.0.lock().unwrap().push(text.to_owned());
+            Ok(())
+        }
+
+        fn undo(&self) -> Result<(), Error> {
+            self.0.lock().unwrap().push("<annulé>".to_owned());
             Ok(())
         }
     }
@@ -662,6 +700,37 @@ mod tests {
         let cleaned = processor.command("traduis", Some("bonjour")).unwrap();
         assert_eq!(cleaned.text, "traduis → bonjour");
         assert_eq!(cleaned.fallback.as_deref(), Some("Ollama"));
+    }
+
+    #[test]
+    fn voice_commands_undo_and_layout() {
+        let (p, sink) = pipeline("Annule la dernière dictée.", Some(Box::new(Upper)));
+        let p = p.with_voice_commands(true);
+        assert_eq!(
+            p.run(&clip_ms(1000), &no_target()).unwrap(),
+            Outcome::Undone
+        );
+        assert_eq!(*sink.0.lock().unwrap(), ["<annulé>"]);
+
+        let (p, sink) = pipeline("Salut, nouvelle ligne, ça va", None);
+        let p = p.with_voice_commands(true);
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["Salut,\nça va"]);
+    }
+
+    #[test]
+    fn voice_commands_are_off_by_default() {
+        let (p, sink) = pipeline("Annule la dernière dictée.", None);
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["Annule la dernière dictée."]);
+    }
+
+    #[test]
+    fn trailing_line_break_survives_cleanup() {
+        let (p, sink) = pipeline("Merci. Nouvelle ligne.", Some(Box::new(Upper)));
+        let p = p.with_voice_commands(true);
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["MERCI.\n"]);
     }
 
     #[test]

@@ -8,6 +8,10 @@ mod autostart_windows;
 #[cfg(windows)]
 pub use autostart_windows::{autostart_enabled, set_autostart};
 #[cfg(windows)]
+mod media_windows;
+#[cfg(windows)]
+pub use media_windows::MediaPauser;
+#[cfg(windows)]
 mod secrets_windows;
 #[cfg(windows)]
 pub use secrets_windows::{delete_secret, load_secret, store_secret};
@@ -16,7 +20,7 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
     ClipboardPaster, companion_keys, copy_selection, copy_text, foreground_target,
-    fullscreen_app_running, key_code, key_is_down, modifiers_down, spawn_keyboard_hook,
+    fullscreen_app_running, key_code, key_is_down, modifiers_down, play_sound, spawn_keyboard_hook,
     suppress_menu_activation,
 };
 
@@ -24,9 +28,10 @@ pub use windows::{
 mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
-    ClipboardPaster, autostart_enabled, companion_keys, copy_selection, copy_text, delete_secret,
-    foreground_target, fullscreen_app_running, key_code, key_is_down, load_secret, modifiers_down,
-    set_autostart, spawn_keyboard_hook, store_secret, suppress_menu_activation,
+    ClipboardPaster, MediaPauser, autostart_enabled, companion_keys, copy_selection, copy_text,
+    delete_secret, foreground_target, fullscreen_app_running, key_code, key_is_down, load_secret,
+    modifiers_down, play_sound, set_autostart, spawn_keyboard_hook, store_secret,
+    suppress_menu_activation,
 };
 
 use std::sync::OnceLock;

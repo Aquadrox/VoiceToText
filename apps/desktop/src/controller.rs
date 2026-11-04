@@ -12,9 +12,10 @@ use vtt_core::config::{AsrConfig, Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
 use vtt_platform::audio::Recorder;
-use vtt_platform::{ClipboardPaster, now_ms};
+use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
 
 use crate::costs::{self, LedgerStore};
+use crate::feedback::{self, Sound};
 use crate::history::{self, HistoryStore};
 use crate::model;
 use crate::paths::Paths;
@@ -29,6 +30,11 @@ const MAX_RECORDING_MS: u64 = 5 * 60 * 1000;
 const MAX_HANDS_FREE_MS: u64 = 10 * 60 * 1000;
 /// Fréquence de vérification de l'état physique du raccourci.
 const POLL: Duration = Duration::from_millis(100);
+/// Sons et pause de la musique seulement pour un appui confirmé : AltGr sert
+/// aussi à taper `@`, `€`… (la dictée, elle, démarre dès l'appui).
+const FEEDBACK_MIN_MS: u64 = 300;
+/// Rafraîchissement du niveau du micro dans la pastille.
+const LEVEL_REFRESH: Duration = Duration::from_millis(50);
 /// Délai avant de se fier à l'état physique de la touche : Windows le met à
 /// jour après le passage dans le hook.
 const KEY_STATE_GRACE_MS: u64 = 300;
@@ -205,7 +211,8 @@ fn run(
     }
     let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster))
         .with_snippets(&config.snippets)
-        .with_styles(&config.styles);
+        .with_styles(&config.styles)
+        .with_voice_commands(config.dictation.voice_commands);
     if !config.snippets.is_empty() {
         log::info!("{} snippet(s) chargé(s)", config.snippets.len());
     }
@@ -224,10 +231,18 @@ fn run(
         Arc::clone(&recording),
     );
     *worker.lock().unwrap_or_else(|e| e.into_inner()) = Some(clips.clone());
+    let recorder =
+        Recorder::spawn(Some(config.audio.device.trim().to_owned()).filter(|d| !d.is_empty()));
+    spawn_level_meter(
+        recorder.clone(),
+        Arc::clone(&recording),
+        Arc::clone(reporter),
+    );
     let mut controls = Controls {
-        recorder: Recorder::spawn(
-            Some(config.audio.device.trim().to_owned()).filter(|d| !d.is_empty()),
-        ),
+        recorder,
+        sounds: config.dictation.sounds,
+        media: config.dictation.pause_media.then(MediaPauser::spawn),
+        confirmed: false,
         recording,
         reporter,
         clips,
@@ -253,6 +268,13 @@ fn run(
             Err(RecvTimeoutError::Disconnected) => return Err("hook clavier arrêté".into()),
         };
         controls.handle(action, ptt.is_command());
+        let feedback_after = u64::from(config.hotkey.min_hold_ms).max(FEEDBACK_MIN_MS);
+        if ptt
+            .recording_ms(now_ms())
+            .is_some_and(|elapsed| elapsed >= feedback_after)
+        {
+            controls.confirm();
+        }
 
         // Filet de sécurité : relâchement non reçu par le hook, ou durée maximale.
         // En mains libres, la touche est relâchée exprès : seule la durée compte.
@@ -270,6 +292,25 @@ fn run(
             }
         }
     }
+}
+
+/// Envoie le niveau du micro à la pastille pendant l'enregistrement.
+fn spawn_level_meter(
+    recorder: Recorder,
+    recording: Arc<AtomicBool>,
+    reporter: Arc<StatusReporter>,
+) {
+    thread::Builder::new()
+        .name("level".into())
+        .spawn(move || {
+            loop {
+                thread::sleep(LEVEL_REFRESH);
+                if recording.load(Ordering::Relaxed) {
+                    reporter.level(recorder.level());
+                }
+            }
+        })
+        .expect("création du thread niveau micro");
 }
 
 /// Touche du Command Mode (`hotkey.command_key`, vide : désactivé).
@@ -297,6 +338,13 @@ pub struct Job {
 /// Ce que le thread clavier pilote : micro, état affiché, file des dictées.
 struct Controls<'a> {
     recorder: Recorder,
+    /// Sons de début et de fin (`dictation.sounds`).
+    sounds: bool,
+    /// Pause de la musique pendant la dictée (`dictation.pause_media`).
+    media: Option<MediaPauser>,
+    /// Appui assez long pour être une vraie dictée : son de début joué,
+    /// musique en pause.
+    confirmed: bool,
     recording: Arc<AtomicBool>,
     reporter: &'a StatusReporter,
     clips: mpsc::Sender<Work>,
@@ -317,6 +365,7 @@ impl Controls<'_> {
             Some(Action::Start) => match self.recorder.start() {
                 Ok(()) => {
                     let _ = self.clips.send(Work::Preload);
+                    self.confirmed = false;
                     self.target = vtt_platform::foreground_target();
                     self.command = command;
                     self.recording.store(true, Ordering::SeqCst);
@@ -334,6 +383,8 @@ impl Controls<'_> {
                 self.reporter.set(Status::Command);
             }
             Some(Action::HandsFree) => {
+                // Le second appui du double appui est court : confirmé ici.
+                self.confirm();
                 log::info!("mode mains libres");
                 self.reporter
                     .set(Status::HandsFree(self.key_name.to_owned()));
@@ -341,11 +392,13 @@ impl Controls<'_> {
             Some(Action::Cancel) => {
                 self.recorder.stop();
                 self.recording.store(false, Ordering::SeqCst);
+                self.finish(Sound::Cancel);
                 self.reporter.set(Status::Idle);
             }
             Some(Action::Stop) => {
                 let clip = self.recorder.stop();
                 self.recording.store(false, Ordering::SeqCst);
+                self.finish(Sound::Stop);
                 self.reporter.set(Status::Processing);
                 let _ = self.clips.send(Work::Dictation(Job {
                     clip,
@@ -354,6 +407,35 @@ impl Controls<'_> {
                 }));
             }
             None => {}
+        }
+    }
+}
+
+impl Controls<'_> {
+    /// Appui confirmé : son de début, musique en pause (une seule fois).
+    fn confirm(&mut self) {
+        if self.confirmed || !self.recording.load(Ordering::SeqCst) {
+            return;
+        }
+        self.confirmed = true;
+        if self.sounds {
+            feedback::play(Sound::Start);
+        }
+        if let Some(media) = &self.media {
+            media.pause();
+        }
+    }
+
+    /// Fin d'une dictée confirmée : son de fin, musique relancée.
+    fn finish(&mut self, sound: Sound) {
+        if !std::mem::take(&mut self.confirmed) {
+            return;
+        }
+        if self.sounds {
+            feedback::play(sound);
+        }
+        if let Some(media) = &self.media {
+            media.resume();
         }
     }
 }
@@ -447,7 +529,8 @@ fn spawn_worker(
                 let failed = result.is_err();
                 // Un appui accidentel (silence, clip trop court) ne doit pas
                 // remplacer la dictée à réessayer.
-                let keep = !matches!(result, Ok(Outcome::Skipped));
+                // « Annule la dernière dictée » ne se réessaie pas non plus.
+                let keep = !matches!(result, Ok(Outcome::Skipped | Outcome::Undone));
                 match result {
                     Ok(outcome) => {
                         // Une dictée réessayée n'est comptée qu'une fois dans

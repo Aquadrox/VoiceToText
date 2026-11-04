@@ -12,18 +12,19 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 1. [Installation](#installation)
 2. [Premiers pas](#premiers-pas)
 3. [Dicter](#dicter)
-4. [Command Mode](#command-mode)
-5. [Coller la version brute](#coller-la-version-brute)
-6. [Réessayer une dictée](#réessayer-une-dictée)
-7. [La fenêtre principale](#la-fenêtre-principale)
-8. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-9. [Mises à jour](#mises-à-jour)
-10. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-11. [Fichiers et emplacements](#fichiers-et-emplacements)
-12. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-13. [Dépannage](#dépannage)
-14. [Développement](#développement)
-15. [Licence](#licence)
+4. [Commandes vocales](#commandes-vocales)
+5. [Command Mode](#command-mode)
+6. [Coller la version brute](#coller-la-version-brute)
+7. [Réessayer une dictée](#réessayer-une-dictée)
+8. [La fenêtre principale](#la-fenêtre-principale)
+9. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+10. [Mises à jour](#mises-à-jour)
+11. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+12. [Fichiers et emplacements](#fichiers-et-emplacements)
+13. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+14. [Dépannage](#dépannage)
+15. [Développement](#développement)
+16. [Licence](#licence)
 
 ## Installation
 
@@ -70,7 +71,27 @@ La **pastille** en bas de l'écran indique l'état :
 | ⚪ Gris | Chargement ou téléchargement du modèle |
 | 🟡 Jaune | Erreur (message affiché quelques secondes) |
 
+Pendant l'enregistrement, des **barres** dans la pastille suivent le niveau du micro : si elles ne bougent pas, le micro ne capte rien.
+
+Par défaut (désactivable dans **Réglages → Pendant la dictée**) :
+
+- un **son** marque le début (deux notes montantes), la fin (descendantes) et l'annulation (note grave) ;
+- la **musique et les vidéos** en cours (Spotify, YouTube dans le navigateur, lecteurs compatibles avec les touches multimédias) sont **mises en pause** pendant la dictée, puis relancées. Seul ce qui jouait est relancé.
+
 Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dictée est alors traitée automatiquement).
+
+## Commandes vocales
+
+| Dire | Effet |
+|---|---|
+| « nouvelle ligne », « à la ligne », « retour à la ligne » | Retour à la ligne |
+| « point à la ligne » | Point puis retour à la ligne |
+| « nouveau paragraphe » | Ligne vide |
+| « annule la dernière dictée » (seul) | Annule le dernier collage (Ctrl+Z dans l'application) |
+
+Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage.
+
+Désactivables dans **Réglages → Pendant la dictée**.
 
 ## Command Mode
 
@@ -141,13 +162,14 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 ### Réglages
 
 - **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », « réessayer », appui minimal, mains libres.
+- **Pendant la dictée** : sons, pause de la musique et des vidéos, commandes vocales.
 - **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
 - **Clé API** (pour l'adresse saisie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
 
-Raccourcis, micro, modèle Whisper et mises à jour s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent immédiatement, sans redémarrer.
+Raccourcis, micro, modèle Whisper, options de dictée et mises à jour s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent immédiatement, sans redémarrer.
 
 Modèles Whisper proposés :
 
@@ -258,6 +280,11 @@ hands_free = true    # double appui → mains libres
 paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
 retry = "Alt+Shift+R"       # réessayer la dernière dictée ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
+
+[dictation]
+sounds = true          # sons de début et de fin
+pause_media = true     # pause de la musique et des vidéos pendant la dictée
+voice_commands = true  # « nouvelle ligne », « annule la dernière dictée »…
 
 [audio]
 device = ""          # nom du micro ; vide = micro par défaut de Windows

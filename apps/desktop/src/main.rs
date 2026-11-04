@@ -4,6 +4,7 @@
 mod app_settings;
 mod controller;
 mod costs;
+mod feedback;
 mod history;
 mod logging;
 mod main_window;

@@ -81,6 +81,44 @@ body {
   background: var(--error);
 }
 
+/* Niveau du micro : remplace le point pendant l'enregistrement. */
+.meter {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.meter i {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--meter, var(--listening));
+  transform: scaleY(0.2);
+  transition: transform 60ms linear;
+}
+
+.pill[data-state="handsfree"] {
+  --meter: var(--handsfree);
+}
+
+.pill[data-state="command"] {
+  --meter: var(--command);
+}
+
+.pill[data-state="listening"] .meter,
+.pill[data-state="handsfree"] .meter,
+.pill[data-state="command"] .meter {
+  display: flex;
+}
+
+.pill[data-state="listening"] .dot,
+.pill[data-state="handsfree"] .dot,
+.pill[data-state="command"] .dot {
+  display: none;
+}
+
 @keyframes pulse {
   50% {
     transform: scale(0.6);

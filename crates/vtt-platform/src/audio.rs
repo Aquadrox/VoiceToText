@@ -4,6 +4,7 @@
 //! utilisé » en permanence). Il vit dans un thread dédié car `cpal::Stream`
 //! n'est pas transférable entre threads sur toutes les plateformes.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -21,6 +22,8 @@ enum Command {
 #[derive(Clone)]
 pub struct Recorder {
     tx: Sender<Command>,
+    /// Niveau du dernier bloc capté (f32 entre 0 et 1, stocké en bits).
+    level: Arc<AtomicU32>,
 }
 
 impl Recorder {
@@ -28,11 +31,18 @@ impl Recorder {
     /// micro par défaut de Windows.
     pub fn spawn(device: Option<String>) -> Self {
         let (tx, rx) = mpsc::channel();
+        let level = Arc::new(AtomicU32::new(0));
+        let shared = Arc::clone(&level);
         thread::Builder::new()
             .name("audio".into())
-            .spawn(move || run(rx, device))
+            .spawn(move || run(rx, device, shared))
             .expect("création du thread audio");
-        Self { tx }
+        Self { tx, level }
+    }
+
+    /// Niveau du micro entre 0 et 1, pour la pastille (0 hors enregistrement).
+    pub fn level(&self) -> f32 {
+        f32::from_bits(self.level.load(Ordering::Relaxed))
     }
 
     /// Ouvre le micro et commence à accumuler les échantillons.
@@ -71,7 +81,7 @@ pub fn input_devices() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn run(rx: Receiver<Command>, device: Option<String>) {
+fn run(rx: Receiver<Command>, device: Option<String>, level: Arc<AtomicU32>) {
     let mut active: Option<Active> = None;
     for command in rx {
         match command {
@@ -79,12 +89,13 @@ fn run(rx: Receiver<Command>, device: Option<String>) {
                 let result = if active.is_some() {
                     Ok(())
                 } else {
-                    open(device.as_deref()).map(|a| active = Some(a))
+                    open(device.as_deref(), &level).map(|a| active = Some(a))
                 };
                 let _ = reply.send(result);
             }
             Command::Stop(reply) => {
                 let clip = active.take().map(finish).unwrap_or_default();
+                level.store(0f32.to_bits(), Ordering::Relaxed);
                 let _ = reply.send(clip);
             }
         }
@@ -106,7 +117,7 @@ fn find_device(name: Option<&str>) -> Option<cpal::Device> {
     host.default_input_device()
 }
 
-fn open(name: Option<&str>) -> Result<Active, String> {
+fn open(name: Option<&str>, level: &Arc<AtomicU32>) -> Result<Active, String> {
     let device = find_device(name).ok_or("aucun micro détecté")?;
     let supported = device
         .default_input_config()
@@ -117,12 +128,12 @@ fn open(name: Option<&str>) -> Result<Active, String> {
     )));
 
     let stream = match supported.sample_format() {
-        SampleFormat::F32 => build::<f32>(&device, config, &buffer),
-        SampleFormat::I16 => build::<i16>(&device, config, &buffer),
-        SampleFormat::I32 => build::<i32>(&device, config, &buffer),
-        SampleFormat::U16 => build::<u16>(&device, config, &buffer),
-        SampleFormat::I8 => build::<i8>(&device, config, &buffer),
-        SampleFormat::U8 => build::<u8>(&device, config, &buffer),
+        SampleFormat::F32 => build::<f32>(&device, config, &buffer, level),
+        SampleFormat::I16 => build::<i16>(&device, config, &buffer, level),
+        SampleFormat::I32 => build::<i32>(&device, config, &buffer, level),
+        SampleFormat::U16 => build::<u16>(&device, config, &buffer, level),
+        SampleFormat::I8 => build::<i8>(&device, config, &buffer, level),
+        SampleFormat::U8 => build::<u8>(&device, config, &buffer, level),
         other => return Err(format!("format audio non géré : {other}")),
     }
     .map_err(|e| format!("ouverture du micro : {e}"))?;
@@ -142,17 +153,22 @@ fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
     buffer: &Arc<Mutex<Vec<f32>>>,
+    level: &Arc<AtomicU32>,
 ) -> Result<cpal::Stream, cpal::Error>
 where
     T: SizedSample,
     f32: FromSample<T>,
 {
     let buffer = Arc::clone(buffer);
+    let level = Arc::clone(level);
     device.build_input_stream::<T, _, _>(
         config,
         move |data: &[T], _| {
             if let Ok(mut buf) = buffer.lock() {
+                let start = buf.len();
                 buf.extend(data.iter().map(|&s| f32::from_sample(s)));
+                let value = audio::meter_level(audio::rms(&buf[start..]));
+                level.store(value.to_bits(), Ordering::Relaxed);
             }
         },
         |err| log::warn!("flux micro : {err}"),
