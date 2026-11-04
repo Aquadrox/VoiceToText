@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>VoiceToText : appel détecté</title>
+    <link rel="stylesheet" href="offer.css" />
+  </head>
+  <body>
+    <div class="card">
+      <p class="title"><span class="dot" aria-hidden="true"></span><span id="title">Appel détecté</span></p>
+      <p class="note">Enregistrer et transcrire ? Prévenez les participants.</p>
+      <div class="actions" id="main-actions">
+        <button id="record" class="primary">Enregistrer</button>
+        <button id="later">Pas maintenant</button>
+        <button id="more" aria-label="Autres choix" aria-expanded="false">…</button>
+      </div>
+      <div class="actions" id="more-actions" hidden>
+        <button id="always">Toujours enregistrer</button>
+        <button id="never">Ne plus proposer</button>
+        <button id="back" aria-label="Retour">←</button>
+      </div>
+    </div>
+    <script src="offer.js"></script>
+  </body>
+</html>

@@ -106,3 +106,7 @@ pub fn protect(_data: &[u8]) -> Result<Vec<u8>, String> {
 pub fn unprotect(_data: &[u8]) -> Result<Vec<u8>, String> {
     Err(format!("chiffrement {MESSAGE}"))
 }
+
+pub fn microphone_apps() -> Vec<String> {
+    Vec::new()
+}

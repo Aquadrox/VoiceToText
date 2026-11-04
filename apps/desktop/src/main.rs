@@ -92,6 +92,8 @@ fn main() {
             meetings::meetings_view,
             meetings::meeting_detail,
             meetings::meeting_state,
+            meetings::offer_view,
+            meetings::offer_answer,
             meetings::start_meeting,
             meetings::stop_meeting,
             meetings::rename_meeting,
@@ -170,6 +172,7 @@ fn main() {
             app.manage(controller);
             // Réunions interrompues par un arrêt : transcription reprise.
             meetings.recover();
+            meetings.spawn_detection();
             Ok(())
         })
         .run(tauri::generate_context!())

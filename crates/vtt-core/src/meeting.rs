@@ -254,6 +254,183 @@ pub fn to_markdown(
     md
 }
 
+/// Trames de 20 ms pour la comparaison des deux pistes.
+const ECHO_FRAME: usize = SAMPLE_RATE as usize / 50;
+/// Son du PC gardé pour comparaison (en trames) : une minute.
+const ECHO_HISTORY: usize = 3_000;
+/// Retard du micro sur le son du PC exploré : 0 à 600 ms.
+const ECHO_MAX_LAG: usize = 30;
+/// Niveau (dBFS) sous lequel une trame est du silence.
+const ECHO_FLOOR_DB: f32 = -50.0;
+/// Corrélation minimale des deux pistes pour parler d'écho (au casque, le
+/// micro n'entend pas les autres : pas de corrélation).
+const ECHO_MIN_CORRELATION: f32 = 0.5;
+/// Une trame est « locale » si le micro dépasse l'écho attendu de 9 dB.
+const ECHO_LOCAL_DB: f32 = 9.0;
+/// Bloc d'écho : au plus 20 % de trames locales.
+const ECHO_MAX_LOCAL: f32 = 0.2;
+
+fn db(rms: f32) -> f32 {
+    20.0 * rms.max(1e-5).log10()
+}
+
+fn frame_levels(samples: &[f32]) -> Vec<f32> {
+    samples
+        .as_chunks::<ECHO_FRAME>()
+        .0
+        .iter()
+        .map(|f| db(audio::rms(f)))
+        .collect()
+}
+
+/// Appel sur haut-parleurs : le micro réentend les autres. Compare un bloc
+/// du micro au son du PC du même moment : si le micro ne fait que suivre le
+/// son du PC (même enveloppe, un peu plus tard, plus faible), c'est de
+/// l'écho et le bloc n'est pas transcrit comme « Moi ».
+#[derive(Debug, Default)]
+pub struct EchoGate {
+    /// Niveaux (dB) des trames du son du PC ; `frames[0]` est la trame `first`.
+    frames: std::collections::VecDeque<f32>,
+    first: usize,
+    /// Fin du dernier bloc reçu, pas encore une trame complète.
+    partial: Vec<f32>,
+}
+
+impl EchoGate {
+    /// Son du PC, dans l'ordre et sans trou depuis le début.
+    pub fn feed_system(&mut self, samples: &[f32]) {
+        self.partial.extend_from_slice(samples);
+        let whole = self.partial.len() / ECHO_FRAME * ECHO_FRAME;
+        let levels = frame_levels(&self.partial[..whole]);
+        self.partial.drain(..whole);
+        self.frames.extend(levels);
+        while self.frames.len() > ECHO_HISTORY {
+            self.frames.pop_front();
+            self.first += 1;
+        }
+    }
+
+    fn system_level(&self, frame: usize) -> Option<f32> {
+        frame
+            .checked_sub(self.first)
+            .and_then(|i| self.frames.get(i))
+            .copied()
+    }
+
+    /// Le bloc du micro n'est que de l'écho du son du PC.
+    pub fn is_echo(&self, chunk: &Chunk) -> bool {
+        let mic = frame_levels(&chunk.samples);
+        let start = (chunk.start_ms / 20) as usize;
+        let active: Vec<usize> = (0..mic.len()).filter(|&i| mic[i] > ECHO_FLOOR_DB).collect();
+        if active.len() < 10 {
+            return false;
+        }
+        // Retard qui aligne le mieux les deux enveloppes.
+        let mut best: Option<(f32, usize)> = None;
+        for lag in 0..=ECHO_MAX_LAG {
+            let pairs: Vec<(f32, f32)> = active
+                .iter()
+                .filter_map(|&i| {
+                    let system = self.system_level((start + i).checked_sub(lag)?)?;
+                    Some((mic[i], system))
+                })
+                .collect();
+            if pairs.len() < active.len() * 3 / 4 {
+                continue;
+            }
+            let correlation = pearson(&pairs);
+            if best.is_none_or(|(c, _)| correlation > c) {
+                best = Some((correlation, lag));
+            }
+        }
+        let Some((correlation, lag)) = best else {
+            return false;
+        };
+        if correlation < ECHO_MIN_CORRELATION {
+            return false;
+        }
+        let pairs: Vec<(f32, f32)> = active
+            .iter()
+            .filter_map(|&i| Some((mic[i], self.system_level((start + i).checked_sub(lag)?)?)))
+            .collect();
+        // Atténuation habituelle haut-parleur → micro (médiane).
+        let mut gaps: Vec<f32> = pairs
+            .iter()
+            .filter(|(_, s)| *s > ECHO_FLOOR_DB)
+            .map(|(m, s)| m - s)
+            .collect();
+        if gaps.is_empty() {
+            return false;
+        }
+        gaps.sort_by(f32::total_cmp);
+        let gain = gaps[gaps.len() / 2];
+        let local = pairs
+            .iter()
+            .filter(|(m, s)| *m > s + gain + ECHO_LOCAL_DB)
+            .count();
+        (local as f32) / (pairs.len() as f32) <= ECHO_MAX_LOCAL
+    }
+}
+
+fn pearson(pairs: &[(f32, f32)]) -> f32 {
+    let n = pairs.len() as f32;
+    let (mx, my) = pairs
+        .iter()
+        .fold((0.0, 0.0), |(a, b), (x, y)| (a + x / n, b + y / n));
+    let (mut cov, mut vx, mut vy) = (0.0, 0.0, 0.0);
+    for (x, y) in pairs {
+        cov += (x - mx) * (y - my);
+        vx += (x - mx).powi(2);
+        vy += (y - my).powi(2);
+    }
+    if vx <= f32::EPSILON || vy <= f32::EPSILON {
+        return 0.0;
+    }
+    cov / (vx.sqrt() * vy.sqrt())
+}
+
+/// Mots comparables (minuscules, au moins deux caractères).
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= 2)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Fenêtre autour d'une réplique « Moi » où chercher l'original de l'écho.
+const ECHO_TEXT_WINDOW_MS: u64 = 1_500;
+/// Part des mots retrouvés chez « Eux » au-delà de laquelle c'est de l'écho.
+const ECHO_TEXT_SHARE: f32 = 0.6;
+
+/// Retire les segments « Moi » qui répètent ce que « Eux » disaient au même
+/// moment (écho que le signal n'a pas suffi à écarter).
+pub fn without_echo(segments: &[Segment]) -> Vec<Segment> {
+    segments
+        .iter()
+        .filter(|segment| {
+            if segment.track != Track::Moi {
+                return true;
+            }
+            let mine = words(&segment.text);
+            if mine.len() < 3 {
+                return true;
+            }
+            let theirs: std::collections::HashSet<String> = segments
+                .iter()
+                .filter(|o| {
+                    o.track == Track::Eux
+                        && o.start_ms <= segment.end_ms + ECHO_TEXT_WINDOW_MS
+                        && o.end_ms + ECHO_TEXT_WINDOW_MS >= segment.start_ms
+                })
+                .flat_map(|o| words(&o.text))
+                .collect();
+            let shared = mine.iter().filter(|w| theirs.contains(*w)).count();
+            (shared as f32) / (mine.len() as f32) < ECHO_TEXT_SHARE
+        })
+        .cloned()
+        .collect()
+}
+
 /// Chiffrement d'un bloc d'audio (Windows : DPAPI, lié à la session).
 pub type Protect = fn(&[u8]) -> Result<Vec<u8>, String>;
 
@@ -454,6 +631,83 @@ mod tests {
         assert!(md.starts_with("# Point hebdo\n\n4 nov. 2026 · durée 1:01:02"));
         assert!(md.contains("## Compte rendu\n\nRien."));
         assert!(md.contains("**Eux** [00:09] : Très bien."));
+    }
+
+    /// Enveloppe de parole pseudo-aléatoire (syllabes de 100 à 300 ms).
+    fn bursts(seconds: f32, seed: u32) -> Vec<f32> {
+        let mut state = seed;
+        let mut next = move || {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (state >> 16) as f32 / 65_536.0
+        };
+        let mut out = Vec::new();
+        while out.len() < (seconds * RATE as f32) as usize {
+            let len = (0.1 + 0.2 * next()) * RATE as f32;
+            let amplitude = if next() < 0.35 {
+                0.0
+            } else {
+                0.05 + 0.4 * next()
+            };
+            for i in 0..len as usize {
+                out.push(if i % 2 == 0 { amplitude } else { -amplitude });
+            }
+        }
+        out.truncate((seconds * RATE as f32) as usize);
+        out
+    }
+
+    fn delayed(samples: &[f32], ms: usize, gain: f32) -> Vec<f32> {
+        let lag = RATE * ms / 1000;
+        let mut out = vec![0.0; lag];
+        out.extend(samples.iter().map(|s| s * gain));
+        out.truncate(samples.len());
+        out
+    }
+
+    #[test]
+    fn speaker_bleed_is_echo_but_own_speech_is_not() {
+        let system = bursts(10.0, 7);
+        let mut gate = EchoGate::default();
+        for piece in system.chunks(RATE / 3) {
+            gate.feed_system(piece);
+        }
+        let chunk = |samples: Vec<f32>| Chunk {
+            start_ms: 0,
+            samples,
+        };
+        // Haut-parleurs : le micro entend les autres 120 ms plus tard, 4× plus bas.
+        assert!(gate.is_echo(&chunk(delayed(&system, 120, 0.25))));
+        // Ma propre voix, sans rapport avec le son du PC.
+        assert!(!gate.is_echo(&chunk(bursts(10.0, 99))));
+        // Je parle par-dessus l'écho : gardé.
+        let mut both = delayed(&system, 120, 0.1);
+        for (sample, own) in both.iter_mut().zip(bursts(10.0, 99)) {
+            *sample += own;
+        }
+        assert!(!gate.is_echo(&chunk(both)));
+        // Au casque : son du PC silencieux pour le micro.
+        let silent_pc = EchoGate::default();
+        assert!(!silent_pc.is_echo(&chunk(bursts(10.0, 99))));
+    }
+
+    #[test]
+    fn text_echo_of_their_words_is_dropped() {
+        let segments = vec![
+            segment(Track::Eux, 0, "Le budget est validé à cinq mille euros."),
+            segment(Track::Moi, 500, "budget est validé à cinq mille euros"),
+            segment(Track::Moi, 1_000, "Parfait, je préviens Julie."),
+            segment(Track::Moi, 60_000, "Le budget est validé, donc."),
+        ];
+        let kept = without_echo(&segments);
+        let texts: Vec<&str> = kept.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Le budget est validé à cinq mille euros.",
+                "Parfait, je préviens Julie.",
+                "Le budget est validé, donc."
+            ]
+        );
     }
 
     #[test]

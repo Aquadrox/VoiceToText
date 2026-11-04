@@ -6,6 +6,7 @@
 //! les traits de [`pipeline`].
 
 pub mod audio;
+pub mod calls;
 pub mod config;
 pub mod history;
 pub mod hotkey;
