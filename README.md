@@ -51,7 +51,15 @@ Un **clavier de dictée** : on le choisit comme n'importe quel clavier, on maint
    3. **Activer le clavier VoiceToText**, puis **Choisir le clavier**.
 3. **Nettoyage du texte** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées).
 
-Au clavier : **maintenir 🎤** pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; 🌐 revient au clavier habituel ; ⌫, espace et entrée sont là pour les retouches. Les commandes vocales (« nouvelle ligne », « annule la dernière dictée ») et les snippets fonctionnent comme sur PC.
+Au clavier :
+- **maintenir 🎤** pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ;
+- **🌍** : mode traduction (le texte dicté est traduit dans la langue choisie dans l'application), allumé tant qu'on ne le coupe pas ;
+- **maintenir ✨** : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
+- 🌐 revient au clavier habituel ; ⌫, espace et entrée pour les retouches.
+
+Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique.
+
+Les commandes vocales (« nouvelle ligne », « annule la dernière dictée »), les snippets et les styles par application fonctionnent comme sur PC. Dans l'application : **historique** des dictées (sur le téléphone seulement, désactivable ; toucher pour copier), **dictionnaire et snippets** modifiables.
 
 L'audio reste en mémoire le temps de la dictée, jamais sur le stockage du téléphone.
 

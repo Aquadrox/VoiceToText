@@ -137,11 +137,64 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_start<'a>(
     mut env: JNIEnv<'a>,
     _class: JClass<'a>,
     models_dir: JString<'a>,
+    history_file: JString<'a>,
     toml: JString<'a>,
 ) -> jstring {
     let dir = PathBuf::from(text(&mut env, &models_dir));
+    let history = PathBuf::from(text(&mut env, &history_file));
     let toml = text(&mut env, &toml);
-    let json = reply(engine::start(&dir, &toml));
+    let json = reply(engine::start(&dir, &history, &toml));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_history<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    history_file: JString<'a>,
+    limit: jint,
+) -> jstring {
+    let file = PathBuf::from(text(&mut env, &history_file));
+    let json = reply(engine::history(&file, limit.max(0) as usize));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_clearHistory<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    history_file: JString<'a>,
+) -> jstring {
+    let file = PathBuf::from(text(&mut env, &history_file));
+    let json = reply(engine::clear_history(&file));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_vocabulary<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let json = reply(settings::vocabulary(&toml));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_saveVocabulary<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+    vocabulary: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let vocabulary = text(&mut env, &vocabulary);
+    let json = reply(
+        serde_json::from_str::<settings::Vocabulary>(&vocabulary)
+            .map_err(|e| e.to_string())
+            .and_then(|v| settings::save_vocabulary(&toml, &v)),
+    );
     java(&mut env, &json)
 }
 
@@ -151,6 +204,9 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     _class: JClass<'a>,
     samples: JFloatArray<'a>,
     app: JString<'a>,
+    mode: jint,
+    selection: JString<'a>,
+    privacy: jint,
 ) -> jstring {
     let length = env.get_array_length(&samples).unwrap_or(0).max(0) as usize;
     let mut buffer = vec![0f32; length];
@@ -161,7 +217,19 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
         buffer.clear();
     }
     let app = Some(text(&mut env, &app)).filter(|a| !a.is_empty());
-    let result = engine::dictate(buffer, app);
+    // 0 : dictée ; 1 : traduction ; 2 : Command Mode (sélection éventuelle).
+    let mode = match mode {
+        1 => engine::Mode::Translate,
+        2 => engine::Mode::Command(Some(text(&mut env, &selection)).filter(|s| !s.is_empty())),
+        _ => engine::Mode::Dictate,
+    };
+    // 1 : pas d'historique ; 2 : mot de passe (ni LLM ni historique).
+    let privacy = match privacy {
+        1 => engine::Privacy::NoHistory,
+        2 => engine::Privacy::Password,
+        _ => engine::Privacy::Normal,
+    };
+    let result = engine::dictate(buffer, app, mode, privacy);
     let json = serde_json::to_string(&result).unwrap_or_default();
     java(&mut env, &json)
 }

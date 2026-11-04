@@ -29,6 +29,21 @@ everything() {
 files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA") || everything "historique introuvable"
 [ -n "$files" ] || everything "aucun fichier modifié détecté"
 
+# Chaque PR monte la version (Cargo.toml, et Cargo.lock pour les crates du
+# projet) : si c'est le seul changement de ces fichiers, il ne demande pas
+# de tout revérifier.
+project_version() {
+  git show "$1:Cargo.toml" | grep -m1 '^version = ' | cut -d'"' -f2 | sed 's/\./\\./g'
+}
+only_version_bump() {
+  local changed old new
+  old=$(project_version "$BASE_SHA") && new=$(project_version "$HEAD_SHA") || return 1
+  [ -n "$old" ] && [ -n "$new" ] || return 1
+  changed=$(git diff --unified=0 "$BASE_SHA...$HEAD_SHA" -- "$1" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ') || return 1
+  # Seules lignes acceptées : la version du projet, ancienne ou nouvelle.
+  [ -n "$changed" ] && ! grep -qvE "^[+-]version = \"($old|$new)\"$" <<<"$changed"
+}
+
 code=false
 android=false
 # Tout le PC à vérifier (crate utilisé partout, exemple du README).
@@ -42,6 +57,9 @@ while IFS= read -r file; do
       workspace=true
       ;;
     *.md | docs/* | LICENSE* | .gitignore) ;;
+    Cargo.toml | Cargo.lock)
+      only_version_bump "$file" || everything "$file modifié au-delà de la version"
+      ;;
     apps/android/* | crates/vtt-android/*) android=true ;;
     crates/vtt-core/*)
       code=true

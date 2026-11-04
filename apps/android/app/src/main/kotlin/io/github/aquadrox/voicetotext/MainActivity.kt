@@ -19,7 +19,9 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.ArrayAdapter
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONObject
@@ -45,6 +47,9 @@ class MainActivity : Activity() {
     private lateinit var apiKey: EditText
     private lateinit var keyStatus: TextView
     private lateinit var voiceCommands: Switch
+    private lateinit var language: Spinner
+    private lateinit var history: Switch
+    private lateinit var vocabularyStatus: TextView
     private lateinit var message: TextView
 
     /** Hôte de l'API affiché (la clé est rangée par hôte). */
@@ -58,7 +63,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
+        // Retour du dictionnaire : compteurs à jour.
+        if (::message.isInitialized) refresh()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -106,7 +112,25 @@ class MainActivity : Activity() {
         voiceCommands = Switch(this@MainActivity).apply {
             text = "Commandes vocales (« nouvelle ligne », « annule la dernière dictée »)"
         }.also { addView(it) }
-        button("Enregistrer") { save() }
+        section("Mode traduction (🌍 au clavier)")
+        language = Spinner(this@MainActivity).also { addView(it) }
+        note("✨ au clavier : maintenez et dictez une consigne (« rends ce texte plus formel », « traduis en anglais ») ; elle s'applique au texte sélectionné.")
+
+        section("Historique")
+        history = Switch(this@MainActivity).apply {
+            text = "Garder les dictées sur le téléphone"
+        }.also { addView(it) }
+        button("Voir l'historique") {
+            startActivity(Intent(this@MainActivity, HistoryActivity::class.java))
+        }
+
+        section("Dictionnaire et snippets")
+        vocabularyStatus = note("")
+        button("Modifier le dictionnaire et les snippets") {
+            startActivity(Intent(this@MainActivity, VocabularyActivity::class.java))
+        }
+
+        button("Enregistrer les réglages") { save() }
         button("Supprimer la clé") {
             if (host.isNotEmpty()) store.deleteKey(host)
             refresh()
@@ -178,6 +202,12 @@ class MainActivity : Activity() {
         apiKey.setText("")
         keyStatus.text = if (store.hasKey(host)) "✓ Clé enregistrée pour $host" else "Aucune clé pour $host"
         voiceCommands.isChecked = view.getBoolean("voice_commands")
+        history.isChecked = view.getBoolean("history")
+        vocabularyStatus.text = "${view.getInt("dictionary")} mot(s), ${view.getInt("snippets")} snippet(s)"
+        val languages = view.getJSONArray("languages").let { array -> List(array.length()) { array.getString(it) } }
+            .let { list -> if (view.getString("translation") in list) list else list + view.getString("translation") }
+        language.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, languages)
+        language.setSelection(languages.indexOf(view.getString("translation")))
 
         models.removeAllViews()
         val list = view.getJSONArray("models")
@@ -212,6 +242,8 @@ class MainActivity : Activity() {
             .put("llm_model", llmModel.text.toString())
             .put("model", selectedModel())
             .put("voice_commands", voiceCommands.isChecked)
+            .put("translation", language.selectedItem?.toString() ?: "anglais")
+            .put("history", history.isChecked)
         val reply = JSONObject(Native.updateSettings(store.config, update.toString()))
         if (reply.has("error")) {
             say(reply.getString("error"))

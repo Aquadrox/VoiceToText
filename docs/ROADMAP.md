@@ -145,19 +145,21 @@ Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 - ✅ Réécouter un passage (v0.14.1) : audio conservé (déchiffré à la volée) ou fichier importé d'origine ; ▶ sur chaque réplique, y compris celle trouvée par la recherche
 - ✅ Prompt de compte rendu de conférence modifiable dans la page Prompts (v0.14.1)
 
-## v0.15 — Android : clavier de dictée 🚧
+## v0.15 — Android : clavier de dictée ✅
 
 - ✅ Application Android (Kotlin, sans dépendance externe) : clavier de dictée (InputMethodService) — maintenir 🎤 pour dicter, appui court pour mains libres, 🌐 / ⌫ / espace / entrée
 - ✅ Moteur Rust partagé avec le PC (crate `vtt-android`, JNI) : Whisper sur le téléphone (Small, Base, Large v3 Turbo ; téléchargement vérifié), snippets, commandes vocales, styles par application, nettoyage LLM
 - ✅ Clé API chiffrée par le Keystore Android, jamais affichée ; audio en mémoire seulement
 - ✅ Import du fichier de réglages exporté depuis le PC (sans les clés)
 - ✅ CI : APK de test sur les PR (identifiant `.test`, installable à côté de la version publiée), APK signé dans chaque release ; une PR Android seule ne relance pas le PC, et inversement
-- ⬜ Essais sur un vrai téléphone (Xiaomi 17T Pro)
+- ✅ Essais sur un vrai téléphone (Xiaomi 17T Pro) ; vitesse corrigée (whisper.cpp compilé pour ARMv8.2 + dotprod, encodeur limité à la durée de la dictée, 4 threads)
 
-## v0.16 — Android : confort ⬜
+## v0.16 — Android : confort 🚧
 
-- ⬜ Historique des dictées, dictionnaire et snippets modifiables sur le téléphone
-- ⬜ Mode traduction, Command Mode (texte sélectionné)
+- ✅ Historique des dictées sur le téléphone (désactivable, toucher pour copier, effacement en deux appuis)
+- ✅ Dictionnaire et snippets modifiables sur le téléphone
+- ✅ Mode traduction (🌍 au clavier, langue au choix)
+- ✅ Command Mode (maintenir ✨ : consigne appliquée au texte sélectionné)
 - ⬜ Moteur Parakeet sur le téléphone (ONNX Runtime Android)
 
 ## Outillage ✅
