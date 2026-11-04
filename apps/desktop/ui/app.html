@@ -11,6 +11,7 @@
         <div class="brand">VoiceToText</div>
         <a href="#accueil">Accueil</a>
         <a href="#historique">Historique</a>
+        <a href="#reunions">Réunions</a>
         <a href="#dictionnaire">Dictionnaire</a>
         <a href="#snippets">Snippets</a>
         <a href="#styles">Styles</a>
@@ -83,6 +84,99 @@
             application : le nom du programme seulement, jamais le titre de la fenêtre) ; ils sont
             conservés même si l'historique est effacé.
           </p>
+        </section>
+
+        <!-- Réunions -->
+        <section class="page" id="page-reunions" hidden>
+          <div class="page-header">
+            <h1>Réunions</h1>
+            <span class="spacer"></span>
+            <button id="meeting-toggle" class="primary">Démarrer une réunion</button>
+          </div>
+          <div id="meeting-live" class="banner live" hidden>
+            <span>
+              <strong>● Enregistrement · <span id="meeting-elapsed">00:00</span></strong><br />
+              <span class="small">Prévenez les participants que la réunion est enregistrée.</span>
+            </span>
+          </div>
+          <p class="muted small">
+            Le micro (« Moi ») et le son du PC (« Eux » : Teams, Zoom, Meet, Discord…) sont
+            transcrits sur ce PC pendant l'appel, avec le moteur choisi dans les réglages. Compte
+            rendu par le LLM à la fin. Raccourcis : <span id="meeting-shortcuts"></span>.
+          </p>
+          <div id="meeting-result" class="result" hidden></div>
+
+          <div class="meetings-layout">
+            <div>
+              <ol id="meeting-list" class="meeting-list"></ol>
+              <p id="meeting-empty" class="muted">Aucune réunion pour l'instant.</p>
+            </div>
+            <article id="meeting-detail" class="meeting-detail" hidden>
+              <div class="row">
+                <input id="meeting-title" type="text" spellcheck="false" aria-label="Titre de la réunion" />
+              </div>
+              <p id="meeting-meta" class="muted small"></p>
+              <p id="meeting-notes" class="warning" hidden></p>
+              <div class="row wrap">
+                <button id="meeting-summarize" class="primary">Rédiger le compte rendu</button>
+                <button id="meeting-copy">Copier</button>
+                <button id="meeting-export">Exporter (.md)</button>
+                <button id="meeting-audio-me" hidden>Audio « Moi » (.wav)</button>
+                <button id="meeting-audio-them" hidden>Audio « Eux » (.wav)</button>
+                <button id="meeting-retranscribe" hidden>Transcrire à nouveau</button>
+                <button id="meeting-delete" class="danger">Supprimer</button>
+              </div>
+              <div id="meeting-summary-block" hidden>
+                <h2>Compte rendu</h2>
+                <p id="meeting-summary-meta" class="muted small"></p>
+                <div id="meeting-summary" class="summary"></div>
+              </div>
+              <p id="meeting-summary-error" class="warning" hidden></p>
+              <div>
+                <h2>Transcription</h2>
+                <ol id="meeting-turns" class="turns"></ol>
+                <p id="meeting-turns-empty" class="muted small" hidden></p>
+              </div>
+            </article>
+          </div>
+
+          <details class="meeting-settings">
+            <summary>Réglages des réunions</summary>
+            <form id="meeting-settings-form">
+              <fieldset>
+                <legend>Audio de la réunion</legend>
+                <label class="inline">
+                  <input type="radio" name="meeting-audio" value="memoire" />
+                  En mémoire seulement : rien sur le disque ; ce qui n'est pas encore transcrit est
+                  perdu si VoiceToText s'arrête
+                </label>
+                <label class="inline">
+                  <input type="radio" name="meeting-audio" value="temporaire" />
+                  Fichier chiffré par Windows pendant la réunion (reprise après une coupure),
+                  supprimé une fois la transcription terminée (recommandé)
+                </label>
+                <label class="inline">
+                  <input type="radio" name="meeting-audio" value="conserve" />
+                  Conservé, chiffré : export en WAV, nouvelle transcription possible
+                </label>
+              </fieldset>
+              <label class="inline">
+                <input id="meeting-system" type="checkbox" />
+                Capter le son du PC (les autres participants), en plus du micro
+              </label>
+              <label class="inline">
+                <input id="meeting-auto-summary" type="checkbox" />
+                Rédiger le compte rendu automatiquement à la fin (LLM choisi dans les réglages ;
+                prompt modifiable dans la page Prompts)
+              </label>
+              <label for="meeting-keep">Conserver les réunions</label>
+              <select id="meeting-keep"></select>
+              <div class="row">
+                <button type="submit" class="primary">Appliquer</button>
+              </div>
+              <div id="meeting-settings-result" class="result" hidden></div>
+            </form>
+          </details>
         </section>
 
         <!-- Historique -->
@@ -210,6 +304,14 @@
                 <div>
                   <label for="hk-translate">Mode traduction (activer / couper)</label>
                   <input id="hk-translate" type="text" placeholder="Alt+Shift+T (vide : désactivé)" spellcheck="false" />
+                </div>
+                <div>
+                  <label for="hk-meeting">Réunion (démarrer / arrêter)</label>
+                  <input id="hk-meeting" type="text" placeholder="Alt+Shift+M (vide : désactivé)" spellcheck="false" />
+                </div>
+                <div>
+                  <label for="hk-meeting-copy">Coller les nouvelles répliques (réunion)</label>
+                  <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N (vide : désactivé)" spellcheck="false" />
                 </div>
                 <div>
                   <label for="hk-hold">Appui minimal (ms)</label>
@@ -548,6 +650,7 @@
     <script src="common.js"></script>
     <script src="home.js"></script>
     <script src="history.js"></script>
+    <script src="meetings.js"></script>
     <script src="vocabulary.js"></script>
     <script src="prompts.js"></script>
     <script src="general.js"></script>

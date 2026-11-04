@@ -1,0 +1,491 @@
+//! Réunions : découpage de l'audio en blocs aux pauses, transcription
+//! horodatée « Moi / Eux », compte rendu Markdown, audio chiffré sur disque.
+//!
+//! Tout ce qui ne dépend pas de l'OS (capture, chiffrement, fenêtres) vit
+//! ici et se teste sans micro.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use crate::audio;
+use crate::pipeline::SAMPLE_RATE;
+
+/// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Track {
+    Moi,
+    Eux,
+}
+
+impl Track {
+    pub fn label(self) -> &'static str {
+        match self {
+            Track::Moi => "Moi",
+            Track::Eux => "Eux",
+        }
+    }
+
+    /// Nom du fichier audio de la piste.
+    pub fn file(self) -> &'static str {
+        match self {
+            Track::Moi => "micro.audio",
+            Track::Eux => "systeme.audio",
+        }
+    }
+}
+
+/// Bloc d'audio à transcrire, en 16 kHz mono.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chunk {
+    pub start_ms: u64,
+    pub samples: Vec<f32>,
+}
+
+impl Chunk {
+    pub fn end_ms(&self) -> u64 {
+        self.start_ms + samples_to_ms(self.samples.len() as u64)
+    }
+
+    /// Aucune parole probable : inutile de le transcrire (Whisper
+    /// « hallucine » sur le silence).
+    pub fn is_silent(&self) -> bool {
+        audio::is_silent(&self.samples, SAMPLE_RATE, SILENCE_RMS)
+    }
+}
+
+fn samples_to_ms(samples: u64) -> u64 {
+    samples * 1000 / u64::from(SAMPLE_RATE)
+}
+
+fn ms_to_samples(ms: u64) -> usize {
+    (ms * u64::from(SAMPLE_RATE) / 1000) as usize
+}
+
+/// Un bloc fait au moins 6 s (contexte suffisant pour bien transcrire)...
+const MIN_CHUNK_MS: u64 = 6_000;
+/// ... et au plus 15 s : au-delà, il est coupé au moment le plus calme.
+const MAX_CHUNK_MS: u64 = 15_000;
+/// Analyse par trames de 20 ms.
+const FRAME_MS: u64 = 20;
+/// Une pause de 300 ms entre deux phrases permet de couper sans couper un mot.
+const PAUSE_FRAMES: usize = 15;
+/// En dessous (RMS), une trame est considérée comme une pause.
+const PAUSE_RMS: f32 = 0.01;
+/// Même seuil que la dictée : un bloc entièrement sous ce niveau est ignoré.
+const SILENCE_RMS: f32 = 0.01;
+/// Reste plus court à la fin : ignoré.
+const MIN_TAIL_MS: u64 = 300;
+
+/// Découpe un flux continu en blocs de 6 à 15 s, aux pauses.
+#[derive(Debug, Default)]
+pub struct Chunker {
+    buffer: Vec<f32>,
+    /// Position (en échantillons) du début de `buffer` depuis le début.
+    start: u64,
+}
+
+impl Chunker {
+    /// Reprise après coup (transcription d'un enregistrement interrompu) :
+    /// le premier bloc commence à `start_ms`.
+    pub fn starting_at(start_ms: u64) -> Self {
+        Self {
+            buffer: Vec::new(),
+            start: ms_to_samples(start_ms) as u64,
+        }
+    }
+
+    /// Ajoute des échantillons ; renvoie les blocs complets.
+    pub fn feed(&mut self, samples: &[f32]) -> Vec<Chunk> {
+        self.buffer.extend_from_slice(samples);
+        let mut chunks = Vec::new();
+        while let Some(cut) = self.cut_point() {
+            chunks.push(self.split(cut));
+        }
+        chunks
+    }
+
+    /// Fin du flux : le reste, s'il n'est pas trop court.
+    pub fn finish(&mut self) -> Option<Chunk> {
+        let len = self.buffer.len();
+        if samples_to_ms(len as u64) < MIN_TAIL_MS {
+            self.start += len as u64;
+            self.buffer.clear();
+            return None;
+        }
+        Some(self.split(len))
+    }
+
+    fn split(&mut self, cut: usize) -> Chunk {
+        let rest = self.buffer.split_off(cut);
+        let samples = std::mem::replace(&mut self.buffer, rest);
+        let chunk = Chunk {
+            start_ms: samples_to_ms(self.start),
+            samples,
+        };
+        self.start += cut as u64;
+        chunk
+    }
+
+    /// Où couper le tampon, s'il contient un bloc complet.
+    fn cut_point(&self) -> Option<usize> {
+        let frame = ms_to_samples(FRAME_MS);
+        let min = ms_to_samples(MIN_CHUNK_MS);
+        let max = ms_to_samples(MAX_CHUNK_MS);
+        if self.buffer.len() < min {
+            return None;
+        }
+        // Première pause assez longue après le minimum.
+        let limit = self.buffer.len().min(max);
+        let mut quiet = 0;
+        let mut position = min;
+        while position + frame <= limit {
+            if audio::rms(&self.buffer[position..position + frame]) < PAUSE_RMS {
+                quiet += 1;
+                if quiet == PAUSE_FRAMES {
+                    // Milieu de la pause.
+                    return Some(position + frame - PAUSE_FRAMES * frame / 2);
+                }
+            } else {
+                quiet = 0;
+            }
+            position += frame;
+        }
+        if self.buffer.len() < max {
+            return None;
+        }
+        // Pas de pause : la trame la plus calme des 3 dernières secondes.
+        let from = max - ms_to_samples(3_000);
+        let quietest = (from..max - frame)
+            .step_by(frame)
+            .min_by(|&a, &b| {
+                audio::rms(&self.buffer[a..a + frame])
+                    .total_cmp(&audio::rms(&self.buffer[b..b + frame]))
+            })
+            .unwrap_or(max);
+        Some(quietest + frame / 2)
+    }
+}
+
+/// Phrase transcrite, horodatée depuis le début de la réunion.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Segment {
+    pub track: Track,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+    /// Déjà copiée par « Copier les nouvelles répliques ».
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub copied: bool,
+}
+
+/// Les blocs des deux pistes arrivent dans le désordre : ordre chronologique.
+pub fn sort_segments(segments: &mut [Segment]) {
+    segments.sort_by_key(|s| (s.start_ms, s.track == Track::Eux));
+}
+
+/// `12:34`, ou `1:02:03` au-delà d'une heure.
+pub fn timestamp(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
+}
+
+/// Au-delà de ce silence, une même personne commence une nouvelle réplique.
+const TURN_GAP_MS: u64 = 10_000;
+
+/// Répliques : segments consécutifs et rapprochés d'une même piste réunis.
+pub fn turns(segments: &[Segment]) -> Vec<(Track, u64, String)> {
+    let mut turns: Vec<(Track, u64, String)> = Vec::new();
+    let mut last_end = 0;
+    for segment in segments {
+        match turns.last_mut() {
+            Some((track, _, text))
+                if *track == segment.track && segment.start_ms <= last_end + TURN_GAP_MS =>
+            {
+                text.push(' ');
+                text.push_str(&segment.text);
+            }
+            _ => turns.push((segment.track, segment.start_ms, segment.text.clone())),
+        }
+        last_end = segment.end_ms;
+    }
+    turns
+}
+
+/// Transcription lisible, une réplique par ligne : `[12:34] Moi : …`.
+pub fn transcript_text(segments: &[Segment]) -> String {
+    turns(segments)
+        .into_iter()
+        .map(|(track, start, text)| format!("[{}] {} : {text}", timestamp(start), track.label()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Fichier Markdown d'une réunion : en-tête, compte rendu, transcription.
+pub fn to_markdown(
+    title: &str,
+    date: &str,
+    duration_ms: u64,
+    summary: Option<&str>,
+    segments: &[Segment],
+) -> String {
+    let mut md = format!("# {title}\n\n{date} · durée {}\n\n", timestamp(duration_ms));
+    if let Some(summary) = summary.map(str::trim).filter(|s| !s.is_empty()) {
+        md.push_str("## Compte rendu\n\n");
+        md.push_str(summary);
+        md.push_str("\n\n");
+    }
+    md.push_str("## Transcription\n\n");
+    for (track, start, text) in turns(segments) {
+        md.push_str(&format!(
+            "**{}** [{}] : {text}\n\n",
+            track.label(),
+            timestamp(start)
+        ));
+    }
+    md
+}
+
+/// Chiffrement d'un bloc d'audio (Windows : DPAPI, lié à la session).
+pub type Protect = fn(&[u8]) -> Result<Vec<u8>, String>;
+
+/// Audio d'une piste sur disque : suite de blocs chiffrés séparément
+/// (`longueur u32 LE` + bloc), pour écrire au fil de l'eau et ne perdre que
+/// le dernier bloc en cas de coupure. Chaque bloc : PCM 16 bits, 16 kHz mono.
+pub fn append_audio(path: &Path, samples: &[f32], protect: Protect) -> Result<(), String> {
+    if samples.is_empty() {
+        return Ok(());
+    }
+    let pcm: Vec<u8> = samples
+        .iter()
+        .flat_map(|s| ((s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16).to_le_bytes())
+        .collect();
+    let block = protect(&pcm)?;
+    let len = u32::try_from(block.len()).map_err(|_| "bloc audio trop grand".to_owned())?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    file.write_all(&len.to_le_bytes())
+        .and_then(|()| file.write_all(&block))
+        .map_err(|e| format!("écriture de {} : {e}", path.display()))
+}
+
+/// Relit l'audio d'une piste ; un dernier bloc tronqué (coupure pendant
+/// l'écriture) est ignoré.
+pub fn read_audio(path: &Path, unprotect: Protect) -> Result<Vec<f32>, String> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut samples = Vec::new();
+    loop {
+        let mut len = [0u8; 4];
+        if file.read_exact(&mut len).is_err() {
+            break;
+        }
+        let mut block = vec![0u8; u32::from_le_bytes(len) as usize];
+        if file.read_exact(&mut block).is_err() {
+            log::warn!("{} : dernier bloc incomplet ignoré", path.display());
+            break;
+        }
+        let pcm = unprotect(&block)?;
+        samples.extend(
+            pcm.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| f32::from(i16::from_le_bytes(*b)) / f32::from(i16::MAX)),
+        );
+    }
+    Ok(samples)
+}
+
+/// Fichier WAV (16 bits, 16 kHz mono) pour exporter l'audio d'une piste.
+pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut wav = Vec::with_capacity(44 + data_len as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    wav.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        wav.extend_from_slice(&((s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16).to_le_bytes());
+    }
+    wav
+}
+
+/// Supprime les fichiers audio d'une réunion.
+pub fn delete_audio(dir: &Path) {
+    for track in [Track::Moi, Track::Eux] {
+        let path = dir.join(track.file());
+        if let Err(e) = fs::remove_file(&path)
+            && e.kind() != io::ErrorKind::NotFound
+        {
+            log::warn!("suppression de {} : {e}", path.display());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: usize = SAMPLE_RATE as usize;
+
+    /// `seconds` de « parole » (bruit d'amplitude 0,3).
+    fn speech(seconds: f32) -> Vec<f32> {
+        (0..(seconds * RATE as f32) as usize)
+            .map(|i| if i % 2 == 0 { 0.3 } else { -0.3 })
+            .collect()
+    }
+
+    fn silence(seconds: f32) -> Vec<f32> {
+        vec![0.0; (seconds * RATE as f32) as usize]
+    }
+
+    #[test]
+    fn chunks_are_cut_at_the_first_pause_after_six_seconds() {
+        let mut chunker = Chunker::default();
+        let mut audio = speech(4.0);
+        audio.extend(silence(0.5)); // trop tôt : pas de coupure
+        audio.extend(speech(3.0));
+        audio.extend(silence(0.5)); // première pause après 6 s
+        audio.extend(speech(2.0));
+        let chunks = chunker.feed(&audio);
+        assert_eq!(chunks.len(), 1);
+        let end = chunks[0].end_ms();
+        assert!(
+            (7_500..=8_000).contains(&end),
+            "coupé dans la pause : {end} ms"
+        );
+        let tail = chunker.finish().unwrap();
+        assert_eq!(tail.start_ms, end, "aucun trou entre deux blocs");
+        assert!(!tail.is_silent());
+    }
+
+    #[test]
+    fn long_speech_without_pause_is_cut_at_fifteen_seconds() {
+        let mut chunker = Chunker::default();
+        let chunks = chunker.feed(&speech(40.0));
+        assert_eq!(chunks.len(), 3);
+        for chunk in &chunks {
+            let ms = chunk.end_ms() - chunk.start_ms;
+            assert!((12_000..=15_000).contains(&ms), "{ms} ms");
+        }
+        assert_eq!(chunks[1].start_ms, chunks[0].end_ms());
+        assert_eq!(chunks[2].start_ms, chunks[1].end_ms());
+    }
+
+    #[test]
+    fn fed_in_small_pieces_gives_the_same_chunks() {
+        let mut audio = speech(7.0);
+        audio.extend(silence(1.0));
+        audio.extend(speech(7.0));
+        let whole = Chunker::default().feed(&audio);
+        let mut chunker = Chunker::default();
+        let pieces: Vec<Chunk> = audio
+            .chunks(RATE / 10)
+            .flat_map(|p| chunker.feed(p))
+            .collect();
+        assert_eq!(pieces, whole);
+    }
+
+    #[test]
+    fn silence_and_short_tails_are_skipped() {
+        let mut chunker = Chunker::default();
+        let chunks = chunker.feed(&silence(10.0));
+        assert!(chunks.iter().all(Chunk::is_silent));
+        let mut chunker = Chunker::starting_at(60_000);
+        chunker.feed(&speech(0.2));
+        assert_eq!(chunker.finish(), None);
+        chunker.feed(&speech(1.0));
+        assert_eq!(chunker.finish().unwrap().start_ms, 60_200);
+    }
+
+    fn segment(track: Track, start_ms: u64, text: &str) -> Segment {
+        Segment {
+            track,
+            start_ms,
+            end_ms: start_ms + 1000,
+            text: text.into(),
+            copied: false,
+        }
+    }
+
+    #[test]
+    fn transcript_merges_turns_in_time_order() {
+        let mut segments = vec![
+            segment(Track::Eux, 9_000, "Très bien."),
+            segment(Track::Moi, 0, "Bonjour à tous."),
+            segment(Track::Moi, 4_000, "On commence ?"),
+            segment(Track::Eux, 3_661_000, "Au revoir."),
+        ];
+        sort_segments(&mut segments);
+        assert_eq!(
+            transcript_text(&segments),
+            "[00:00] Moi : Bonjour à tous. On commence ?\n[00:09] Eux : Très bien.\n\
+             [1:01:01] Eux : Au revoir."
+        );
+        let md = to_markdown(
+            "Point hebdo",
+            "4 nov. 2026",
+            3_662_000,
+            Some("Rien."),
+            &segments,
+        );
+        assert!(md.starts_with("# Point hebdo\n\n4 nov. 2026 · durée 1:01:02"));
+        assert!(md.contains("## Compte rendu\n\nRien."));
+        assert!(md.contains("**Eux** [00:09] : Très bien."));
+    }
+
+    #[test]
+    fn audio_round_trips_through_protected_blocks() {
+        fn xor(data: &[u8]) -> Result<Vec<u8>, String> {
+            Ok(data.iter().map(|b| b ^ 0x5a).collect())
+        }
+        let dir = std::env::temp_dir().join(format!("vtt-meeting-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(Track::Moi.file());
+        let _ = fs::remove_file(&path);
+        append_audio(&path, &[0.5, -0.5], xor).unwrap();
+        append_audio(&path, &[0.25], xor).unwrap();
+        // Coupure pendant l'écriture : bloc tronqué à la fin.
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(&[200, 0, 0, 0, 1, 2]).unwrap();
+        let samples = read_audio(&path, xor).unwrap();
+        assert_eq!(samples.len(), 3);
+        assert!((samples[0] - 0.5).abs() < 1e-3 && (samples[2] - 0.25).abs() < 1e-3);
+        assert!(
+            !fs::read(&path)
+                .unwrap()
+                .windows(2)
+                .any(|w| w == 16383i16.to_le_bytes())
+        );
+        assert_eq!(
+            read_audio(&dir.join("absent"), xor).unwrap(),
+            Vec::<f32>::new()
+        );
+        assert_eq!(&wav_bytes(&samples)[..4], b"RIFF");
+        delete_audio(&dir);
+        assert!(!path.exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}

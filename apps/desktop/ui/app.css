@@ -628,6 +628,146 @@ ol.entries li {
   display: none;
 }
 
+/* Réunions */
+.page-header .spacer {
+  flex: 1;
+}
+
+.banner.live {
+  border-color: var(--danger);
+}
+
+.banner.live strong {
+  color: var(--danger);
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.meetings-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.meeting-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meeting-list button {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.meeting-list button[aria-current="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.meeting-list .name {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.meeting-list .when {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meeting-detail {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.meeting-detail h2 {
+  margin-top: 18px;
+}
+
+.summary {
+  overflow-wrap: anywhere;
+}
+
+.summary h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+
+.summary p,
+.summary ul {
+  margin: 4px 0;
+}
+
+.summary ul {
+  padding-left: 20px;
+}
+
+.turns {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turns li {
+  display: grid;
+  grid-template-columns: 4.5em 3em 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.turns li:first-child {
+  border-top: none;
+}
+
+.turns .time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.turns .who {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.turns li[data-track="eux"] .who {
+  color: var(--accent);
+}
+
+.turns .text {
+  overflow-wrap: anywhere;
+}
+
+.meeting-settings {
+  margin-top: 16px;
+}
+
+.meeting-settings fieldset {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+@media (max-width: 760px) {
+  .meetings-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Diagnostic du test LLM */
 .diagnostic {
   margin-top: 12px;

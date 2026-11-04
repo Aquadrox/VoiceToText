@@ -19,6 +19,7 @@ const CHART_DAYS: i64 = 30;
 pub enum Page {
     Home,
     History,
+    Meetings,
     Settings,
 }
 
@@ -27,6 +28,7 @@ impl Page {
         match self {
             Page::Home => "accueil",
             Page::History => "historique",
+            Page::Meetings => "reunions",
             Page::Settings => "reglages",
         }
     }

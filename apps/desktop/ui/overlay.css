@@ -85,6 +85,31 @@ body {
   background: var(--processing);
 }
 
+/* Réunion enregistrée (pastille au repos). */
+.pill[data-state="meeting"] {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+.pill[data-state="meeting"] .dot {
+  width: 8px;
+  height: 8px;
+  background: var(--error);
+  animation: meeting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes meeting-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill[data-state="meeting"] .dot {
+    animation: none;
+  }
+}
+
 /* Mode traduction : langue d'arrivée. */
 .lang {
   flex: none;

@@ -1,4 +1,5 @@
-//! Page Prompts : prompts système personnalisés (nettoyage et Command Mode),
+//! Page Prompts : prompts système personnalisés (nettoyage, Command Mode,
+//! compte rendu de réunion),
 //! choix du prompt actif, test. Appliqués à chaud.
 
 use std::time::Instant;
@@ -8,7 +9,9 @@ use tauri::State;
 use vtt_core::config::{self, PromptKind, PromptPreset};
 use vtt_core::usage::Usage;
 use vtt_core::{Directives, PostProcessor};
-use vtt_llm::{DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, LlmCleaner, Prompts};
+use vtt_llm::{
+    DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
+};
 
 use crate::controller::ControllerState;
 use crate::costs::{self, LedgerStore};
@@ -19,11 +22,18 @@ const SAMPLE_DICTATION: &str =
     "euh bonjour, euh je voulais te dire que la réunion c'est mardi, non pardon mercredi à 14h";
 const SAMPLE_INSTRUCTION: &str = "rends ce texte plus formel";
 const SAMPLE_SELECTION: &str = "salut, la réu c'est demain 14h, ramène le dossier stp";
+const SAMPLE_MEETING_TITLE: &str = "Point projet";
+const SAMPLE_MEETING: &str = "\
+[00:00] Moi : Bonjour à tous, on fait le point sur le site. Le lancement est toujours prévu le 15 ?
+[00:06] Eux : Oui, mais il manque encore les traductions. Julie s'en occupe d'ici vendredi.
+[00:14] Moi : Très bien. Et le budget de la campagne, on le valide ?
+[00:18] Eux : Validé à 5 000 euros. Par contre, on ne sait pas encore qui gère les réseaux sociaux.";
 
 #[derive(Serialize)]
 pub struct Defaults {
     cleanup: &'static str,
     command: &'static str,
+    summary: &'static str,
 }
 
 #[derive(Serialize)]
@@ -33,6 +43,7 @@ pub struct PromptsView {
     /// Noms des prompts actifs (vide : intégré).
     cleanup_active: String,
     command_active: String,
+    summary_active: String,
 }
 
 #[tauri::command]
@@ -43,9 +54,11 @@ pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
         defaults: Defaults {
             cleanup: DEFAULT_CLEANUP_PROMPT,
             command: DEFAULT_COMMAND_PROMPT,
+            summary: DEFAULT_SUMMARY_PROMPT,
         },
         cleanup_active: config.llm.cleanup_prompt.clone(),
         command_active: config.llm.command_prompt.clone(),
+        summary_active: config.meetings.summary_prompt.clone(),
     }
 }
 
@@ -58,6 +71,7 @@ pub fn save_prompts(
     prompts: Vec<PromptPreset>,
     cleanup_active: String,
     command_active: String,
+    summary_active: String,
 ) -> Result<(), String> {
     let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
@@ -68,7 +82,9 @@ pub fn save_prompts(
     updated.prompts = config::clean_prompts(&prompts)?;
     updated.llm.cleanup_prompt = cleanup_active.trim().to_owned();
     updated.llm.command_prompt = command_active.trim().to_owned();
+    updated.meetings.summary_prompt = summary_active.trim().to_owned();
     updated.check_prompt_refs(&updated.llm)?;
+    updated.check_summary_ref()?;
     paths.write_config(&updated)?;
     controller.apply(&updated);
     log::info!("{} prompt(s) enregistré(s)", updated.prompts.len());
@@ -107,11 +123,15 @@ pub fn test_prompt(
     let prompts = match kind {
         PromptKind::Nettoyage => Prompts {
             cleanup: Some(text),
-            command: None,
+            ..Prompts::default()
         },
         PromptKind::Commande => Prompts {
-            cleanup: None,
             command: Some(text),
+            ..Prompts::default()
+        },
+        PromptKind::CompteRendu => Prompts {
+            summary: Some(text),
+            ..Prompts::default()
         },
     };
     let cleaner = LlmCleaner::new(
@@ -129,6 +149,10 @@ pub fn test_prompt(
         PromptKind::Commande => (
             format!("Consigne : {SAMPLE_INSTRUCTION}\nSélection : {SAMPLE_SELECTION}"),
             cleaner.command(SAMPLE_INSTRUCTION, Some(SAMPLE_SELECTION)),
+        ),
+        PromptKind::CompteRendu => (
+            format!("Réunion : {SAMPLE_MEETING_TITLE}\n{SAMPLE_MEETING}"),
+            cleaner.summarize(SAMPLE_MEETING_TITLE, SAMPLE_MEETING),
         ),
     };
     let duration_ms = started.elapsed().as_millis();

@@ -21,6 +21,7 @@ pub struct Config {
     pub updates: UpdatesConfig,
     pub dictation: DictationConfig,
     pub translation: TranslationConfig,
+    pub meetings: MeetingsConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     /// Suggestions pour le dictionnaire écartées par l'utilisateur.
@@ -52,6 +53,12 @@ pub struct HotkeyConfig {
     /// Raccourci qui active ou coupe le mode traduction, ex. "Alt+Shift+T".
     /// Vide : désactivé.
     pub translate: String,
+    /// Raccourci qui démarre ou arrête l'enregistrement d'une réunion, ex.
+    /// "Alt+Shift+M". Vide : désactivé.
+    pub meeting: String,
+    /// Raccourci qui colle les répliques de la réunion en cours dites depuis
+    /// la dernière copie, ex. "Alt+Shift+N". Vide : désactivé.
+    pub meeting_copy: String,
 }
 
 impl Default for HotkeyConfig {
@@ -64,6 +71,8 @@ impl Default for HotkeyConfig {
             retry: "Alt+Shift+R".into(),
             command_key: "RightCtrl".into(),
             translate: "Alt+Shift+T".into(),
+            meeting: "Alt+Shift+M".into(),
+            meeting_copy: "Alt+Shift+N".into(),
         }
     }
 }
@@ -128,6 +137,8 @@ impl HotkeyConfig {
             ("coller la version brute", self.paste_raw.trim()),
             ("réessayer", self.retry.trim()),
             ("mode traduction", self.translate.trim()),
+            ("réunion", self.meeting.trim()),
+            ("copier les nouvelles répliques", self.meeting_copy.trim()),
         ];
         for (i, (name, shortcut)) in shortcuts.iter().enumerate() {
             if let Some((other, _)) = shortcuts[i + 1..]
@@ -170,6 +181,50 @@ impl Default for DictationConfig {
         }
     }
 }
+
+/// Où va l'audio d'une réunion pendant et après l'enregistrement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MeetingAudio {
+    /// En mémoire seulement : rien sur le disque ; ce qui n'est pas encore
+    /// transcrit est perdu si l'application s'arrête.
+    Memoire,
+    /// Fichier chiffré par Windows pendant l'enregistrement (reprise après
+    /// une coupure), supprimé une fois la transcription terminée.
+    Temporaire,
+    /// Fichier chiffré conservé : export en WAV, nouvelle transcription.
+    Conserve,
+}
+
+/// Réunions : enregistrement d'un appel, transcription, compte rendu.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MeetingsConfig {
+    pub audio: MeetingAudio,
+    /// Capte aussi le son du PC (les autres participants), en plus du micro.
+    pub system_audio: bool,
+    /// Compte rendu par le LLM dès la fin de la transcription.
+    pub auto_summary: bool,
+    /// Nom du prompt de compte rendu (voir `prompts`) ; vide : prompt intégré.
+    pub summary_prompt: String,
+    /// Réunions supprimées au-delà de ce nombre de jours ; 0 : jamais.
+    pub keep_days: u32,
+}
+
+impl Default for MeetingsConfig {
+    fn default() -> Self {
+        Self {
+            audio: MeetingAudio::Temporaire,
+            system_audio: true,
+            auto_summary: true,
+            summary_prompt: String::new(),
+            keep_days: 0,
+        }
+    }
+}
+
+/// Durées de conservation proposées (jours ; 0 : toujours).
+pub const MEETING_KEEP_DAYS: &[u32] = &[0, 7, 30, 90, 365];
 
 /// Langues proposées pour le mode traduction (une autre peut être saisie
 /// dans config.toml).
@@ -284,6 +339,9 @@ pub enum PromptKind {
     Nettoyage,
     /// Command Mode.
     Commande,
+    /// Compte rendu de réunion.
+    #[serde(rename = "compte_rendu")]
+    CompteRendu,
 }
 
 /// Prompt système enregistré sous un nom.
@@ -371,6 +429,15 @@ impl Config {
                 && (p.llm.normalized_base_url() != llm.normalized_base_url()
                     || p.llm.model.trim() != llm.model.trim())
         })
+    }
+
+    /// Le prompt de compte rendu choisi existe bien.
+    pub fn check_summary_ref(&self) -> Result<(), String> {
+        let name = &self.meetings.summary_prompt;
+        if !name.trim().is_empty() && self.prompt_text(PromptKind::CompteRendu, name).is_none() {
+            return Err(format!("prompt de compte rendu introuvable : « {name} »"));
+        }
+        Ok(())
     }
 
     /// Le profil de secours choisi dans `llm` existe et sert à quelque chose.
@@ -882,6 +949,7 @@ impl Config {
                 .map_err(|e| format!("profil « {} » : {e}", profile.name))?;
         }
         self.check_fallback_ref(&self.llm)?;
+        self.check_summary_ref()?;
         Ok(self)
     }
 }

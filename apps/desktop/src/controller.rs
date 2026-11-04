@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +21,7 @@ use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
 use crate::costs::{self, LedgerStore};
 use crate::feedback::{self, Sound};
 use crate::history::{self, HistoryStore};
+use crate::meetings::MeetingQueue;
 use crate::model;
 use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
@@ -44,12 +45,14 @@ const LEVEL_REFRESH: Duration = Duration::from_millis(50);
 /// jour après le passage dans le hook.
 const KEY_STATE_GRACE_MS: u64 = 300;
 
-/// Ce qui est enregistré après chaque dictée.
+/// Ce qui est enregistré après chaque dictée, et la file des blocs de
+/// réunion à transcrire entre deux dictées.
 #[derive(Clone)]
 pub struct Recorders {
     pub history: HistoryStore,
     pub ledger: LedgerStore,
     pub last_raw: LastRaw,
+    pub meeting_jobs: MeetingQueue,
 }
 
 /// Travail confié au thread de traitement.
@@ -64,10 +67,14 @@ pub enum Work {
     Preload,
     /// Le modèle choisi dans les réglages vient d'être téléchargé.
     ModelReady,
+    /// Des blocs de réunion attendent dans `Recorders::meeting_jobs`.
+    MeetingWake,
 }
 
 /// Fréquence de vérification de la libération du modèle.
 const UNLOAD_CHECK: Duration = Duration::from_secs(15);
+/// Blocs de réunion en attente pendant une dictée : revérifié souvent.
+const MEETING_CHECK: Duration = Duration::from_millis(200);
 /// En plein écran, le modèle reste chargé une minute après une dictée, pour
 /// ne pas le recharger à chaque message dicté dans un jeu.
 const FULLSCREEN_GRACE: Duration = Duration::from_secs(60);
@@ -559,7 +566,10 @@ impl Controls<'_> {
         if self.sounds {
             feedback::play(Sound::Start);
         }
-        if let Some(media) = &self.media {
+        // Pendant une réunion, la pause couperait l'appel (Meet, Teams web…).
+        if let Some(media) = &self.media
+            && !crate::meetings::recording()
+        {
             media.pause();
         }
     }
@@ -705,8 +715,30 @@ impl Worker {
         let mut last: Option<Job> = None;
         let mut last_activity = Instant::now();
         loop {
-            let work = match rx.recv_timeout(UNLOAD_CHECK) {
+            // Les dictées passent avant les blocs de réunion : un bloc n'est
+            // transcrit que si aucune dictée n'attend ni n'est en cours.
+            let waiting = match rx.try_recv() {
+                Ok(work) => Some(work),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => break,
+            };
+            if waiting.is_none() && !self.recording.load(Ordering::SeqCst) {
+                let job = lock(&self.recorders.meeting_jobs).pop_front();
+                if let Some(job) = job {
+                    last_activity = Instant::now();
+                    job.run(&self.pipeline);
+                    continue;
+                }
+            }
+            let pending_meeting = !lock(&self.recorders.meeting_jobs).is_empty();
+            let timeout = if pending_meeting {
+                MEETING_CHECK
+            } else {
+                UNLOAD_CHECK
+            };
+            let work = match waiting.map_or_else(|| rx.recv_timeout(timeout), Ok) {
                 Ok(work) => work,
+                Err(RecvTimeoutError::Timeout) if pending_meeting => continue,
                 Err(RecvTimeoutError::Timeout) => {
                     if !self.recording.load(Ordering::SeqCst)
                         && let Some(reason) = self.unload.reason(
@@ -755,6 +787,7 @@ impl Worker {
                         .sync(&mut self.pipeline, &self.reporter, &self.recording);
                     continue;
                 }
+                Work::MeetingWake => continue,
             };
             // Réessayée par le raccourci : collée là où se trouve le
             // curseur maintenant (le style suit cette fenêtre).

@@ -98,3 +98,11 @@ pub fn delete_secret(_name: &str) -> Result<(), String> {
 pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
     path.to_owned()
 }
+
+pub fn protect(_data: &[u8]) -> Result<Vec<u8>, String> {
+    Err(format!("chiffrement {MESSAGE}"))
+}
+
+pub fn unprotect(_data: &[u8]) -> Result<Vec<u8>, String> {
+    Err(format!("chiffrement {MESSAGE}"))
+}

@@ -17,15 +17,16 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 6. [Coller la version brute](#coller-la-version-brute)
 7. [Réessayer une dictée](#réessayer-une-dictée)
 8. [Mode traduction](#mode-traduction)
-9. [La fenêtre principale](#la-fenêtre-principale)
-10. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-11. [Mises à jour](#mises-à-jour)
-12. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-13. [Fichiers et emplacements](#fichiers-et-emplacements)
-14. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-15. [Dépannage](#dépannage)
-16. [Développement](#développement)
-17. [Licence](#licence)
+9. [Réunions](#réunions)
+10. [La fenêtre principale](#la-fenêtre-principale)
+11. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+12. [Mises à jour](#mises-à-jour)
+13. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+14. [Fichiers et emplacements](#fichiers-et-emplacements)
+15. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+16. [Dépannage](#dépannage)
+17. [Développement](#développement)
+18. [Licence](#licence)
 
 ## Installation
 
@@ -137,6 +138,27 @@ Dicter en français, insérer dans une autre langue :
 - Le mode s'applique aux dictées commencées pendant qu'il est actif, même dans les applications dont le style demande le texte brut. Les snippets et le Command Mode ne sont pas traduits.
 - Nécessite le LLM ; sans lui, le texte est collé en français et l'historique l'indique (*non nettoyé*).
 - L'historique marque ces dictées *traduit : anglais* ; **Alt+Maj+V** colle toujours la transcription française d'origine.
+
+## Réunions
+
+Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcription et un compte rendu, sans rien envoyer en ligne pour la transcription.
+
+1. **Alt+Maj+M**, menu de l'icône → **Démarrer une réunion**, ou page **Réunions**. La pastille rappelle de **prévenir les participants** (obligatoire en France), puis affiche « Réunion 12:34 » tant que l'enregistrement dure.
+2. Deux pistes : votre micro (**Moi**) et le son du PC (**Eux** : toutes les sorties audio, casque compris). Elles sont transcrites au fil de l'eau avec le moteur choisi (Whisper, Parakeet, Vosk), par blocs de 6 à 15 s coupés aux pauses, entre deux dictées : vous pouvez continuer à dicter pendant la réunion.
+3. **Alt+Maj+N** colle dans l'application active ce qui a été dit depuis la dernière copie (« Moi : … / Eux : … »).
+4. **Alt+Maj+M** à nouveau pour arrêter : les derniers blocs sont transcrits, puis le **compte rendu** est rédigé par le LLM choisi (résumé, décisions, actions « qui : quoi », questions ouvertes). Prompt modifiable dans la page **Prompts** (« Compte rendu de réunion »), coût compté dans la consommation.
+
+Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendant l'enregistrement), compte rendu, renommer, **Copier** (Markdown), **Exporter (.md)**, **Supprimer**.
+
+**Audio de la réunion**, au choix (page Réunions → Réglages des réunions) :
+
+| Réglage | Sur le disque | Si VoiceToText s'arrête pendant la réunion |
+|---|---|---|
+| En mémoire seulement | Rien | La fin non transcrite est perdue |
+| Fichier temporaire chiffré (**par défaut**) | Chiffré par Windows (DPAPI, lisible seulement par votre session), supprimé une fois la transcription terminée | Transcription reprise au redémarrage |
+| Conservé, chiffré | Gardé ; export en WAV et **Transcrire à nouveau** (après un changement de modèle) | Transcription reprise au redémarrage |
+
+Autres réglages : capter ou non le son du PC, compte rendu automatique ou à la demande, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
 
 ## La fenêtre principale
 
@@ -282,6 +304,8 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Texte sélectionné (Command Mode) | Envoyé au fournisseur LLM avec la consigne |
 | Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`), jamais en clair sur le disque |
 | Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
+| Réunions | Transcription et compte rendu dans `meetings\` sur le PC (en clair, comme l'historique) ; audio en mémoire, ou chiffré par Windows (DPAPI) et supprimé ou conservé selon le réglage ; jamais d'audio en clair sur le disque (sauf export WAV demandé) |
+| Compte rendu de réunion | La transcription est envoyée au fournisseur LLM choisi |
 | Statistiques et coût | `usage.json` et `usage-apps.json` : compteurs uniquement (par application : le nom du programme), **aucun texte** |
 | Export des réglages | Fichier `.toml` où vous le choisissez ; **jamais de clé API** |
 | Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
@@ -295,6 +319,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Configuration | `%APPDATA%\VoiceToText\config.toml` |
 | Modèles de transcription (et bibliothèques de Parakeet, Vosk) | `%LOCALAPPDATA%\VoiceToText\models\` |
 | Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
+| Réunions (une par dossier) | `%LOCALAPPDATA%\VoiceToText\meetings\` |
 | Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json`, `usage-apps.json` |
 | Réglages remplacés par un import | `%APPDATA%\VoiceToText\config.avant-import.toml` |
 | Journal | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé au-delà de 3 Mo, les 100 dernières lignes sont gardées) |
@@ -320,9 +345,18 @@ paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactiv�
 retry = "Alt+Shift+R"       # réessayer la dernière dictée ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
 translate = "Alt+Shift+T"   # active ou coupe le mode traduction ("" = désactivé)
+meeting = "Alt+Shift+M"     # démarre ou arrête une réunion ("" = désactivé)
+meeting_copy = "Alt+Shift+N"  # colle les nouvelles répliques de la réunion
 
 [translation]
 language = "anglais"   # langue d'arrivée du mode traduction
+
+[meetings]
+audio = "temporaire"   # "memoire", "temporaire" (chiffré, supprimé à la fin) ou "conserve"
+system_audio = true    # capter le son du PC (les autres participants)
+auto_summary = true    # compte rendu par le LLM à la fin
+summary_prompt = ""    # prompt « compte_rendu » (page Prompts) ; "" = intégré
+keep_days = 0          # réunions supprimées au-delà ; 0 = jamais
 
 [dictation]
 sounds = true          # sons de début et de fin

@@ -95,7 +95,13 @@ pub fn apply(app: &AppHandle, paths: &Paths, config: &Config) -> Vec<String> {
 pub fn validate_shortcuts(hotkey: &HotkeyConfig) -> Result<(), String> {
     retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
     retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
-    retry::validate_shortcut(&hotkey.translate, "mode traduction", "Alt+Shift+T")
+    retry::validate_shortcut(&hotkey.translate, "mode traduction", "Alt+Shift+T")?;
+    retry::validate_shortcut(&hotkey.meeting, "réunion", "Alt+Shift+M")?;
+    retry::validate_shortcut(
+        &hotkey.meeting_copy,
+        "copier les nouvelles répliques",
+        "Alt+Shift+N",
+    )
 }
 
 /// Modèle Whisper proposé dans les réglages (téléchargé au besoin).

@@ -6,6 +6,7 @@ const LABELS = { listening: "Écoute…", processing: "Transcription…" };
 const SHORT = { handsfree: "Mains libres · Échap annule", command: "Commande…" };
 const ERROR_VISIBLE_MS = 5000;
 const INFO_VISIBLE_MS = 1500;
+const CONSENT_VISIBLE_MS = 5000;
 let errorTimer;
 
 // Mode traduction : langue d'arrivée affichée pendant la dictée.
@@ -20,6 +21,8 @@ const LANGUAGE_CODES = {
 };
 let translation = null;
 let lastStatus = { state: "idle" };
+/** Début de la réunion enregistrée (horloge locale), sinon `null`. */
+let meetingStartedAt = null;
 
 function showLanguage() {
   const recording = ["listening", "handsfree"].includes(pill.dataset.state);
@@ -27,15 +30,44 @@ function showLanguage() {
   lang.textContent = translation ? `→ ${LANGUAGE_CODES[translation] ?? translation}` : "";
 }
 
+/** Au repos : rien, ou la réunion en cours d'enregistrement et sa durée. */
+function showIdle() {
+  if (meetingStartedAt == null) {
+    pill.dataset.state = "idle";
+    return;
+  }
+  const seconds = Math.floor((Date.now() - meetingStartedAt) / 1000);
+  const h = Math.floor(seconds / 3600);
+  const m = String(Math.floor(seconds / 60) % 60).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  pill.dataset.state = "meeting";
+  label.textContent = `Réunion ${h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`}`;
+}
+setInterval(() => pill.dataset.state === "meeting" && showIdle(), 1000);
+
 function render(status) {
   clearTimeout(errorTimer);
   lastStatus = status;
+  if (status.state === "idle") {
+    showIdle();
+    showLanguage();
+    return;
+  }
   pill.dataset.state = status.state;
   label.textContent = SHORT[status.state] ?? status.message ?? LABELS[status.state] ?? "";
   if (status.state === "error") {
-    errorTimer = setTimeout(() => (pill.dataset.state = "idle"), ERROR_VISIBLE_MS);
+    errorTimer = setTimeout(showIdle, ERROR_VISIBLE_MS);
   }
   showLanguage();
+}
+
+/** Message bref quand la pastille est au repos (ou affiche la réunion). */
+function flash(text, state, duration) {
+  if (!["idle", "meeting"].includes(pill.dataset.state)) return;
+  clearTimeout(errorTimer);
+  pill.dataset.state = state;
+  label.textContent = text;
+  errorTimer = setTimeout(showIdle, duration);
 }
 
 window.__TAURI__.event.listen("status", (event) => render(event.payload));
@@ -45,10 +77,24 @@ window.__TAURI__.event.listen("translation", (event) => {
   translation = event.payload;
   showLanguage();
   if (lastStatus.state !== "idle") return;
-  clearTimeout(errorTimer);
-  pill.dataset.state = "info";
-  label.textContent = translation ? `Traduction → ${translation}` : "Traduction coupée";
-  errorTimer = setTimeout(() => (pill.dataset.state = "idle"), INFO_VISIBLE_MS);
+  flash(translation ? `Traduction → ${translation}` : "Traduction coupée", "info", INFO_VISIBLE_MS);
+});
+
+// Réunion démarrée ou arrêtée.
+function setMeeting(state) {
+  meetingStartedAt = state.recording ? Date.now() - state.elapsed_ms : null;
+  if (lastStatus.state !== "idle") return;
+  if (state.consent) {
+    showIdle();
+    flash("Réunion : prévenez les participants", "info", CONSENT_VISIBLE_MS);
+  } else {
+    clearTimeout(errorTimer);
+    showIdle();
+  }
+}
+window.__TAURI__.event.listen("meeting", (event) => setMeeting(event.payload));
+window.__TAURI__.event.listen("meeting-error", (event) => {
+  if (lastStatus.state === "idle") flash(String(event.payload), "error", ERROR_VISIBLE_MS);
 });
 
 // Niveau du micro (0 à 1) pendant l'enregistrement : barres plus hautes au centre.
@@ -62,6 +108,7 @@ window.__TAURI__.event.listen("level", (event) => {
 });
 // Rattrape l'état émis avant le chargement de la page (téléchargement du modèle…).
 window.__TAURI__.core.invoke("current_status").then(render);
+window.__TAURI__.core.invoke("meeting_state").then(setMeeting);
 window.__TAURI__.core.invoke("translation_state").then((language) => {
   translation = language;
   showLanguage();

@@ -82,6 +82,7 @@ pub fn prompts_for(config: &Config, llm: &LlmConfig) -> Prompts {
     Prompts {
         cleanup: text(PromptKind::Nettoyage, &llm.cleanup_prompt),
         command: text(PromptKind::Commande, &llm.command_prompt),
+        summary: text(PromptKind::CompteRendu, &config.meetings.summary_prompt),
     }
 }
 
@@ -92,6 +93,19 @@ fn cleaner_for(config: &Config, llm: &LlmConfig) -> Box<dyn PostProcessor> {
         &prompts_for(config, llm),
         api_key_provider(llm),
     ))
+}
+
+/// Compte rendu de réunion avec le fournisseur LLM actif (`None` : nettoyage
+/// désactivé).
+pub fn summarizer(config: &Config) -> Option<LlmCleaner> {
+    config.llm.enabled.then(|| {
+        LlmCleaner::new(
+            &config.llm,
+            &config.dictionary,
+            &prompts_for(config, &config.llm),
+            api_key_provider(&config.llm),
+        )
+    })
 }
 
 /// Nettoyage construit d'après la configuration (`None` : désactivé), doublé

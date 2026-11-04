@@ -9,6 +9,7 @@ mod feedback;
 mod history;
 mod logging;
 mod main_window;
+mod meetings;
 mod model;
 mod paths;
 mod prompts;
@@ -31,6 +32,7 @@ use vtt_core::usage::Ledger;
 use crate::controller::{Controller, Recorders, WorkerHandle};
 use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
+use crate::meetings::{MeetingQueue, Meetings};
 use crate::paths::Paths;
 use crate::raw_paste::LastRaw;
 use crate::settings::SharedConfig;
@@ -87,6 +89,19 @@ fn main() {
             app_settings::set_autostart,
             export::export_settings,
             export::import_settings,
+            meetings::meetings_view,
+            meetings::meeting_detail,
+            meetings::meeting_state,
+            meetings::start_meeting,
+            meetings::stop_meeting,
+            meetings::rename_meeting,
+            meetings::summarize_meeting,
+            meetings::delete_meeting,
+            meetings::retranscribe_meeting,
+            meetings::copy_meeting,
+            meetings::export_meeting,
+            meetings::export_meeting_audio,
+            meetings::save_meeting_settings,
             updates::update_status,
             updates::check_update,
             updates::install_update,
@@ -124,10 +139,20 @@ fn main() {
                 &config.translation.language,
             );
             app.manage(Arc::clone(&translation));
+            let meeting_jobs = MeetingQueue::default();
+            let meetings = Meetings::new(
+                app.handle().clone(),
+                &paths,
+                Arc::clone(&meeting_jobs),
+                Arc::clone(&worker),
+                tray_items.meeting,
+            );
+            app.manage(Arc::clone(&meetings));
             let shortcuts = Shortcuts::new(
                 Arc::clone(&last_raw),
                 Arc::clone(&worker),
                 Arc::clone(&translation),
+                Arc::clone(&meetings),
             );
             shortcuts.apply(app.handle(), &config.hotkey);
             app.manage(shortcuts);
@@ -135,6 +160,7 @@ fn main() {
                 history,
                 ledger,
                 last_raw,
+                meeting_jobs,
             };
             let updates = Updates::new(app.handle(), tray_items.update, config.updates.check);
             app.manage(Arc::clone(&updates));
@@ -142,6 +168,8 @@ fn main() {
             let controller = Controller::new(reporter, recorders, worker, paths, translation);
             controller.start(config);
             app.manage(controller);
+            // Réunions interrompues par un arrêt : transcription reprise.
+            meetings.recover();
             Ok(())
         })
         .run(tauri::generate_context!())

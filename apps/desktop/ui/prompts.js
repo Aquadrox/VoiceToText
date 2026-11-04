@@ -14,6 +14,13 @@ const KINDS = [
     note: "La consigne arrive entre <consigne> et </consigne>, le texte sélectionné entre <selection> et </selection> ; la réponse remplace la sélection.",
     defaultKey: "command",
   },
+  {
+    kind: "compte_rendu",
+    active: "summary_active",
+    title: "Compte rendu de réunion",
+    note: "La transcription arrive entre <transcription> et </transcription>, une réplique par ligne : « [12:34] Moi : … » ou « [12:35] Eux : … » ; la réponse est le compte rendu (Markdown).",
+    defaultKey: "summary",
+  },
 ];
 let promptsState = null;
 let promptsDirty = false;
@@ -134,6 +141,7 @@ $("prompts-save").addEventListener("click", async () => {
       prompts: promptsState.prompts,
       cleanupActive: promptsState.cleanup_active,
       commandActive: promptsState.command_active,
+      summaryActive: promptsState.summary_active,
     });
     promptsDirty = false;
     status.className = "small muted";
