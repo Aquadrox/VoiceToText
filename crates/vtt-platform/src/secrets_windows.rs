@@ -1,10 +1,13 @@
 //! Secrets dans le Gestionnaire d'identifiants Windows (identifiants
 //! génériques), chiffrés par Windows pour la session de l'utilisateur.
 
-use windows::Win32::Foundation::FILETIME;
+use windows::Win32::Foundation::{FILETIME, HLOCAL, LocalFree};
 use windows::Win32::Security::Credentials::{
     CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW,
     CredEnumerateW, CredFree, CredReadW, CredWriteW,
+};
+use windows::Win32::Security::Cryptography::{
+    CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
 use windows::core::{HSTRING, PWSTR};
 
@@ -91,4 +94,63 @@ pub fn list_secrets(prefix: &str) -> Vec<String> {
     };
     unsafe { CredFree(credentials as *const _) };
     names
+}
+
+/// Copie le bloc renvoyé par DPAPI puis le libère.
+///
+/// SAFETY: `blob` vient de CryptProtectData / CryptUnprotectData réussis.
+unsafe fn take_blob(blob: CRYPT_INTEGER_BLOB) -> Vec<u8> {
+    unsafe {
+        let data = std::slice::from_raw_parts(blob.pbData, blob.cbData as usize).to_vec();
+        LocalFree(Some(HLOCAL(blob.pbData.cast())));
+        data
+    }
+}
+
+/// Chiffre `data` pour la session Windows de l'utilisateur (DPAPI) : seul
+/// ce compte, sur ce PC, peut le relire.
+pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: u32::try_from(data.len()).map_err(|_| "bloc trop grand".to_owned())?,
+        pbData: data.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB::default();
+    // SAFETY: entrée valide pendant l'appel (DPAPI ne l'écrit pas), sortie
+    // libérée par take_blob.
+    unsafe {
+        CryptProtectData(
+            &input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+        .map_err(|e| format!("chiffrement : {e}"))?;
+        Ok(take_blob(output))
+    }
+}
+
+/// Déchiffre un bloc produit par [`protect`] (même compte Windows).
+pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: u32::try_from(data.len()).map_err(|_| "bloc trop grand".to_owned())?,
+        pbData: data.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB::default();
+    // SAFETY: comme pour protect.
+    unsafe {
+        CryptUnprotectData(
+            &input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+        .map_err(|e| format!("déchiffrement : {e}"))?;
+        Ok(take_blob(output))
+    }
 }

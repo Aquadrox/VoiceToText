@@ -163,6 +163,7 @@ mod tests {
             logs_dir: dir.join("logs"),
             history_file: dir.join("history.jsonl"),
             usage_file: dir.join("usage.json"),
+            meetings_dir: dir.join("meetings"),
         };
         let mut config = Config::default();
         config.dictionary.push("Aquadrox".into());

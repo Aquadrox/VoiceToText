@@ -1,6 +1,6 @@
-//! Raccourcis globaux « Coller la version brute », « Réessayer » et « Mode
-//! traduction » : réenregistrés sans redémarrer quand ils changent dans les
-//! réglages.
+//! Raccourcis globaux « Coller la version brute », « Réessayer », « Mode
+//! traduction », « Réunion » et « Copier les nouvelles répliques » :
+//! réenregistrés sans redémarrer quand ils changent dans les réglages.
 
 use std::sync::Mutex;
 
@@ -9,6 +9,7 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use vtt_core::config::HotkeyConfig;
 
 use crate::controller::WorkerHandle;
+use crate::meetings::{self, MeetingsState};
 use crate::raw_paste::{self, LastRaw};
 use crate::retry;
 use crate::translation::{self, TranslationState};
@@ -18,34 +19,51 @@ enum Kind {
     PasteRaw,
     Retry,
     Translate,
+    Meeting,
+    MeetingCopy,
 }
 
-const KINDS: [Kind; 3] = [Kind::PasteRaw, Kind::Retry, Kind::Translate];
+const KINDS: [Kind; 5] = [
+    Kind::PasteRaw,
+    Kind::Retry,
+    Kind::Translate,
+    Kind::Meeting,
+    Kind::MeetingCopy,
+];
 
 fn wanted(hotkey: &HotkeyConfig, kind: Kind) -> &str {
     match kind {
         Kind::PasteRaw => hotkey.paste_raw.trim(),
         Kind::Retry => hotkey.retry.trim(),
         Kind::Translate => hotkey.translate.trim(),
+        Kind::Meeting => hotkey.meeting.trim(),
+        Kind::MeetingCopy => hotkey.meeting_copy.trim(),
     }
 }
 
 pub struct Shortcuts {
     /// Raccourcis actuellement enregistrés, dans l'ordre de `KINDS` (vide :
     /// aucun).
-    registered: Mutex<[String; 3]>,
+    registered: Mutex<[String; 5]>,
     last_raw: LastRaw,
     worker: WorkerHandle,
     translation: TranslationState,
+    meetings: MeetingsState,
 }
 
 impl Shortcuts {
-    pub fn new(last_raw: LastRaw, worker: WorkerHandle, translation: TranslationState) -> Self {
+    pub fn new(
+        last_raw: LastRaw,
+        worker: WorkerHandle,
+        translation: TranslationState,
+        meetings: MeetingsState,
+    ) -> Self {
         Self {
             registered: Mutex::default(),
             last_raw,
             worker,
             translation,
+            meetings,
         }
     }
 
@@ -54,6 +72,8 @@ impl Shortcuts {
             Kind::PasteRaw => raw_paste::register(app, shortcut, self.last_raw.clone()),
             Kind::Retry => retry::register(app, shortcut, self.worker.clone()),
             Kind::Translate => translation::register(app, shortcut, self.translation.clone()),
+            Kind::Meeting => meetings::register_toggle(app, shortcut, self.meetings.clone()),
+            Kind::MeetingCopy => meetings::register_paste(app, shortcut, self.meetings.clone()),
         }
     }
 

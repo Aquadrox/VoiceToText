@@ -1,7 +1,7 @@
 //! Emplacements des fichiers de l'application.
 //!
 //! Windows : configuration dans `%APPDATA%\VoiceToText`, modèles,
-//! journaux et historique dans `%LOCALAPPDATA%\VoiceToText` (non synchronisé
+//! journaux, historique et réunions dans `%LOCALAPPDATA%\VoiceToText` (non synchronisé
 //! avec le profil itinérant).
 
 use std::fs;
@@ -19,6 +19,8 @@ pub struct Paths {
     pub logs_dir: PathBuf,
     pub history_file: PathBuf,
     pub usage_file: PathBuf,
+    /// Une réunion par dossier (transcription, compte rendu, audio chiffré).
+    pub meetings_dir: PathBuf,
 }
 
 impl Paths {
@@ -35,6 +37,7 @@ impl Paths {
             logs_dir: data_dir.join("logs"),
             history_file: data_dir.join("history.jsonl"),
             usage_file: data_dir.join("usage.json"),
+            meetings_dir: data_dir.join("meetings"),
         }
     }
 
@@ -43,6 +46,7 @@ impl Paths {
             fs::create_dir_all(dir)?;
         }
         fs::create_dir_all(&self.models_dir)?;
+        fs::create_dir_all(&self.meetings_dir)?;
         fs::create_dir_all(&self.logs_dir)
     }
 

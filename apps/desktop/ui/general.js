@@ -59,6 +59,8 @@ function fillGeneral(view) {
   $("hk-paste").value = view.hotkey.paste_raw;
   $("hk-retry").value = view.hotkey.retry;
   $("hk-translate").value = view.hotkey.translate;
+  $("hk-meeting").value = view.hotkey.meeting;
+  $("hk-meeting-copy").value = view.hotkey.meeting_copy;
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
 
@@ -145,6 +147,8 @@ $("general-form").addEventListener("submit", async (event) => {
         paste_raw: $("hk-paste").value.trim(),
         retry: $("hk-retry").value.trim(),
         translate: $("hk-translate").value.trim(),
+        meeting: $("hk-meeting").value.trim(),
+        meeting_copy: $("hk-meeting-copy").value.trim(),
         min_hold_ms: Number($("hk-hold").value),
         hands_free: $("hk-handsfree").checked,
       },

@@ -1,4 +1,5 @@
-//! Cœur portable de VoiceToText : configuration et pipeline de dictée.
+//! Cœur portable de VoiceToText : configuration, pipeline de dictée,
+//! réunions.
 //!
 //! Aucune dépendance à un OS ici : les implémentations concrètes (Whisper,
 //! LLM, insertion Windows) vivent dans d'autres crates et se branchent via
@@ -8,6 +9,7 @@ pub mod audio;
 pub mod config;
 pub mod history;
 pub mod hotkey;
+pub mod meeting;
 pub mod pipeline;
 pub mod suggest;
 pub mod text;

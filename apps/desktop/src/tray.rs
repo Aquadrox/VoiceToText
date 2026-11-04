@@ -9,6 +9,7 @@ use tauri::{App, Manager, Wry};
 
 use crate::controller::WorkerHandle;
 use crate::main_window::{self, Page};
+use crate::meetings::MeetingsState;
 use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
 use crate::retry::{self, Delivery};
@@ -20,6 +21,7 @@ pub struct TrayItems {
     pub status: MenuItem<Wry>,
     pub update: MenuItem<Wry>,
     pub translate: CheckMenuItem<Wry>,
+    pub meeting: MenuItem<Wry>,
 }
 
 pub fn build(
@@ -53,6 +55,8 @@ pub fn build(
         false,
         None::<&str>,
     )?;
+    let meeting = MenuItem::with_id(app, "meeting", "Démarrer une réunion", true, None::<&str>)?;
+    let meetings = MenuItem::with_id(app, "meetings", "Réunions…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
     let config = MenuItem::with_id(
         app,
@@ -81,6 +85,10 @@ pub fn build(
             &copy_raw,
             &retry,
             &translate,
+            &PredefinedMenuItem::separator(app)?,
+            &meeting,
+            &meetings,
+            &PredefinedMenuItem::separator(app)?,
             &settings,
             &config,
             &logs,
@@ -107,6 +115,12 @@ pub fn build(
                     translation.toggle();
                 }
             }
+            "meeting" => {
+                if let Some(meetings) = app.try_state::<MeetingsState>() {
+                    meetings.toggle();
+                }
+            }
+            "meetings" => main_window::open(app, Page::Meetings),
             "settings" => main_window::open(app, Page::Settings),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),
@@ -123,6 +137,7 @@ pub fn build(
         status,
         update,
         translate,
+        meeting,
     })
 }
 

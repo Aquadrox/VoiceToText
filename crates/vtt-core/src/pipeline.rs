@@ -343,6 +343,12 @@ impl Pipeline {
         Ok(Some((raw, asr_ms)))
     }
 
+    /// Transcription seule, filtrée comme une dictée (réunions) ; `None` :
+    /// silence ou hallucination.
+    pub fn transcribe_only(&self, clip: &AudioClip) -> Result<Option<String>, Error> {
+        Ok(self.transcribe(clip)?.map(|(text, _)| text))
+    }
+
     pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
         self.run_to(clip, target, self.sink.as_ref())
     }
