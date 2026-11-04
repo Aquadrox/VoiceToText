@@ -133,7 +133,7 @@ Montrer plutôt qu'écrire : parler et dessiner sur l'écran, et obtenir un text
 - ✅ Option (désactivée par défaut, v0.13.1) : description des images par un LLM qui les lit (fournisseur actif ou profil dédié) ; avertissement : les images quittent le PC ; repli sur le texte seul si le modèle les refuse
 - ✅ Fenêtre active ou zone tracée à la souris plutôt que l'écran entier ; clics enregistrés comme moments clés, cerclés sur l'image (v0.13.1)
 
-## v0.14 — Conférences et recherche 🚧
+## v0.14 — Conférences et recherche ✅
 
 Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 
@@ -142,8 +142,8 @@ Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 - ✅ Au choix : transcription seule, compte rendu seul, ou les deux ; compte rendu de conférence par le LLM choisi (résumé, plan horodaté, idées clés, citations, questions et réponses)
 - ✅ Recherche dans toutes les réunions et conférences : sans casse ni accents, résultats horodatés qui ouvrent la transcription au bon passage, surligné
 - ✅ Questions au LLM sur un enregistrement ou sur tous (« qu'a-t-on décidé sur le budget ? »), avec les sources citées (titre, heure)
-- ⬜ Réécouter le passage trouvé (audio conservé) depuis la recherche
-- ⬜ Prompt de compte rendu de conférence modifiable dans la page Prompts
+- ✅ Réécouter un passage (v0.14.1) : audio conservé (déchiffré à la volée) ou fichier importé d'origine ; ▶ sur chaque réplique, y compris celle trouvée par la recherche
+- ✅ Prompt de compte rendu de conférence modifiable dans la page Prompts (v0.14.1)
 
 ## Outillage ✅
 

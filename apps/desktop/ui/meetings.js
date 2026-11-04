@@ -114,6 +114,12 @@ async function showMeetingDetail() {
   }
   const { record } = detail;
   article.hidden = false;
+  if (article.dataset.id !== record.id) {
+    // Autre enregistrement : le lecteur repart de zéro.
+    article.dataset.id = record.id;
+    $("meeting-player").pause();
+    $("meeting-player").hidden = true;
+  }
   if (document.activeElement !== $("meeting-title")) $("meeting-title").value = record.title;
   const sources =
     record.kind === "fichier"
@@ -159,9 +165,15 @@ async function showMeetingDetail() {
     const item = document.createElement("li");
     item.dataset.track = turn.track;
     item.dataset.start = turn.start_ms;
-    const time = document.createElement("span");
+    // Audio disponible : l'heure devient un bouton qui fait réécouter.
+    const time = document.createElement(detail.replay ? "button" : "span");
     time.className = "time";
-    time.textContent = clock(turn.start_ms);
+    time.textContent = detail.replay ? `▶ ${clock(turn.start_ms)}` : clock(turn.start_ms);
+    if (detail.replay) {
+      time.type = "button";
+      time.title = "Réécouter ce passage";
+      time.addEventListener("click", () => playClip(record.id, turn.start_ms, time));
+    }
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = trackLabel(record, turn.track);
@@ -231,6 +243,21 @@ function languageOptions(selected) {
   const languages = [...meetingsView.languages];
   if (selected && !languages.includes(selected)) languages.push(selected);
   return [option("", "Langue de la réunion"), ...languages.map((l) => option(l, l))];
+}
+
+/** Réécoute : extrait audio à partir d'un peu avant le passage. */
+async function playClip(id, startMs, button) {
+  const player = $("meeting-player");
+  button.disabled = true;
+  try {
+    player.src = await invoke("meeting_clip", { id, startMs });
+    player.hidden = false;
+    await player.play();
+  } catch (e) {
+    showMeetingResult(String(e), true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function fillMeetingSettings() {

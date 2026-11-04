@@ -83,6 +83,7 @@ pub fn prompts_for(config: &Config, llm: &LlmConfig) -> Prompts {
         cleanup: text(PromptKind::Nettoyage, &llm.cleanup_prompt),
         command: text(PromptKind::Commande, &llm.command_prompt),
         summary: text(PromptKind::CompteRendu, &config.meetings.summary_prompt),
+        conference: text(PromptKind::Conference, &config.meetings.conference_prompt),
     }
 }
 

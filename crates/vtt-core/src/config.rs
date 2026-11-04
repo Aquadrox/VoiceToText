@@ -213,6 +213,10 @@ pub struct MeetingsConfig {
     pub auto_summary: bool,
     /// Nom du prompt de compte rendu (voir `prompts`) ; vide : prompt intégré.
     pub summary_prompt: String,
+    /// Nom du prompt de compte rendu des conférences et fichiers ; vide :
+    /// prompt intégré.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub conference_prompt: String,
     /// Réunions supprimées au-delà de ce nombre de jours ; 0 : jamais.
     pub keep_days: u32,
     /// Proposer d'enregistrer quand un appel est détecté.
@@ -272,6 +276,7 @@ impl Default for MeetingsConfig {
             system_audio: true,
             auto_summary: true,
             summary_prompt: String::new(),
+            conference_prompt: String::new(),
             keep_days: 0,
             detect: true,
             providers: Vec::new(),
@@ -443,6 +448,8 @@ pub enum PromptKind {
     /// Compte rendu de réunion.
     #[serde(rename = "compte_rendu")]
     CompteRendu,
+    /// Compte rendu de conférence ou de fichier importé.
+    Conference,
 }
 
 /// Prompt système enregistré sous un nom.
@@ -532,11 +539,15 @@ impl Config {
         })
     }
 
-    /// Le prompt de compte rendu choisi existe bien.
+    /// Les prompts de compte rendu choisis existent bien.
     pub fn check_summary_ref(&self) -> Result<(), String> {
-        let name = &self.meetings.summary_prompt;
-        if !name.trim().is_empty() && self.prompt_text(PromptKind::CompteRendu, name).is_none() {
-            return Err(format!("prompt de compte rendu introuvable : « {name} »"));
+        for (kind, name) in [
+            (PromptKind::CompteRendu, &self.meetings.summary_prompt),
+            (PromptKind::Conference, &self.meetings.conference_prompt),
+        ] {
+            if !name.trim().is_empty() && self.prompt_text(kind, name).is_none() {
+                return Err(format!("prompt de compte rendu introuvable : « {name} »"));
+            }
         }
         Ok(())
     }

@@ -10,7 +10,8 @@ use vtt_core::config::{self, PromptKind, PromptPreset};
 use vtt_core::usage::Usage;
 use vtt_core::{Directives, PostProcessor};
 use vtt_llm::{
-    DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
+    DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_CONFERENCE_PROMPT,
+    DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
 };
 
 use crate::controller::ControllerState;
@@ -22,6 +23,13 @@ const SAMPLE_DICTATION: &str =
     "euh bonjour, euh je voulais te dire que la réunion c'est mardi, non pardon mercredi à 14h";
 const SAMPLE_INSTRUCTION: &str = "rends ce texte plus formel";
 const SAMPLE_SELECTION: &str = "salut, la réu c'est demain 14h, ramène le dossier stp";
+const SAMPLE_CONFERENCE_TITLE: &str = "Le sommeil et la mémoire";
+const SAMPLE_CONFERENCE: &str = "\
+[00:00] Eux : Bonsoir à tous. Ce soir, je vais vous montrer pourquoi le sommeil est indispensable à la mémoire.
+[01:10] Eux : Première partie : pendant le sommeil profond, le cerveau rejoue les souvenirs de la journée.
+[04:30] Eux : Une étude de 2019 montre qu'une nuit blanche réduit de 40 % la capacité à mémoriser.
+[07:45] Eux : Deuxième partie : les siestes de vingt minutes améliorent l'apprentissage.
+[10:20] Eux : En résumé, dormir, c'est aussi apprendre. Place aux questions.";
 const SAMPLE_MEETING_TITLE: &str = "Point projet";
 const SAMPLE_MEETING: &str = "\
 [00:00] Moi : Bonjour à tous, on fait le point sur le site. Le lancement est toujours prévu le 15 ?
@@ -34,6 +42,7 @@ pub struct Defaults {
     cleanup: &'static str,
     command: &'static str,
     summary: &'static str,
+    conference: &'static str,
 }
 
 #[derive(Serialize)]
@@ -44,6 +53,7 @@ pub struct PromptsView {
     cleanup_active: String,
     command_active: String,
     summary_active: String,
+    conference_active: String,
 }
 
 #[tauri::command]
@@ -55,15 +65,18 @@ pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
             cleanup: DEFAULT_CLEANUP_PROMPT,
             command: DEFAULT_COMMAND_PROMPT,
             summary: DEFAULT_SUMMARY_PROMPT,
+            conference: DEFAULT_CONFERENCE_PROMPT,
         },
         cleanup_active: config.llm.cleanup_prompt.clone(),
         command_active: config.llm.command_prompt.clone(),
         summary_active: config.meetings.summary_prompt.clone(),
+        conference_active: config.meetings.conference_prompt.clone(),
     }
 }
 
 /// Enregistre les prompts et le choix des prompts actifs, puis les applique.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn save_prompts(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
@@ -72,6 +85,7 @@ pub fn save_prompts(
     cleanup_active: String,
     command_active: String,
     summary_active: String,
+    conference_active: String,
 ) -> Result<(), String> {
     let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
@@ -83,6 +97,7 @@ pub fn save_prompts(
     updated.llm.cleanup_prompt = cleanup_active.trim().to_owned();
     updated.llm.command_prompt = command_active.trim().to_owned();
     updated.meetings.summary_prompt = summary_active.trim().to_owned();
+    updated.meetings.conference_prompt = conference_active.trim().to_owned();
     updated.check_prompt_refs(&updated.llm)?;
     updated.check_summary_ref()?;
     paths.write_config(&updated)?;
@@ -133,6 +148,10 @@ pub fn test_prompt(
             summary: Some(text),
             ..Prompts::default()
         },
+        PromptKind::Conference => Prompts {
+            conference: Some(text),
+            ..Prompts::default()
+        },
     };
     let cleaner = LlmCleaner::new(
         &llm,
@@ -153,6 +172,10 @@ pub fn test_prompt(
         PromptKind::CompteRendu => (
             format!("Réunion : {SAMPLE_MEETING_TITLE}\n{SAMPLE_MEETING}"),
             cleaner.summarize(SAMPLE_MEETING_TITLE, SAMPLE_MEETING, None, false),
+        ),
+        PromptKind::Conference => (
+            format!("Conférence : {SAMPLE_CONFERENCE_TITLE}\n{SAMPLE_CONFERENCE}"),
+            cleaner.summarize(SAMPLE_CONFERENCE_TITLE, SAMPLE_CONFERENCE, None, true),
         ),
     };
     let duration_ms = started.elapsed().as_millis();

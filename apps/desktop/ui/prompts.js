@@ -21,6 +21,13 @@ const KINDS = [
     note: "La transcription arrive entre <transcription> et </transcription>, une réplique par ligne : « [12:34] Moi : … » ou « [12:35] Eux : … » ; la réponse est le compte rendu (Markdown).",
     defaultKey: "summary",
   },
+  {
+    kind: "conference",
+    active: "conference_active",
+    title: "Compte rendu de conférence ou de fichier",
+    note: "Même format que le compte rendu de réunion (transcription horodatée entre <transcription> et </transcription>) ; utilisé pour les conférences et les fichiers audio / vidéo importés.",
+    defaultKey: "conference",
+  },
 ];
 let promptsState = null;
 let promptsDirty = false;
@@ -142,6 +149,7 @@ $("prompts-save").addEventListener("click", async () => {
       cleanupActive: promptsState.cleanup_active,
       commandActive: promptsState.command_active,
       summaryActive: promptsState.summary_active,
+      conferenceActive: promptsState.conference_active,
     });
     promptsDirty = false;
     status.className = "small muted";
