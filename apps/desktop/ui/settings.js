@@ -156,6 +156,7 @@ async function saveProfiles(next, message) {
   try {
     profiles = await invoke("save_llm_profiles", { profiles: next });
     renderProfiles();
+    loadApiKeys();
     showProviderResult(message);
   } catch (e) {
     showProviderResult(String(e), true);
@@ -281,6 +282,7 @@ $("provider-form").addEventListener("submit", async (event) => {
     currency = llm.pricing.currency;
     fillProvider(llm);
     renderProfiles();
+    loadApiKeys();
     showProviderResult("✓ Appliqué : utilisé dès la prochaine dictée.");
   } catch (e) {
     showProviderResult(String(e), true);
@@ -412,7 +414,7 @@ async function busy(button, action) {
     showResult(String(e), true);
   } finally {
     button.disabled = false;
-    await refreshKey();
+    await Promise.all([refreshKey(), loadApiKeys()]);
   }
 }
 
@@ -435,6 +437,122 @@ $("delete").addEventListener("click", () =>
   }),
 );
 
+// Clés enregistrées : seuls le fournisseur et son usage sont connus de la
+// page, jamais la clé (ni en entier ni en partie).
+const CONFIRM_MS = 4000;
+
+function showApiKeysResult(text, isError = false) {
+  const result = $("api-keys-result");
+  result.hidden = false;
+  result.textContent = text;
+  result.classList.toggle("error", isError);
+}
+
+function makeButton(label, className = "") {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = label;
+  if (className) element.className = className;
+  return element;
+}
+
+function apiKeyItem(entry) {
+  const item = document.createElement("li");
+  const line = document.createElement("div");
+  line.className = "key-line";
+  const host = document.createElement("span");
+  host.className = "host";
+  host.textContent = entry.host;
+  const usage = document.createElement("span");
+  usage.className = "muted small";
+  usage.textContent = `clé enregistrée · ${entry.used_by.length ? entry.used_by.join(", ") : "inutilisée"}`;
+  const actions = document.createElement("span");
+  actions.className = "actions";
+  const replace = makeButton("Remplacer");
+  const remove = makeButton("Supprimer", "danger");
+  actions.append(replace, remove);
+  line.append(host, usage, actions);
+
+  // Nouvelle clé : champ masqué, vide, jamais prérempli.
+  const form = document.createElement("div");
+  form.className = "row";
+  form.hidden = true;
+  const input = document.createElement("input");
+  input.type = "password";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.placeholder = `Nouvelle clé pour ${entry.host}`;
+  const save = makeButton("Enregistrer", "primary");
+  const cancel = makeButton("Annuler");
+  form.append(input, save, cancel);
+  item.append(line, form);
+
+  const closeForm = () => {
+    input.value = "";
+    form.hidden = true;
+  };
+  replace.addEventListener("click", () => {
+    form.hidden = !form.hidden;
+    input.value = "";
+    if (!form.hidden) input.focus();
+  });
+  cancel.addEventListener("click", closeForm);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") save.click();
+    if (e.key === "Escape") closeForm();
+  });
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try {
+      await invoke("replace_api_key", { host: entry.host, key: input.value });
+      closeForm();
+      showApiKeysResult(`Clé remplacée pour ${entry.host}. « Tester » pour la vérifier.`);
+    } catch (e) {
+      showApiKeysResult(String(e), true);
+    } finally {
+      input.value = "";
+      save.disabled = false;
+      await Promise.all([refreshKey(), loadApiKeys()]);
+    }
+  });
+
+  // Suppression en deux clics : « Supprimer » puis « Confirmer ».
+  let confirmTimer = null;
+  remove.addEventListener("click", async () => {
+    if (!confirmTimer) {
+      remove.textContent = "Confirmer la suppression";
+      confirmTimer = setTimeout(() => {
+        remove.textContent = "Supprimer";
+        confirmTimer = null;
+      }, CONFIRM_MS);
+      return;
+    }
+    clearTimeout(confirmTimer);
+    remove.disabled = true;
+    try {
+      await invoke("forget_api_key", { host: entry.host });
+      showApiKeysResult(`Clé supprimée pour ${entry.host}.`);
+    } catch (e) {
+      showApiKeysResult(String(e), true);
+      remove.disabled = false;
+      remove.textContent = "Supprimer";
+      confirmTimer = null;
+    }
+    await Promise.all([refreshKey(), loadApiKeys()]);
+  });
+  return item;
+}
+
+async function loadApiKeys() {
+  try {
+    const keys = await invoke("api_keys");
+    $("api-keys").replaceChildren(...keys.map(apiKeyItem));
+    $("api-keys-empty").hidden = keys.length > 0;
+  } catch (e) {
+    showApiKeysResult(String(e), true);
+  }
+}
+
 // Même test que « Tester ces réglages » (résultat sous le formulaire).
 $("test").addEventListener("click", () => runTest($("test")));
 
@@ -445,6 +563,7 @@ registerPage("reglages", {
   show: () =>
     Promise.all([
       showGeneral(),
+      loadApiKeys(),
       refresh().then((view) => {
         if (!providerFilled) fillProvider(view.llm);
         providerFilled = true;

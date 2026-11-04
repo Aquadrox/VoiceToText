@@ -766,6 +766,101 @@ pub fn clean_styles(styles: &[Style]) -> Result<Vec<Style>, String> {
     Ok(cleaned)
 }
 
+/// Fin de nom des champs de `extra_body` qui ressemblent à un secret
+/// (`api_key`, `access_token`, `Authorization`…), comparés en minuscules
+/// sans séparateurs.
+const SECRET_FIELD_ENDINGS: &[&str] = &[
+    "key",
+    "token",
+    "secret",
+    "password",
+    "auth",
+    "authorization",
+    "credential",
+    "credentials",
+];
+
+fn looks_secret(field: &str) -> bool {
+    let normalized: String = field
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    SECRET_FIELD_ENDINGS
+        .iter()
+        .any(|ending| normalized.ends_with(ending))
+}
+
+/// Retire de `value` les champs qui ressemblent à un secret, à toute
+/// profondeur ; leurs chemins sont ajoutés à `removed`.
+fn strip_secrets(value: &mut Value, path: &str, removed: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => map.retain(|field, inner| {
+            let path = format!("{path}.{field}");
+            if looks_secret(field) {
+                removed.push(path);
+                return false;
+            }
+            strip_secrets(inner, &path, removed);
+            true
+        }),
+        Value::Array(items) => {
+            for (i, item) in items.iter_mut().enumerate() {
+                strip_secrets(item, &format!("{path}[{i}]"), removed);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn strip_llm_secrets(llm: &mut LlmConfig, path: &str, removed: &mut Vec<String>) {
+    let mut body = Value::Object(std::mem::take(&mut llm.extra_body));
+    strip_secrets(&mut body, &format!("{path}.extra_body"), removed);
+    if let Value::Object(map) = body {
+        llm.extra_body = map;
+    }
+}
+
+impl Config {
+    /// Copie à exporter, et chemins des champs retirés par précaution. Les
+    /// clés API ne sont jamais dans la configuration (Gestionnaire
+    /// d'identifiants) ; seul `extra_body`, saisi librement, pourrait en
+    /// contenir une.
+    pub fn for_export(&self) -> (Config, Vec<String>) {
+        let mut config = self.clone();
+        let mut removed = Vec::new();
+        strip_llm_secrets(&mut config.llm, "llm", &mut removed);
+        for profile in &mut config.llm_profiles {
+            let path = format!("profil « {} »", profile.name);
+            strip_llm_secrets(&mut profile.llm, &path, &mut removed);
+        }
+        (config, removed)
+    }
+
+    /// Vérifie une configuration importée comme si chaque section avait été
+    /// saisie dans les réglages ; listes nettoyées, adresses normalisées.
+    pub fn checked(mut self) -> Result<Config, String> {
+        self.hotkey.validate()?;
+        self.translation.validate()?;
+        self.llm.base_url = self.llm.normalized_base_url();
+        self.llm
+            .validate()
+            .map_err(|e| format!("nettoyage : {e}"))?;
+        self.prompts = clean_prompts(&self.prompts)?;
+        self.llm_profiles = clean_llm_profiles(&self.llm_profiles)?;
+        self.dictionary = clean_dictionary(&self.dictionary)?;
+        self.snippets = clean_snippets(&self.snippets)?;
+        self.styles = clean_styles(&self.styles)?;
+        self.check_prompt_refs(&self.llm)?;
+        for profile in &self.llm_profiles {
+            self.check_prompt_refs(&profile.llm)
+                .map_err(|e| format!("profil « {} » : {e}", profile.name))?;
+        }
+        self.check_fallback_ref(&self.llm)?;
+        Ok(self)
+    }
+}
+
 /// Anciens noms de modèles LLM → nom actuel.
 const RENAMED_LLM_MODELS: &[(&str, &str)] = &[("deepseek-v4-flash", "deepseek-flash")];
 
@@ -820,6 +915,61 @@ mod tests {
         });
         let parsed = Config::from_toml(&config.to_toml().unwrap()).unwrap();
         assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn export_strips_secret_like_fields_only() {
+        let mut config = Config::default();
+        config
+            .llm
+            .extra_body
+            .insert("api_key".into(), json!("sk-secret"));
+        config
+            .llm
+            .extra_body
+            .insert("max_tokens".into(), json!(200));
+        config.llm.extra_body.insert(
+            "options".into(),
+            json!({"Authorization": "Bearer x", "temperature": 0.2}),
+        );
+        config.llm_profiles.push(LlmProfile {
+            name: "Local".into(),
+            llm: LlmConfig {
+                extra_body: Map::from_iter([("accessToken".into(), json!("t"))]),
+                ..LlmConfig::default()
+            },
+        });
+        let (exported, removed) = config.for_export();
+        assert_eq!(
+            removed,
+            [
+                "llm.extra_body.api_key",
+                "llm.extra_body.options.Authorization",
+                "profil « Local ».extra_body.accessToken",
+            ]
+        );
+        let toml = exported.to_toml().unwrap();
+        assert!(!toml.contains("sk-secret") && !toml.contains("Bearer"));
+        assert!(toml.contains("max_tokens") && toml.contains("temperature"));
+        // Rien à retirer dans la configuration par défaut (ex. « thinking »).
+        assert!(Config::default().for_export().1.is_empty());
+    }
+
+    #[test]
+    fn checked_accepts_defaults_and_rejects_broken_imports() {
+        let exported = Config::default().for_export().0.to_toml().unwrap();
+        let imported = Config::from_toml(&exported).unwrap().checked().unwrap();
+        assert_eq!(imported, Config::default());
+
+        let mut config = Config::default();
+        config.llm.cleanup_prompt = "absent".into();
+        assert!(config.checked().is_err());
+        let mut config = Config::default();
+        config.llm.base_url = "http://exemple.com".into();
+        assert!(config.checked().is_err());
+        let mut config = Config::default();
+        config.hotkey.translate = config.hotkey.retry.clone();
+        assert!(config.checked().is_err());
     }
 
     #[test]

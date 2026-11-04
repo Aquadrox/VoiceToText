@@ -87,6 +87,10 @@ pub fn load_secret(_name: &str) -> Option<String> {
     None
 }
 
+pub fn list_secrets(_prefix: &str) -> Vec<String> {
+    Vec::new()
+}
+
 pub fn delete_secret(_name: &str) -> Result<(), String> {
     Err(format!("stockage des secrets {MESSAGE}"))
 }

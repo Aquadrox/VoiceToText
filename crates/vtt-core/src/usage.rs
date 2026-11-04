@@ -2,7 +2,9 @@
 //! du LLM (jetons, coût), pour les statistiques et le suivi du coût.
 //!
 //! Le fichier des totaux ne contient que des compteurs, jamais de texte
-//! dicté : il survit à l'effacement de l'historique.
+//! dicté : il survit à l'effacement de l'historique. Un second fichier
+//! (`usage-apps.json`) tient les mêmes compteurs par application et par
+//! mois : nom de l'exécutable seulement, jamais le titre de la fenêtre.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -74,25 +76,67 @@ pub struct Summary {
     pub total: Totals,
 }
 
-/// Totaux par jour (`AAAA-MM-JJ`), dans un petit fichier JSON.
+/// Totaux d'une application.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AppTotals {
+    /// Nom de l'exécutable en minuscules, ex. « slack.exe ».
+    pub app: String,
+    pub totals: Totals,
+}
+
+/// Application → mois (`AAAA-MM`) → totaux.
+type AppMonths = BTreeMap<String, BTreeMap<String, Totals>>;
+
+/// Totaux par jour (`AAAA-MM-JJ`), et par application et par mois, dans de
+/// petits fichiers JSON.
 pub struct Ledger {
     path: PathBuf,
     days: BTreeMap<String, Totals>,
+    apps_path: PathBuf,
+    apps: AppMonths,
+}
+
+/// Fichier JSON ; absent ou illisible : valeur par défaut (réécrite au
+/// prochain enregistrement).
+fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &PathBuf) -> T {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Écriture atomique : une coupure ne corrompt pas les totaux.
+fn write_json<T: Serialize>(path: &PathBuf, value: &T) -> io::Result<()> {
+    let json = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, json)?;
+    fs::rename(&tmp, path)
 }
 
 impl Ledger {
     /// Un fichier absent ou illisible repart de zéro (et sera réécrit).
+    /// Les totaux par application sont à côté : `usage-apps.json`.
     pub fn open(path: PathBuf) -> Self {
-        let days = fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        Self { path, days }
+        let apps_path = path.with_file_name("usage-apps.json");
+        Self {
+            days: read_json(&path),
+            apps: read_json(&apps_path),
+            path,
+            apps_path,
+        }
     }
 
-    pub fn record(&mut self, day: &str, usage: &Usage, pricing: &Pricing) -> io::Result<()> {
+    /// `app` : application de destination, si elle est connue.
+    pub fn record(
+        &mut self,
+        day: &str,
+        app: Option<&str>,
+        usage: &Usage,
+        pricing: &Pricing,
+    ) -> io::Result<()> {
         self.add(
             day,
+            app,
             &Totals {
                 requests: 1,
                 input_tokens: usage.input_tokens,
@@ -107,12 +151,14 @@ impl Ledger {
     pub fn record_dictation(
         &mut self,
         day: &str,
+        app: Option<&str>,
         words: u64,
         audio_ms: u64,
         command: bool,
     ) -> io::Result<()> {
         self.add(
             day,
+            app,
             &Totals {
                 dictations: 1,
                 commands: command.into(),
@@ -128,13 +174,49 @@ impl Ledger {
         self.days.get(day).copied().unwrap_or_default()
     }
 
-    fn add(&mut self, day: &str, totals: &Totals) -> io::Result<()> {
+    fn add(&mut self, day: &str, app: Option<&str>, totals: &Totals) -> io::Result<()> {
         self.days.entry(day.to_owned()).or_default().add(totals);
-        let json = serde_json::to_string_pretty(&self.days).map_err(io::Error::other)?;
-        // Écriture atomique : une coupure ne corrompt pas les totaux.
-        let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, json)?;
-        fs::rename(&tmp, &self.path)
+        write_json(&self.path, &self.days)?;
+        let Some(app) = app.map(str::trim).filter(|a| !a.is_empty()) else {
+            return Ok(());
+        };
+        let month = day.get(..7).unwrap_or(day);
+        self.apps
+            .entry(app.to_lowercase())
+            .or_default()
+            .entry(month.to_owned())
+            .or_default()
+            .add(totals);
+        write_json(&self.apps_path, &self.apps)
+    }
+
+    /// Totaux par application, du plus de mots au moins : pour le mois
+    /// `AAAA-MM`, ou depuis le début (`None`). Les applications sans
+    /// dictée sur la période sont omises.
+    pub fn apps(&self, month: Option<&str>) -> Vec<AppTotals> {
+        let mut found: Vec<AppTotals> = self
+            .apps
+            .iter()
+            .map(|(app, months)| {
+                let mut totals = Totals::default();
+                for (_, t) in months.iter().filter(|(m, _)| month.is_none_or(|w| *m == w)) {
+                    totals.add(t);
+                }
+                AppTotals {
+                    app: app.clone(),
+                    totals,
+                }
+            })
+            .filter(|a| a.totals.dictations > 0)
+            .collect();
+        found.sort_by(|a, b| {
+            b.totals
+                .words
+                .cmp(&a.totals.words)
+                .then(b.totals.dictations.cmp(&a.totals.dictations))
+                .then_with(|| a.app.cmp(&b.app))
+        });
+        found
     }
 
     /// `today` au format `AAAA-MM-JJ` ; le mois est son préfixe `AAAA-MM`.
@@ -195,16 +277,16 @@ mod tests {
         let path = temp_path("summary");
         let mut ledger = Ledger::open(path.clone());
         ledger
-            .record("2026-10-31", &usage(100, 0, 10), &pricing())
+            .record("2026-10-31", None, &usage(100, 0, 10), &pricing())
             .unwrap();
         ledger
-            .record("2026-11-02", &usage(200, 0, 20), &pricing())
+            .record("2026-11-02", None, &usage(200, 0, 20), &pricing())
             .unwrap();
         ledger
-            .record("2026-11-03", &usage(300, 0, 30), &pricing())
+            .record("2026-11-03", None, &usage(300, 0, 30), &pricing())
             .unwrap();
         ledger
-            .record("2026-11-03", &usage(300, 0, 30), &pricing())
+            .record("2026-11-03", None, &usage(300, 0, 30), &pricing())
             .unwrap();
 
         let summary = Ledger::open(path).summary("2026-11-03");
@@ -220,13 +302,13 @@ mod tests {
         let path = temp_path("activity");
         let mut ledger = Ledger::open(path.clone());
         ledger
-            .record_dictation("2026-11-03", 12, 4000, false)
+            .record_dictation("2026-11-03", None, 12, 4000, false)
             .unwrap();
         ledger
-            .record_dictation("2026-11-03", 5, 2000, true)
+            .record_dictation("2026-11-03", None, 5, 2000, true)
             .unwrap();
         ledger
-            .record("2026-11-03", &usage(100, 0, 10), &pricing())
+            .record("2026-11-03", None, &usage(100, 0, 10), &pricing())
             .unwrap();
 
         let day = Ledger::open(path).day("2026-11-03");
@@ -237,6 +319,50 @@ mod tests {
             Ledger::open(temp_path("empty")).day("2026-11-03"),
             Totals::default()
         );
+    }
+
+    #[test]
+    fn apps_are_ranked_by_words_per_month_or_overall() {
+        let path = temp_path("apps");
+        let mut ledger = Ledger::open(path.clone());
+        ledger
+            .record_dictation("2026-10-30", Some("Slack.exe"), 50, 9000, false)
+            .unwrap();
+        ledger
+            .record_dictation("2026-11-02", Some("code.exe"), 20, 4000, false)
+            .unwrap();
+        ledger
+            .record_dictation("2026-11-03", Some("slack.exe"), 10, 2000, false)
+            .unwrap();
+        ledger
+            .record(
+                "2026-11-03",
+                Some("slack.exe"),
+                &usage(100, 0, 10),
+                &pricing(),
+            )
+            .unwrap();
+        // Application inconnue : comptée dans le total du jour seulement.
+        ledger
+            .record_dictation("2026-11-03", None, 7, 1000, false)
+            .unwrap();
+
+        let ledger = Ledger::open(path);
+        let names = |apps: Vec<AppTotals>| -> Vec<(String, u64)> {
+            apps.into_iter().map(|a| (a.app, a.totals.words)).collect()
+        };
+        assert_eq!(
+            names(ledger.apps(Some("2026-11"))),
+            [("code.exe".into(), 20), ("slack.exe".into(), 10)]
+        );
+        assert_eq!(
+            names(ledger.apps(None)),
+            [("slack.exe".into(), 60), ("code.exe".into(), 20)]
+        );
+        let slack = &ledger.apps(None)[0].totals;
+        assert_eq!((slack.dictations, slack.requests), (2, 1));
+        assert!(ledger.apps(Some("2026-09")).is_empty());
+        assert_eq!(ledger.day("2026-11-03").words, 17);
     }
 
     #[test]
@@ -258,7 +384,7 @@ mod tests {
         let mut ledger = Ledger::open(path.clone());
         assert_eq!(ledger.summary("2026-11-03"), Summary::default());
         ledger
-            .record("2026-11-03", &usage(1, 0, 1), &pricing())
+            .record("2026-11-03", None, &usage(1, 0, 1), &pricing())
             .unwrap();
         assert_eq!(Ledger::open(path).summary("2026-11-03").total.requests, 1);
     }

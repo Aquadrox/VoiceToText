@@ -14,7 +14,7 @@ pub use media_windows::MediaPauser;
 #[cfg(windows)]
 mod secrets_windows;
 #[cfg(windows)]
-pub use secrets_windows::{delete_secret, load_secret, store_secret};
+pub use secrets_windows::{delete_secret, list_secrets, load_secret, store_secret};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -29,8 +29,8 @@ mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
     ClipboardPaster, MediaPauser, autostart_enabled, companion_keys, copy_selection, copy_text,
-    delete_secret, foreground_target, fullscreen_app_running, key_code, key_is_down, load_secret,
-    modifiers_down, play_sound, set_autostart, spawn_keyboard_hook, store_secret,
+    delete_secret, foreground_target, fullscreen_app_running, key_code, key_is_down, list_secrets,
+    load_secret, modifiers_down, play_sound, set_autostart, spawn_keyboard_hook, store_secret,
     suppress_menu_activation,
 };
 

@@ -198,3 +198,66 @@ $("autostart").addEventListener("change", async () => {
     $("autostart-status").textContent = String(e);
   }
 });
+
+/* ---------- Export / import des réglages ---------- */
+
+const IMPORT_MESSAGE_KEY = "vtt-import-message";
+
+function showTransferResult(text, isError = false) {
+  const result = $("transfer-result");
+  result.hidden = false;
+  result.textContent = text;
+  result.classList.toggle("error", isError);
+}
+
+$("settings-export").addEventListener("click", async () => {
+  const button = $("settings-export");
+  button.disabled = true;
+  try {
+    const exported = await invoke("export_settings");
+    if (!exported) return;
+    const removed = exported.removed.length
+      ? `\nRetirés par précaution (ressemblent à un secret) : ${exported.removed.join(", ")}.`
+      : "";
+    showTransferResult(`✓ Réglages exportés, sans les clés API : ${exported.path}${removed}`);
+  } catch (e) {
+    showTransferResult(String(e), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("settings-import").addEventListener("click", async () => {
+  const button = $("settings-import");
+  button.disabled = true;
+  try {
+    const imported = await invoke("import_settings");
+    if (!imported) return;
+    const backup = imported.backup ? `\nAnciens réglages gardés dans ${imported.backup}.` : "";
+    const notes = imported.notes.map((note) => `\n• ${note}`).join("");
+    const message =
+      `✓ Réglages importés et appliqués, sans redémarrage. Les clés API ne sont pas dans le fichier : celles déjà enregistrées sur ce PC restent utilisées.` +
+      `${backup}${notes}`;
+    // Toutes les pages affichent les nouveaux réglages : rechargement.
+    try {
+      sessionStorage.setItem(IMPORT_MESSAGE_KEY, message);
+      location.reload();
+    } catch {
+      showTransferResult(message);
+    }
+  } catch (e) {
+    showTransferResult(String(e), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+try {
+  const message = sessionStorage.getItem(IMPORT_MESSAGE_KEY);
+  if (message) {
+    sessionStorage.removeItem(IMPORT_MESSAGE_KEY);
+    showTransferResult(message);
+  }
+} catch {
+  // Pas de stockage : rien à afficher.
+}

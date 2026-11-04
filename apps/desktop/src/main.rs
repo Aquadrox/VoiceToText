@@ -4,6 +4,7 @@
 mod app_settings;
 mod controller;
 mod costs;
+mod export;
 mod feedback;
 mod history;
 mod logging;
@@ -57,12 +58,16 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             status::current_status,
             settings::settings_view,
             settings::save_api_key,
             settings::delete_api_key,
             settings::key_status,
+            settings::api_keys,
+            settings::replace_api_key,
+            settings::forget_api_key,
             settings::test_llm_settings,
             settings::apply_llm_settings,
             settings::save_llm_profiles,
@@ -80,6 +85,8 @@ fn main() {
             app_settings::app_settings_view,
             app_settings::save_app_settings,
             app_settings::set_autostart,
+            export::export_settings,
+            export::import_settings,
             updates::update_status,
             updates::check_update,
             updates::install_update,

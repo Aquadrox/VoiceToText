@@ -2,13 +2,15 @@
 //! démarrage avec Windows. Tout s'applique sans redémarrer.
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
+use vtt_core::Config;
 use vtt_core::config::{
     AsrConfig, AudioConfig, DictationConfig, HOTKEY_NAMES, HotkeyConfig, TRANSLATION_LANGUAGES,
     TranslationConfig, UNLOAD_AFTER_CHOICES, UpdatesConfig,
 };
 
 use crate::controller::ControllerState;
+use crate::history::{self, HistoryStore};
 use crate::model::{self, ModelChoice};
 use crate::paths::Paths;
 use crate::retry;
@@ -58,7 +60,54 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
 #[derive(Serialize)]
 pub struct Applied {
     /// Remarques à afficher : raccourci indisponible, modèle en téléchargement.
-    notes: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// Applique `config`, déjà écrite dans config.toml, sans redémarrer ; renvoie
+/// les remarques à afficher.
+pub fn apply(app: &AppHandle, paths: &Paths, config: &Config) -> Vec<String> {
+    let shared = app.state::<SharedConfig>();
+    let previous = std::mem::replace(
+        &mut *shared.write().unwrap_or_else(|e| e.into_inner()),
+        config.clone(),
+    );
+    history::reconfigure(
+        &app.state::<HistoryStore>(),
+        &paths.history_file,
+        &previous.history,
+        &config.history,
+    );
+    app.state::<ControllerState>().apply(config);
+    let mut notes = app.state::<Shortcuts>().apply(app, &config.hotkey);
+    updates::set_auto(app, &app.state::<UpdatesState>(), config.updates.check);
+    if model::local(&paths.models_dir, &config.asr.model).is_none() {
+        notes.push(
+            "Téléchargement du nouveau modèle (progression dans la pastille) : les dictées \
+             continuent avec l'ancien en attendant."
+                .into(),
+        );
+    }
+    notes
+}
+
+/// Raccourcis secondaires valides (la touche de dictée est vérifiée par
+/// `HotkeyConfig::validate`).
+pub fn validate_shortcuts(hotkey: &HotkeyConfig) -> Result<(), String> {
+    retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
+    retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
+    retry::validate_shortcut(&hotkey.translate, "mode traduction", "Alt+Shift+T")
+}
+
+/// Modèle Whisper proposé dans les réglages (téléchargé au besoin).
+pub fn validate_model(paths: &Paths, model: &str) -> Result<(), String> {
+    if model::catalog(&paths.models_dir)
+        .iter()
+        .any(|m| m.file() == model)
+    {
+        Ok(())
+    } else {
+        Err(format!("modèle inconnu : {model}"))
+    }
 }
 
 /// Enregistre raccourcis, micro, modèle, sons… dans config.toml et les
@@ -69,10 +118,6 @@ pub struct Applied {
 pub fn save_app_settings(
     app: AppHandle,
     paths: State<'_, Paths>,
-    shared: State<'_, SharedConfig>,
-    controller: State<'_, ControllerState>,
-    shortcuts: State<'_, Shortcuts>,
-    update_checks: State<'_, UpdatesState>,
     hotkey: HotkeyConfig,
     audio: AudioConfig,
     asr: AsrConfig,
@@ -81,16 +126,9 @@ pub fn save_app_settings(
     translation: TranslationConfig,
 ) -> Result<Applied, String> {
     hotkey.validate()?;
-    retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
-    retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
-    retry::validate_shortcut(&hotkey.translate, "mode traduction", "Alt+Shift+T")?;
+    validate_shortcuts(&hotkey)?;
     translation.validate()?;
-    if !model::catalog(&paths.models_dir)
-        .iter()
-        .any(|m| m.file() == asr.model)
-    {
-        return Err(format!("modèle inconnu : {}", asr.model));
-    }
+    validate_model(&paths, &asr.model)?;
     let (mut config, error) = paths.load_config();
     if let Some(error) = error {
         return Err(format!(
@@ -110,17 +148,7 @@ pub fn save_app_settings(
         language: translation.language.trim().to_owned(),
     };
     paths.write_config(&config)?;
-    *shared.write().unwrap_or_else(|e| e.into_inner()) = config.clone();
-    controller.apply(&config);
-    let mut notes = shortcuts.apply(&app, &config.hotkey);
-    updates::set_auto(&app, &update_checks, config.updates.check);
-    if model::local(&paths.models_dir, &config.asr.model).is_none() {
-        notes.push(
-            "Téléchargement du nouveau modèle (progression dans la pastille) : les dictées \
-             continuent avec l'ancien en attendant."
-                .into(),
-        );
-    }
+    let notes = apply(&app, &paths, &config);
     log::info!("réglages généraux appliqués");
     Ok(Applied { notes })
 }

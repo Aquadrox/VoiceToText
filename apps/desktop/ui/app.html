@@ -60,8 +60,27 @@
               </table>
             </details>
           </section>
+          <section>
+            <div class="section-head">
+              <h2>Par application</h2>
+              <div class="segmented" role="group" aria-label="Période">
+                <button type="button" data-apps-period="month" aria-pressed="true">Ce mois</button>
+                <button type="button" data-apps-period="total" aria-pressed="false">Depuis le début</button>
+              </div>
+            </div>
+            <table id="home-apps" class="apps-table">
+              <thead>
+                <tr><th>Application</th><th>Mots</th><th class="share">Part des mots</th><th>Dictées</th><th>Coût</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <p id="home-apps-empty" class="muted small" hidden>
+              Aucune dictée sur cette période (applications comptées depuis la version 0.10).
+            </p>
+          </section>
           <p class="muted small">
-            Compteurs tenus sur ce PC depuis la version 0.4, sans aucun texte dicté ; ils sont
+            Compteurs tenus sur ce PC depuis la version 0.4, sans aucun texte dicté (par
+            application : le nom du programme seulement, jamais le titre de la fenêtre) ; ils sont
             conservés même si l'historique est effacé.
           </p>
         </section>
@@ -292,6 +311,21 @@
           </section>
 
           <section>
+            <h2>Exporter / importer les réglages</h2>
+            <p class="muted small">
+              Configuration, prompts, profils, dictionnaire, snippets et styles dans un fichier
+              .toml : pour un autre PC ou une sauvegarde. Les clés API ne sont jamais exportées :
+              à saisir de nouveau après l'import. L'import remplace tous les réglages (les actuels
+              sont gardés dans config.avant-import.toml) et s'applique sans redémarrer.
+            </p>
+            <div class="row">
+              <button id="settings-export" type="button">Exporter…</button>
+              <button id="settings-import" type="button">Importer…</button>
+            </div>
+            <div id="transfer-result" class="result" hidden></div>
+          </section>
+
+          <section>
             <h2>Nettoyage du texte</h2>
             <p class="muted">
               Le texte transcrit est envoyé au modèle choisi pour retirer les hésitations et
@@ -402,6 +436,17 @@
               <button id="delete" class="danger">Supprimer la clé</button>
             </div>
             <div id="result" class="result" hidden></div>
+          </section>
+
+          <section>
+            <h2>Clés API enregistrées</h2>
+            <p class="muted small">
+              Une clé par fournisseur, dans le Gestionnaire d'identifiants Windows. Elles ne sont
+              jamais affichées, ni en entier ni en partie : seulement le fournisseur.
+            </p>
+            <ul id="api-keys" class="api-keys"></ul>
+            <p id="api-keys-empty" class="muted" hidden>Aucune clé enregistrée.</p>
+            <div id="api-keys-result" class="result" hidden></div>
           </section>
 
           <section>

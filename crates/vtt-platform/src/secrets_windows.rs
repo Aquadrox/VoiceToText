@@ -3,8 +3,8 @@
 
 use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Security::Credentials::{
-    CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree,
-    CredReadW, CredWriteW,
+    CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW,
+    CredEnumerateW, CredFree, CredReadW, CredWriteW,
 };
 use windows::core::{HSTRING, PWSTR};
 
@@ -65,4 +65,30 @@ pub fn delete_secret(name: &str) -> Result<(), String> {
             "suppression dans le Gestionnaire d'identifiants : {e}"
         )),
     }
+}
+
+/// Noms des secrets enregistrés commençant par `prefix` (sans le préfixe
+/// `VoiceToText/`). Seuls les noms sont lus : le contenu des secrets n'est
+/// jamais copié.
+pub fn list_secrets(prefix: &str) -> Vec<String> {
+    let filter = HSTRING::from(format!("{TARGET_PREFIX}{prefix}*"));
+    let mut count = 0u32;
+    let mut credentials: *mut *mut CREDENTIALW = std::ptr::null_mut();
+    // Aucun secret : CredEnumerateW échoue (ERROR_NOT_FOUND).
+    if unsafe { CredEnumerateW(&filter, None, &mut count, &mut credentials) }.is_err() {
+        return Vec::new();
+    }
+    // SAFETY: CredEnumerateW a réussi : `credentials` pointe vers `count`
+    // structures valides jusqu'à CredFree.
+    let names = unsafe {
+        std::slice::from_raw_parts(credentials, count as usize)
+            .iter()
+            .map(|&credential| &*credential)
+            .filter(|c| c.Type == CRED_TYPE_GENERIC)
+            .filter_map(|c| c.TargetName.to_string().ok())
+            .filter_map(|target| target.strip_prefix(TARGET_PREFIX).map(str::to_owned))
+            .collect()
+    };
+    unsafe { CredFree(credentials as *const _) };
+    names
 }

@@ -346,6 +346,92 @@ summary {
   transform: translate(-50%, calc(-100% - 8px));
 }
 
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-head h2 {
+  margin: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented button {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.apps-table .app-name {
+  overflow-wrap: anywhere;
+}
+
+.apps-table .app-name small {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.apps-table th.share,
+.apps-table td.share {
+  width: 34%;
+}
+
+.apps-table th.share {
+  text-align: left;
+}
+
+.share-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-bar .track {
+  flex: 1;
+  height: 8px;
+}
+
+.share-bar .fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 0 4px 4px 0;
+  background: var(--chart);
+}
+
+.share-bar .pct {
+  min-width: 3.5em;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .apps-table th.share,
+  .apps-table td.share {
+    display: none;
+  }
+}
+
 /* Historique */
 .page-header {
   display: flex;
@@ -600,6 +686,44 @@ ol.entries li {
 
 .profiles {
   margin-top: 12px;
+}
+
+.api-keys {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.api-keys li {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.api-keys li:first-child {
+  border-top: none;
+}
+
+/* `.row` impose display: flex, qui l'emporterait sur `hidden`. */
+.api-keys .row[hidden] {
+  display: none;
+}
+
+.api-keys .key-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-keys .key-line .host {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.api-keys .key-line .actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
 }
 
 #prompt-kinds textarea {
