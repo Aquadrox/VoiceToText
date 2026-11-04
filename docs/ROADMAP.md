@@ -87,12 +87,11 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Suggestions pour le dictionnaire tirées de l'historique (mots corrigés par le LLM, noms propres et sigles récurrents), ajout ou refus en un clic
 - ✅ Mode traduction : Alt+Maj+T ou menu de l'icône, langue d'arrivée au choix, langue affichée dans la pastille
 
-## v0.10 — Pratique 🚧
+## v0.10 — Pratique ✅
 
 - ✅ Export / import des réglages (configuration, prompts, profils, dictionnaire, snippets, styles ; jamais les clés API, ni un paramètre avancé qui ressemble à un secret). Import vérifié comme une saisie, anciens réglages gardés dans `config.avant-import.toml`, appliqué sans redémarrer
 - ✅ Liste des clés API enregistrées (une par fournisseur) pour les remplacer ou les supprimer ; jamais affichées en clair, ni en entier ni en partie (seulement le fournisseur et « clé enregistrée »). Seuls les noms des identifiants sont lus pour la liste
 - ✅ Statistiques par application sur l'accueil (mots, part, dictées, coût ; ce mois ou depuis le début ; nom du programme seulement)
-- ⬜ Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Demande un certificat au nom de l'utilisateur : à choisir avec lui
 
 ## Outillage ✅
 
@@ -109,4 +108,5 @@ Accélérer la CI sans baisser la garde :
 
 ## Plus tard
 
+- Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, Linux, Android, nettoyage local.
