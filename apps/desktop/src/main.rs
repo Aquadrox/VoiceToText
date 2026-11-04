@@ -1,6 +1,7 @@
 // Pas de console en version publiée.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod annotate;
 mod app_settings;
 mod controller;
 mod costs;
@@ -29,6 +30,7 @@ use tauri::{Manager, PhysicalPosition, WebviewWindow};
 use vtt_core::history::History;
 use vtt_core::usage::Ledger;
 
+use crate::annotate::Annotator;
 use crate::controller::{Controller, Recorders, WorkerHandle};
 use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
@@ -93,6 +95,8 @@ fn main() {
             meetings::meeting_detail,
             meetings::meeting_state,
             meetings::offer_view,
+            annotate::annotate_state,
+            annotate::annotate_stroke,
             meetings::offer_answer,
             meetings::start_meeting,
             meetings::stop_meeting,
@@ -150,11 +154,18 @@ fn main() {
                 tray_items.meeting,
             );
             app.manage(Arc::clone(&meetings));
+            let annotator = Annotator::new(
+                app.handle().clone(),
+                paths.captures_dir.clone(),
+                Arc::clone(&worker),
+            );
+            app.manage(Arc::clone(&annotator));
             let shortcuts = Shortcuts::new(
                 Arc::clone(&last_raw),
                 Arc::clone(&worker),
                 Arc::clone(&translation),
                 Arc::clone(&meetings),
+                annotator,
             );
             shortcuts.apply(app.handle(), &config.hotkey);
             app.manage(shortcuts);
@@ -192,5 +203,10 @@ fn show_overlay(overlay: &WebviewWindow) -> tauri::Result<()> {
         overlay.set_position(PhysicalPosition::new(x, y))?;
     }
     overlay.set_ignore_cursor_events(true)?;
+    // La pastille ne doit pas apparaître sur les captures commentées.
+    #[cfg(windows)]
+    if let Ok(hwnd) = overlay.hwnd() {
+        vtt_platform::exclude_from_capture(hwnd.0 as isize);
+    }
     overlay.show()
 }

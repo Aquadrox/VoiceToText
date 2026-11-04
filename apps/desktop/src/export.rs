@@ -92,6 +92,7 @@ fn parse(source: &str, paths: &Paths) -> Result<Config, String> {
     config.migrate();
     let mut config = config.checked()?;
     app_settings::validate_shortcuts(&config.hotkey)?;
+    app_settings::validate_captures(&config.captures)?;
     app_settings::validate_model(paths, &config.asr.model)?;
     config.translation.language = config.translation.language.trim().to_owned();
     settings::check_llm(&mut config.llm).map_err(|e| format!("nettoyage : {e}"))?;
@@ -164,6 +165,7 @@ mod tests {
             history_file: dir.join("history.jsonl"),
             usage_file: dir.join("usage.json"),
             meetings_dir: dir.join("meetings"),
+            captures_dir: dir.join("captures"),
         };
         let mut config = Config::default();
         config.dictionary.push("Aquadrox".into());

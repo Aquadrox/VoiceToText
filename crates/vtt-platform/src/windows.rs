@@ -367,6 +367,126 @@ pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
     std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..len]))
 }
 
+/// Capture de l'écran principal (pixels physiques), en RGBA. Les fenêtres
+/// marquées par [`exclude_from_capture`] (pastille, encre) n'y figurent pas.
+pub fn screenshot() -> Result<vtt_core::annotation::Image, String> {
+    use windows::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
+        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, HGDIOBJ,
+        ReleaseDC, SRCCOPY, SelectObject,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+    // SAFETY: contextes et bitmap créés ici, libérés avant de rendre la main ;
+    // tampon de la taille annoncée à GetDIBits.
+    unsafe {
+        let width = GetSystemMetrics(SM_CXSCREEN);
+        let height = GetSystemMetrics(SM_CYSCREEN);
+        if width <= 0 || height <= 0 {
+            return Err("écran introuvable".into());
+        }
+        let screen = GetDC(None);
+        let memory = CreateCompatibleDC(Some(screen));
+        let bitmap = CreateCompatibleBitmap(screen, width, height);
+        let previous = SelectObject(memory, HGDIOBJ(bitmap.0));
+        let copied = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            Some(screen),
+            0,
+            0,
+            SRCCOPY | CAPTUREBLT,
+        );
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                // Négatif : lignes de haut en bas.
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; width as usize * height as usize * 4];
+        let lines = if copied.is_ok() {
+            GetDIBits(
+                memory,
+                bitmap,
+                0,
+                height as u32,
+                Some(pixels.as_mut_ptr().cast()),
+                &mut info,
+                DIB_RGB_COLORS,
+            )
+        } else {
+            0
+        };
+        SelectObject(memory, previous);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(memory);
+        ReleaseDC(None, screen);
+        copied.map_err(|e| format!("capture d'écran : {e}"))?;
+        if lines != height {
+            return Err("capture d'écran incomplète".into());
+        }
+        // BGRA → RGBA opaque.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+            pixel[3] = 255;
+        }
+        Ok(vtt_core::annotation::Image {
+            width: width as u32,
+            height: height as u32,
+            rgba: pixels,
+        })
+    }
+}
+
+/// La fenêtre n'apparaît pas dans les captures d'écran (pastille, encre de
+/// la capture commentée). Windows 10 2004 et plus récents.
+pub fn exclude_from_capture(hwnd: isize) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    };
+    // SAFETY: simple changement d'attribut d'une fenêtre de l'application.
+    if let Err(e) =
+        unsafe { SetWindowDisplayAffinity(HWND(hwnd as *mut _), WDA_EXCLUDEFROMCAPTURE) }
+    {
+        log::warn!("fenêtre non exclue des captures : {e}");
+    }
+}
+
+/// Colle une image dans l'application active (presse-papier + Ctrl+V).
+pub fn paste_image(image: &vtt_core::annotation::Image) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("presse-papier : {e}"))?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: image.width as usize,
+            height: image.height as usize,
+            bytes: std::borrow::Cow::Borrowed(&image.rgba),
+        })
+        .map_err(|e| format!("presse-papier : {e}"))?;
+    drop(clipboard);
+    let pasted = send_keys(&[
+        (VK_CONTROL, false),
+        (VK_V, false),
+        (VK_V, true),
+        (VK_CONTROL, true),
+    ]);
+    if pasted {
+        Ok(())
+    } else {
+        Err("Ctrl+V refusé par Windows : image laissée dans le presse-papier".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

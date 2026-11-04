@@ -18,15 +18,16 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 7. [Réessayer une dictée](#réessayer-une-dictée)
 8. [Mode traduction](#mode-traduction)
 9. [Réunions](#réunions)
-10. [La fenêtre principale](#la-fenêtre-principale)
-11. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-12. [Mises à jour](#mises-à-jour)
-13. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-14. [Fichiers et emplacements](#fichiers-et-emplacements)
-15. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-16. [Dépannage](#dépannage)
-17. [Développement](#développement)
-18. [Licence](#licence)
+10. [Capture commentée](#capture-commentée)
+11. [La fenêtre principale](#la-fenêtre-principale)
+12. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+13. [Mises à jour](#mises-à-jour)
+14. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+15. [Fichiers et emplacements](#fichiers-et-emplacements)
+16. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+17. [Dépannage](#dépannage)
+18. [Développement](#développement)
+19. [Licence](#licence)
 
 ## Installation
 
@@ -163,6 +164,21 @@ Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendan
 | Conservé, chiffré | Gardé ; export en WAV et **Transcrire à nouveau** (après un changement de modèle) | Transcription reprise au redémarrage |
 
 Autres réglages : capter ou non le son du PC, écarter l'écho, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
+
+## Capture commentée
+
+Montrer plutôt qu'écrire : expliquer un bug, une idée ou une consigne en parlant et en dessinant sur l'écran, puis coller le résultat (Slack, Jira, mail, ChatGPT, Claude…).
+
+1. **Alt+Maj+A** (ou menu de l'icône → **Capture commentée**) : la pastille affiche « Capture 00:05 ». Parlez en montrant l'écran.
+2. **Tenez Alt+Maj+A** et bougez la souris : vous dessinez à l'écran (sans cliquer). Le trait s'efface au bout d'une seconde, mais il est gardé sur les images.
+3. **Alt+Maj+A** à nouveau (appui court) pour arrêter. VoiceToText :
+   - transcrit votre narration mot par mot ;
+   - choisit les **moments clés** : chaque trait dessiné, et les mots qui désignent l'écran (« ici », « là », « ça », « regarde »…), au plus 6 ;
+   - prend l'écran de ces moments, y dessine vos traits, et les réunit en une **planche numérotée** ;
+   - fait rédiger le texte par le LLM selon le modèle choisi (**Explication**, **Rapport de bug**, **Consigne pour une IA**, ou **Narration seule** sans LLM), avec des repères `[image 1]`… ;
+   - **colle la planche puis le texte** dans l'application active.
+
+Menu de l'icône → **Coller la dernière capture commentée** pour la coller ailleurs. Réglages → **Capture commentée** : modèle de texte, conservation sur le disque (non par défaut : seule la dernière reste en mémoire ; 1, 7 ou 30 jours). La pastille et l'encre n'apparaissent jamais sur les captures. Écran principal seulement ; 5 minutes au plus.
 
 ## La fenêtre principale
 
@@ -314,6 +330,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Export des réglages | Fichier `.toml` où vous le choisissez ; **jamais de clé API** |
 | Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
 | Titre de la fenêtre active | Sert à choisir un style ; ni stocké, ni journalisé, ni envoyé |
+| Captures d'écran (capture commentée) | Restent sur le PC : en mémoire, ou dans `captures\` si vous choisissez de les garder ; **jamais envoyées** (seul le texte de la narration va au LLM) |
 | Programmes qui utilisent le micro | Nom seulement, lu chaque seconde pour la détection d'appel ; ni stocké, ni envoyé (désactivable) |
 | Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
 
@@ -325,6 +342,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Modèles de transcription (et bibliothèques de Parakeet, Vosk) | `%LOCALAPPDATA%\VoiceToText\models\` |
 | Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
 | Réunions (une par dossier) | `%LOCALAPPDATA%\VoiceToText\meetings\` |
+| Captures commentées gardées | `%LOCALAPPDATA%\VoiceToText\captures\` |
 | Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json`, `usage-apps.json` |
 | Réglages remplacés par un import | `%APPDATA%\VoiceToText\config.avant-import.toml` |
 | Journal | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé au-delà de 3 Mo, les 100 dernières lignes sont gardées) |
@@ -352,9 +370,14 @@ command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = dé
 translate = "Alt+Shift+T"   # active ou coupe le mode traduction ("" = désactivé)
 meeting = "Alt+Shift+M"     # démarre ou arrête une réunion ("" = désactivé)
 meeting_copy = "Alt+Shift+N"  # colle les nouvelles répliques de la réunion
+annotate = "Alt+Shift+A"    # capture commentée : appui démarre/arrête, maintien dessine
 
 [translation]
 language = "anglais"   # langue d'arrivée du mode traduction
+
+[captures]
+template = "explication"  # "explication", "bug", "consigne" ou "brut" (sans LLM)
+keep_days = 0             # captures gardées sur le disque ; 0 = jamais
 
 [meetings]
 audio = "temporaire"   # "memoire", "temporaire" (chiffré, supprimé à la fin) ou "conserve"

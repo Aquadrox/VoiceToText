@@ -7,6 +7,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{App, Manager, Wry};
 
+use crate::annotate::{self, AnnotatorState};
 use crate::controller::WorkerHandle;
 use crate::main_window::{self, Page};
 use crate::meetings::MeetingsState;
@@ -57,6 +58,20 @@ pub fn build(
     )?;
     let meeting = MenuItem::with_id(app, "meeting", "Démarrer une réunion", true, None::<&str>)?;
     let meetings = MenuItem::with_id(app, "meetings", "Réunions…", true, None::<&str>)?;
+    let annotate = MenuItem::with_id(
+        app,
+        "annotate",
+        "Capture commentée (démarrer / arrêter)",
+        true,
+        None::<&str>,
+    )?;
+    let annotate_paste = MenuItem::with_id(
+        app,
+        "annotate_paste",
+        "Coller la dernière capture commentée",
+        true,
+        None::<&str>,
+    )?;
     let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
     let config = MenuItem::with_id(
         app,
@@ -88,6 +103,8 @@ pub fn build(
             &PredefinedMenuItem::separator(app)?,
             &meeting,
             &meetings,
+            &annotate,
+            &annotate_paste,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &config,
@@ -121,6 +138,17 @@ pub fn build(
                 }
             }
             "meetings" => main_window::open(app, Page::Meetings),
+            "annotate" => {
+                if let Some(annotator) = app.try_state::<AnnotatorState>() {
+                    annotate::toggle(&annotator);
+                }
+            }
+            "annotate_paste" => {
+                if let Some(annotator) = app.try_state::<AnnotatorState>() {
+                    let annotator = std::sync::Arc::clone(&annotator);
+                    std::thread::spawn(move || annotator.paste_last());
+                }
+            }
             "settings" => main_window::open(app, Page::Settings),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),

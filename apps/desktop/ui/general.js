@@ -61,6 +61,13 @@ function fillGeneral(view) {
   $("hk-translate").value = view.hotkey.translate;
   $("hk-meeting").value = view.hotkey.meeting;
   $("hk-meeting-copy").value = view.hotkey.meeting_copy;
+  $("hk-annotate").value = view.hotkey.annotate;
+  $("capture-template").replaceChildren(...view.capture_templates.map(([id, label]) => option(id, label)));
+  $("capture-template").value = view.captures.template;
+  $("capture-keep").replaceChildren(
+    ...view.capture_keep_days.map((d) => option(String(d), d === 0 ? "Non" : d === 1 ? "1 jour" : `${d} jours`)),
+  );
+  $("capture-keep").value = String(view.captures.keep_days);
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
 
@@ -149,6 +156,7 @@ $("general-form").addEventListener("submit", async (event) => {
         translate: $("hk-translate").value.trim(),
         meeting: $("hk-meeting").value.trim(),
         meeting_copy: $("hk-meeting-copy").value.trim(),
+        annotate: $("hk-annotate").value.trim(),
         min_hold_ms: Number($("hk-hold").value),
         hands_free: $("hk-handsfree").checked,
       },
@@ -166,6 +174,10 @@ $("general-form").addEventListener("submit", async (event) => {
         voice_commands: $("dict-commands").checked,
       },
       translation: { language: $("tr-language").value },
+      captures: {
+        template: $("capture-template").value,
+        keep_days: Number($("capture-keep").value),
+      },
     });
     const notes = result.notes.map((note) => `\n• ${note}`).join("");
     showGeneralResult(`✓ Appliqué, sans redémarrage.${notes}`);

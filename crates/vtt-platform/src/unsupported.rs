@@ -110,3 +110,13 @@ pub fn unprotect(_data: &[u8]) -> Result<Vec<u8>, String> {
 pub fn microphone_apps() -> Vec<String> {
     Vec::new()
 }
+
+pub fn screenshot() -> Result<vtt_core::annotation::Image, String> {
+    Err(format!("capture d'écran {MESSAGE}"))
+}
+
+pub fn exclude_from_capture(_hwnd: isize) {}
+
+pub fn paste_image(_image: &vtt_core::annotation::Image) -> Result<(), String> {
+    Err(format!("collage d'image {MESSAGE}"))
+}

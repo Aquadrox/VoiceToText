@@ -5,6 +5,7 @@
 //! LLM, insertion Windows) vivent dans d'autres crates et se branchent via
 //! les traits de [`pipeline`].
 
+pub mod annotation;
 pub mod audio;
 pub mod calls;
 pub mod config;
@@ -19,5 +20,5 @@ pub mod usage;
 pub use config::Config;
 pub use pipeline::{
     AudioClip, Cleaned, Directives, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, Target,
-    TextSink, Transcriber, WithFallback,
+    TextSink, Transcriber, WithFallback, Word, spread_words,
 };

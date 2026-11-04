@@ -21,6 +21,8 @@ pub struct Paths {
     pub usage_file: PathBuf,
     /// Une réunion par dossier (transcription, compte rendu, audio chiffré).
     pub meetings_dir: PathBuf,
+    /// Captures commentées gardées (si l'utilisateur le demande).
+    pub captures_dir: PathBuf,
 }
 
 impl Paths {
@@ -38,6 +40,7 @@ impl Paths {
             history_file: data_dir.join("history.jsonl"),
             usage_file: data_dir.join("usage.json"),
             meetings_dir: data_dir.join("meetings"),
+            captures_dir: data_dir.join("captures"),
         }
     }
 

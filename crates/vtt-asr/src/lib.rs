@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
-use vtt_core::{AudioClip, Error, SAMPLE_RATE, Transcriber};
+use vtt_core::{AudioClip, Error, SAMPLE_RATE, Transcriber, Word};
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
 };
@@ -135,6 +135,37 @@ impl Transcriber for WhisperTranscriber {
     }
 
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error> {
+        let mut text = String::new();
+        self.run(clip, false, |segment, _, _| text.push_str(segment))?;
+        Ok(text.trim().to_owned())
+    }
+
+    /// Un segment par mot (`max_len` 1, coupure aux mots), horodaté.
+    fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
+        let mut words = Vec::new();
+        self.run(clip, true, |segment, start_ms, end_ms| {
+            let text = segment.trim();
+            if !text.is_empty() {
+                words.push(Word {
+                    text: text.to_owned(),
+                    start_ms,
+                    end_ms,
+                });
+            }
+        })?;
+        Ok(words)
+    }
+}
+
+impl WhisperTranscriber {
+    /// Transcrit `clip` ; `on_segment` reçoit chaque segment et ses bornes
+    /// (ms). `words` : un segment par mot.
+    fn run(
+        &self,
+        clip: &AudioClip,
+        words: bool,
+        mut on_segment: impl FnMut(&str, u64, u64),
+    ) -> Result<(), Error> {
         let prompt = self
             .initial_prompt
             .lock()
@@ -146,7 +177,12 @@ impl Transcriber for WhisperTranscriber {
         params.set_n_threads(self.n_threads);
         // Chaque dictée est indépendante : pas de contexte hérité de la précédente.
         params.set_no_context(true);
-        params.set_no_timestamps(true);
+        params.set_no_timestamps(!words);
+        if words {
+            params.set_token_timestamps(true);
+            params.set_max_len(1);
+            params.set_split_on_word(true);
+        }
         params.set_suppress_blank(true);
         params.set_suppress_nst(true);
         params.set_print_special(false);
@@ -168,13 +204,15 @@ impl Transcriber for WhisperTranscriber {
             .full(params, &samples)
             .map_err(|e| Error::Asr(e.to_string()))?;
 
-        let mut text = String::new();
         for segment in state.as_iter() {
             let part = segment
                 .to_str_lossy()
                 .map_err(|e| Error::Asr(e.to_string()))?;
-            text.push_str(&part);
+            // Horodatage en centièmes de seconde.
+            let start = segment.start_timestamp().max(0) as u64 * 10;
+            let end = segment.end_timestamp().max(0) as u64 * 10;
+            on_segment(&part, start, end);
         }
-        Ok(text.trim().to_owned())
+        Ok(())
     }
 }

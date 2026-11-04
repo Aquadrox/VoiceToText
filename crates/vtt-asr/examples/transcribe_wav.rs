@@ -69,6 +69,13 @@ fn main() {
     };
     eprintln!("chargement : {} ms", started.elapsed().as_millis());
 
+    // VTT_WORDS=1 : mots horodatés (capture commentée).
+    if std::env::var_os("VTT_WORDS").is_some() {
+        for word in transcriber.transcribe_words(&clip).expect("transcription") {
+            println!("{:>6} {:>6}  {}", word.start_ms, word.end_ms, word.text);
+        }
+        return;
+    }
     let pipeline = Pipeline::new(transcriber, None, Box::new(Stdout));
     let started = Instant::now();
     let outcome = pipeline
