@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use vtt_asr::WhisperTranscriber;
 use vtt_core::config::{AsrConfig, HotkeyConfig, Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink};
@@ -117,7 +116,7 @@ pub struct Reconfiguration {
     voice_commands: bool,
     unload: UnloadPolicy,
     retry_shortcut: String,
-    /// Modèle Whisper demandé (rechargé s'il change).
+    /// Modèle de transcription demandé (rechargé s'il change).
     asr: AsrConfig,
 }
 
@@ -289,19 +288,13 @@ fn run(
 ) -> Result<(), String> {
     let mut ptt = push_to_talk(&config.hotkey)?;
 
-    let model_path = model::ensure(&paths.models_dir, &config.asr.model, |percent| {
+    let installed = model::ensure(&paths.models_dir, &config.asr.model, |percent| {
         reporter.set(Status::Loading(format!(
             "Téléchargement du modèle : {percent} %"
         )));
     })?;
     reporter.set(Status::Loading("Chargement du modèle…".into()));
-    let transcriber = WhisperTranscriber::load(
-        &model_path,
-        &config.asr.language,
-        config.asr.use_gpu,
-        &config.dictionary,
-    )
-    .map_err(|e| e.to_string())?;
+    let transcriber = model::load(&installed, &config.asr, &config.dictionary)?;
     let cleaner = settings::build_cleaner(config);
     match &cleaner {
         Some(_) => log::info!(
@@ -311,7 +304,7 @@ fn run(
         ),
         None => log::info!("nettoyage désactivé (llm.enabled = false)"),
     }
-    let pipeline = Pipeline::new(Box::new(transcriber), cleaner, Box::new(ClipboardPaster))
+    let pipeline = Pipeline::new(transcriber, cleaner, Box::new(ClipboardPaster))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
         .with_voice_commands(config.dictation.voice_commands);
@@ -585,7 +578,7 @@ impl Controls<'_> {
     }
 }
 
-/// Modèle Whisper en place, et celui demandé dans les réglages.
+/// Modèle de transcription en place, et celui demandé dans les réglages.
 struct ModelSlot {
     models_dir: PathBuf,
     /// Réglages du modèle chargé.
@@ -617,7 +610,7 @@ impl ModelSlot {
         if same_model(&self.loaded, &self.wanted) {
             return;
         }
-        let Some(path) = model::local(&self.models_dir, &self.wanted.model) else {
+        let Some(installed) = model::local(&self.models_dir, &self.wanted.model) else {
             self.download(reporter, recording);
             return;
         };
@@ -625,18 +618,14 @@ impl ModelSlot {
         reporter.set(Status::Loading("Chargement du modèle…".into()));
         // Libérer la mémoire graphique avant de charger le nouveau modèle.
         pipeline.unload_model();
-        match WhisperTranscriber::load(&path, &asr.language, asr.use_gpu, &self.dictionary) {
+        match model::load(&installed, asr, &self.dictionary) {
             Ok(transcriber) => {
-                pipeline.set_transcriber(Box::new(transcriber));
-                log::info!(
-                    "modèle changé : {} ({})",
-                    asr.model,
-                    if asr.use_gpu {
-                        "carte graphique"
-                    } else {
-                        "processeur"
-                    }
-                );
+                pipeline.set_transcriber(transcriber);
+                let device = match model::engine(&asr.model) {
+                    model::Engine::Whisper if asr.use_gpu => "carte graphique",
+                    _ => "processeur",
+                };
+                log::info!("modèle changé : {} ({device})", asr.model);
                 self.loaded = asr.clone();
                 if !recording.load(Ordering::SeqCst) {
                     reporter.set(Status::Idle);

@@ -1,4 +1,11 @@
-//! Transcription locale avec whisper.cpp.
+//! Transcription locale : whisper.cpp (Whisper), ONNX Runtime (Parakeet),
+//! Kaldi (Vosk).
+
+mod parakeet;
+mod vosk;
+
+pub use parakeet::ParakeetTranscriber;
+pub use vosk::VoskTranscriber;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};

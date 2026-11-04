@@ -11,11 +11,13 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 dirs = "6"
+flate2 = "1"
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 simplelog = "0.12"
+tar = "0.4"
 tauri = { version = "2.12", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
@@ -29,6 +31,7 @@ vtt-asr = { path = "../../crates/vtt-asr" }
 vtt-core = { path = "../../crates/vtt-core" }
 vtt-llm = { path = "../../crates/vtt-llm" }
 vtt-platform = { path = "../../crates/vtt-platform" }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 [target.'cfg(windows)'.dependencies]
 vtt-asr = { path = "../../crates/vtt-asr", features = ["vulkan"] }

@@ -345,6 +345,28 @@ impl TextSink for ClipboardPaster {
     }
 }
 
+/// Chemin utilisable par une bibliothèque qui ouvre ses fichiers avec des
+/// chemins ANSI (Kaldi/Vosk) : nom court 8.3, en ASCII, si le chemin
+/// contient des accents (`C:\Users\Frédéric\…`). Inchangé sinon, ou si les
+/// noms courts sont désactivés sur le disque.
+pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows::Win32::Storage::FileSystem::GetShortPathNameW;
+    use windows::core::PCWSTR;
+
+    if path.to_str().is_some_and(|p| p.is_ascii()) {
+        return path.to_owned();
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buffer = vec![0u16; 1024];
+    // SAFETY: chaîne terminée par un zéro, tampon de la taille annoncée.
+    let len = unsafe { GetShortPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buffer)) } as usize;
+    if len == 0 || len > buffer.len() {
+        return path.to_owned();
+    }
+    std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..len]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
