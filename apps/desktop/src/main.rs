@@ -97,6 +97,7 @@ fn main() {
             meetings::offer_view,
             annotate::annotate_state,
             annotate::annotate_stroke,
+            annotate::annotate_zone,
             meetings::offer_answer,
             meetings::start_meeting,
             meetings::stop_meeting,

@@ -5,7 +5,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use vtt_core::Config;
 use vtt_core::config::{
-    AsrConfig, AudioConfig, CAPTURE_KEEP_DAYS, CAPTURE_RAW_TEMPLATE, CapturesConfig,
+    AsrConfig, AudioConfig, CAPTURE_AREAS, CAPTURE_KEEP_DAYS, CAPTURE_RAW_TEMPLATE, CapturesConfig,
     DictationConfig, HOTKEY_NAMES, HotkeyConfig, TRANSLATION_LANGUAGES, TranslationConfig,
     UNLOAD_AFTER_CHOICES, UpdatesConfig,
 };
@@ -31,6 +31,8 @@ pub struct AppSettingsView {
     /// Modèles de texte de la capture commentée : (identifiant, libellé).
     capture_templates: Vec<(&'static str, &'static str)>,
     capture_keep_days: &'static [u32],
+    /// Profils LLM, pour la description des images.
+    llm_profiles: Vec<String>,
     languages: &'static [&'static str],
     keys: &'static [&'static str],
     unload_choices: Vec<u32>,
@@ -61,6 +63,7 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
             .chain([(CAPTURE_RAW_TEMPLATE, "Narration seule (sans LLM)")])
             .collect(),
         capture_keep_days: CAPTURE_KEEP_DAYS,
+        llm_profiles: config.llm_profiles.iter().map(|p| p.name.clone()).collect(),
         languages: TRANSLATION_LANGUAGES,
         keys: HOTKEY_NAMES,
         microphones: vtt_platform::audio::input_devices(),
@@ -123,11 +126,13 @@ pub fn validate_captures(captures: &CapturesConfig) -> Result<(), String> {
         || vtt_llm::CAPTURE_TEMPLATES
             .iter()
             .any(|t| t.id == captures.template);
-    if known {
-        Ok(())
-    } else {
-        Err(format!("modèle de capture inconnu : {}", captures.template))
+    if !known {
+        return Err(format!("modèle de capture inconnu : {}", captures.template));
     }
+    if !CAPTURE_AREAS.contains(&captures.area.as_str()) {
+        return Err(format!("zone de capture inconnue : {}", captures.area));
+    }
+    Ok(())
 }
 
 /// Modèle Whisper proposé dans les réglages (téléchargé au besoin).
@@ -181,6 +186,10 @@ pub fn save_app_settings(
     config.translation = TranslationConfig {
         language: translation.language.trim().to_owned(),
     };
+    let profile = captures.vision_profile.trim();
+    if !profile.is_empty() && !config.llm_profiles.iter().any(|p| p.name == profile) {
+        return Err(format!("profil LLM introuvable : « {profile} »"));
+    }
     config.captures = captures;
     paths.write_config(&config)?;
     let notes = apply(&app, &paths, &config);

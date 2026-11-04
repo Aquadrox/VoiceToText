@@ -68,6 +68,18 @@ function fillGeneral(view) {
     ...view.capture_keep_days.map((d) => option(String(d), d === 0 ? "Non" : d === 1 ? "1 jour" : `${d} jours`)),
   );
   $("capture-keep").value = String(view.captures.keep_days);
+  $("capture-area").value = view.captures.area;
+  $("capture-clicks").checked = view.captures.clicks;
+  $("capture-vision").checked = view.captures.vision;
+  const profiles = view.llm_profiles.includes(view.captures.vision_profile) || !view.captures.vision_profile
+    ? view.llm_profiles
+    : [...view.llm_profiles, view.captures.vision_profile];
+  $("capture-vision-profile").replaceChildren(
+    option("", "Fournisseur actif (Réglages → Nettoyage du texte)"),
+    ...profiles.map((name) => option(name, `Profil « ${name} »`)),
+  );
+  $("capture-vision-profile").value = view.captures.vision_profile;
+  showVisionWarning();
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
 
@@ -177,6 +189,10 @@ $("general-form").addEventListener("submit", async (event) => {
       captures: {
         template: $("capture-template").value,
         keep_days: Number($("capture-keep").value),
+        area: $("capture-area").value,
+        clicks: $("capture-clicks").checked,
+        vision: $("capture-vision").checked,
+        vision_profile: $("capture-vision-profile").value,
       },
     });
     const notes = result.notes.map((note) => `\n• ${note}`).join("");
@@ -320,3 +336,10 @@ try {
 } catch {
   // Pas de stockage : rien à afficher.
 }
+
+function showVisionWarning() {
+  const vision = $("capture-vision").checked;
+  $("capture-vision-warning").hidden = !vision;
+  $("capture-vision-profile").disabled = !vision;
+}
+$("capture-vision").addEventListener("change", showVisionWarning);

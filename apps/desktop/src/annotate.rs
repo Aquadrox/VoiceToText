@@ -19,12 +19,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use vtt_core::annotation::{self, Image, Stroke};
+use vtt_core::annotation::{self, Click, Image, Region, Stroke};
 use vtt_core::config::CAPTURE_RAW_TEMPLATE;
 use vtt_core::{AudioClip, TextSink, Word};
 use vtt_llm::CAPTURE_TEMPLATES;
-use vtt_platform::ClipboardPaster;
 use vtt_platform::capture::Capture;
+use vtt_platform::{ClickRecorder, ClipboardPaster};
 
 use crate::controller::{Work, WorkerHandle};
 use crate::costs::{self, LedgerStore};
@@ -43,6 +43,8 @@ const HOLD_TO_DRAW: Duration = Duration::from_millis(250);
 /// Délai entre le collage de la planche et celui du texte.
 const PASTE_GAP: Duration = Duration::from_millis(400);
 const INK_LABEL: &str = "ink";
+/// Images envoyées au LLM (description) : au plus cette largeur.
+const VISION_WIDTH: u32 = 1280;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
@@ -102,6 +104,13 @@ struct Recording {
     stop_frames: Arc<AtomicBool>,
     /// Pixels physiques par pixel CSS de la fenêtre d'encre.
     scale: f64,
+    /// Fenêtre ou zone capturée (`None` : tout l'écran principal).
+    region: Option<Region>,
+    /// Zone en cours de tracé : clics ignorés jusqu'à la fin.
+    choosing_zone: bool,
+    clicks: Arc<Mutex<Vec<Click>>>,
+    /// Hook souris, retiré à l'arrêt.
+    _click_recorder: Option<ClickRecorder>,
 }
 
 #[derive(Default)]
@@ -137,6 +146,8 @@ pub type AnnotatorState = Arc<Annotator>;
 pub struct AnnotateState {
     recording: bool,
     drawing: bool,
+    /// Zone à tracer (fenêtre d'encre).
+    choosing_zone: bool,
     elapsed_ms: u64,
     shortcut: String,
 }
@@ -163,6 +174,7 @@ impl Annotator {
         AnnotateState {
             recording: recording.is_some(),
             drawing: lock(&self.keys).drawing,
+            choosing_zone: recording.as_ref().is_some_and(|r| r.choosing_zone),
             elapsed_ms: recording
                 .as_ref()
                 .map_or(0, |r| r.started.elapsed().as_millis() as u64),
@@ -242,13 +254,24 @@ impl Annotator {
         // Vérifie tout de suite que la capture d'écran fonctionne.
         let first = vtt_platform::screenshot()?;
         let capture = Capture::start(device, false)?;
-        let scale = self.open_ink();
+        let zone = config.captures.area == "zone";
+        // Fenêtre active au démarrage (la pastille ne prend pas le focus).
+        let region = (config.captures.area == "fenetre")
+            .then(|| window_region(first.width, first.height))
+            .flatten();
+        let scale = self.open_ink(zone);
+        let started = Instant::now();
+        let clicks: Arc<Mutex<Vec<Click>>> = Arc::default();
+        let click_recorder = config
+            .captures
+            .clicks
+            .then(|| self.record_clicks(started, Arc::clone(&clicks)))
+            .flatten();
         let frames = Arc::new(Mutex::new(vec![Frame {
             at_ms: 0,
             png: encode_png(&first)?,
         }]));
         let stop_frames = Arc::new(AtomicBool::new(false));
-        let started = Instant::now();
         spawn_frames(
             Arc::clone(&frames),
             Arc::clone(&stop_frames),
@@ -262,6 +285,10 @@ impl Annotator {
             strokes: Arc::default(),
             stop_frames,
             scale,
+            region,
+            choosing_zone: zone,
+            clicks,
+            _click_recorder: click_recorder,
         });
         drop(recording);
         log::info!("capture commentée : enregistrement");
@@ -281,9 +308,63 @@ impl Annotator {
         Ok(())
     }
 
-    /// Fenêtre transparente sur tout l'écran principal pour l'encre ;
-    /// renvoie l'échelle pixels physiques / CSS.
-    fn open_ink(&self) -> f64 {
+    /// Clics de la souris pendant la capture (hors tracé de la zone).
+    fn record_clicks(
+        self: &Arc<Self>,
+        started: Instant,
+        clicks: Arc<Mutex<Vec<Click>>>,
+    ) -> Option<ClickRecorder> {
+        let (tx, rx) = mpsc::channel::<(i32, i32)>();
+        let recorder = match ClickRecorder::start(tx) {
+            Ok(recorder) => recorder,
+            Err(e) => {
+                log::warn!("clics non enregistrés : {e}");
+                return None;
+            }
+        };
+        let annotator = Arc::clone(self);
+        thread::spawn(move || {
+            for (x, y) in rx {
+                let choosing = lock(&annotator.recording)
+                    .as_ref()
+                    .is_none_or(|r| r.choosing_zone);
+                if !choosing {
+                    lock(&clicks).push(Click {
+                        x: x as f32,
+                        y: y as f32,
+                        at_ms: started.elapsed().as_millis() as u64,
+                    });
+                }
+            }
+        });
+        Some(recorder)
+    }
+
+    /// Zone tracée dans la fenêtre d'encre (pixels CSS) ; `None` : tout
+    /// l'écran.
+    fn set_zone(&self, zone: Option<(f64, f64, f64, f64)>) {
+        let mut recording = lock(&self.recording);
+        let Some(recording) = recording.as_mut() else {
+            return;
+        };
+        let scale = recording.scale;
+        recording.choosing_zone = false;
+        recording.region = zone
+            .filter(|&(_, _, w, h)| w >= 8.0 && h >= 8.0)
+            .map(|(x, y, w, h)| Region {
+                x: (x.max(0.0) * scale) as u32,
+                y: (y.max(0.0) * scale) as u32,
+                width: (w * scale) as u32,
+                height: (h * scale) as u32,
+            });
+        if let Some(ink) = self.app.get_webview_window(INK_LABEL) {
+            let _ = ink.set_ignore_cursor_events(true);
+        }
+    }
+
+    /// Fenêtre transparente sur tout l'écran principal pour l'encre (et le
+    /// tracé de la zone si `zone`) ; renvoie l'échelle pixels physiques / CSS.
+    fn open_ink(&self, zone: bool) -> f64 {
         let Ok(Some(monitor)) = self.app.primary_monitor() else {
             return 1.0;
         };
@@ -309,7 +390,17 @@ impl Annotator {
                     .build();
             match built {
                 Ok(ink) => {
-                    let _ = ink.set_ignore_cursor_events(true);
+                    let _ = ink.set_ignore_cursor_events(!zone);
+                    if zone {
+                        // Échap doit annuler le tracé : la fenêtre prend le clavier.
+                        let _ = ink.set_focus();
+                        // La page doit être chargée pour recevoir l'événement.
+                        let app = self.app.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(400));
+                            let _ = app.emit_to(INK_LABEL, "ink-zone", ());
+                        });
+                    }
                     #[cfg(windows)]
                     if let Ok(hwnd) = ink.hwnd() {
                         vtt_platform::exclude_from_capture(hwnd.0 as isize);
@@ -356,6 +447,8 @@ impl Annotator {
         let mic = recording.capture.stop().mic;
         let frames = std::mem::take(&mut *lock(&recording.frames));
         let strokes = std::mem::take(&mut *lock(&recording.strokes));
+        let clicks = std::mem::take(&mut *lock(&recording.clicks));
+        let region = recording.region;
         self.processing.store(true, Ordering::SeqCst);
         self.emit_state();
         self.reporter().set(Status::Processing);
@@ -367,8 +460,12 @@ impl Annotator {
         );
         let annotator = Arc::clone(self);
         thread::spawn(move || {
-            let result =
-                annotator.process(AudioClip { samples: mic }, frames, strokes, duration_ms);
+            let marks = Marks {
+                strokes,
+                clicks,
+                region,
+            };
+            let result = annotator.process(AudioClip { samples: mic }, frames, marks, duration_ms);
             annotator.processing.store(false, Ordering::SeqCst);
             match result {
                 Ok(()) => annotator.reporter().set(Status::Idle),
@@ -396,11 +493,18 @@ impl Annotator {
         &self,
         clip: AudioClip,
         frames: Vec<Frame>,
-        strokes: Vec<Stroke>,
+        marks: Marks,
         duration_ms: u64,
     ) -> Result<(), String> {
+        let Marks {
+            strokes,
+            clicks,
+            region,
+        } = marks;
         let words = self.transcribe(clip)?;
-        let moments = annotation::key_moments(&words, &strokes, duration_ms);
+        let moments = annotation::key_moments(&words, &strokes, &clicks, duration_ms);
+        // Coordonnées ramenées dans la fenêtre ou la zone capturée.
+        let local = |point: (f32, f32)| region.map_or(point, |r| r.local(point));
         let times: Vec<u64> = frames.iter().map(|f| f.at_ms).collect();
         let mut images = Vec::new();
         let mut previous = 0;
@@ -409,18 +513,29 @@ impl Annotator {
                 continue;
             };
             let mut image = decode_png(&frames[index].png)?;
-            // Traits dessinés depuis l'image précédente.
-            let drawn: Vec<&Stroke> = strokes
+            if let Some(region) = &region {
+                image = image.crop(region);
+            }
+            // Traits et clics depuis l'image précédente.
+            let window = |at: u64| at > previous && at <= moment + 500;
+            let drawn: Vec<Stroke> = strokes
                 .iter()
-                .filter(|s| s.end_ms > previous && s.end_ms <= moment + 500)
+                .filter(|s| window(s.end_ms))
+                .map(|s| Stroke {
+                    points: s.points.iter().map(|&p| local(p)).collect(),
+                    end_ms: s.end_ms,
+                })
                 .collect();
-            annotation::draw_strokes(&mut image, &drawn);
+            annotation::draw_strokes(&mut image, &drawn.iter().collect::<Vec<_>>());
+            for click in clicks.iter().filter(|c| window(c.at_ms)) {
+                annotation::draw_click(&mut image, local((click.x, click.y)));
+            }
             images.push(image);
             previous = moment + 500;
         }
         let sheet = annotation::contact_sheet(&images);
         let narration = annotation::transcript_with_markers(&words, &moments);
-        let text = self.format(&narration, images.len());
+        let text = self.format(&narration, &images);
         if let Some(sheet) = &sheet {
             self.keep(sheet, &images, &text);
         }
@@ -438,9 +553,9 @@ impl Annotator {
 
     /// Texte mis en forme par le LLM selon le modèle choisi ; la narration
     /// telle quelle si « brut », sans LLM, ou en cas d'échec.
-    fn format(&self, narration: &str, images: usize) -> String {
+    fn format(&self, narration: &str, images: &[Image]) -> String {
         if narration.trim().is_empty() {
-            return match images {
+            return match images.len() {
                 0 => String::new(),
                 1 => "[image 1]".into(),
                 n => format!("[images 1 à {n}]"),
@@ -456,15 +571,31 @@ impl Annotator {
             }
             return narration.to_owned();
         };
-        match cleaner.format_capture(template, narration) {
+        let (cleaner, pricing) =
+            vision_client(&config).unwrap_or((cleaner, config.llm.pricing.clone()));
+        let urls: Vec<String> = if config.captures.vision {
+            images
+                .iter()
+                .filter_map(|image| encode_png(&image.scaled_to(VISION_WIDTH)).ok())
+                .map(|png| vtt_llm::png_data_url(&png))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let result = cleaner
+            .format_capture(template, narration, &urls)
+            .or_else(|e| {
+                if urls.is_empty() {
+                    return Err(e);
+                }
+                // Modèle qui ne lit pas les images : texte seul.
+                log::warn!("capture commentée : images refusées par le LLM ({e}), texte seul");
+                cleaner.format_capture(template, narration, &[])
+            });
+        match result {
             Ok(cleaned) => {
                 if let Some(usage) = &cleaned.usage {
-                    costs::record(
-                        &self.app.state::<LedgerStore>(),
-                        None,
-                        usage,
-                        &config.llm.pricing,
-                    );
+                    costs::record(&self.app.state::<LedgerStore>(), None, usage, &pricing);
                 }
                 cleaned.text
             }
@@ -537,6 +668,43 @@ impl Annotator {
                 .set(Status::Error(format!("capture commentée : {e}")));
         }
     }
+}
+
+/// Traits, clics et zone d'une capture.
+struct Marks {
+    strokes: Vec<Stroke>,
+    clicks: Vec<Click>,
+    region: Option<Region>,
+}
+
+/// Client du profil choisi pour la description des images, s'il y en a un.
+fn vision_client(
+    config: &vtt_core::Config,
+) -> Option<(vtt_llm::LlmCleaner, vtt_core::config::Pricing)> {
+    if !config.captures.vision {
+        return None;
+    }
+    let name = config.captures.vision_profile.trim();
+    let profile = config.llm_profiles.iter().find(|p| p.name == name)?;
+    Some((
+        settings::llm_client(config, &profile.llm),
+        profile.llm.pricing.clone(),
+    ))
+}
+
+/// Fenêtre au premier plan, bornée à l'écran principal.
+fn window_region(screen_width: u32, screen_height: u32) -> Option<Region> {
+    let (left, top, right, bottom) = vtt_platform::foreground_rect()?;
+    let x = left.clamp(0, screen_width as i32);
+    let y = top.clamp(0, screen_height as i32);
+    let width = right.clamp(0, screen_width as i32) - x;
+    let height = bottom.clamp(0, screen_height as i32) - y;
+    (width >= 8 && height >= 8).then_some(Region {
+        x: x as u32,
+        y: y as u32,
+        width: width as u32,
+        height: height as u32,
+    })
 }
 
 /// Colle la planche puis le texte dans l'application active.
@@ -631,6 +799,12 @@ pub fn annotate_stroke(annotator: State<'_, AnnotatorState>, points: Vec<(f64, f
     if !points.is_empty() {
         annotator.add_stroke(points);
     }
+}
+
+/// Zone tracée (pixels CSS : x, y, largeur, hauteur) ; rien : tout l'écran.
+#[tauri::command]
+pub fn annotate_zone(annotator: State<'_, AnnotatorState>, zone: Option<(f64, f64, f64, f64)>) {
+    annotator.set_zone(zone);
 }
 
 /// Démarre ou arrête depuis le menu de l'icône.

@@ -95,6 +95,17 @@ fn cleaner_for(config: &Config, llm: &LlmConfig) -> Box<dyn PostProcessor> {
     ))
 }
 
+/// Client LLM pour `llm` (fournisseur actif ou profil), avec les prompts et
+/// le dictionnaire de la configuration.
+pub fn llm_client(config: &Config, llm: &LlmConfig) -> LlmCleaner {
+    LlmCleaner::new(
+        llm,
+        &config.dictionary,
+        &prompts_for(config, llm),
+        api_key_provider(llm),
+    )
+}
+
 /// Compte rendu de réunion avec le fournisseur LLM actif (`None` : nettoyage
 /// désactivé).
 pub fn summarizer(config: &Config) -> Option<LlmCleaner> {
