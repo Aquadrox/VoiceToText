@@ -48,14 +48,14 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Pages Dictionnaire, Snippets et Styles (modèles Messagerie / E-mail / Code, ordre de priorité) : enregistrées dans config.toml et appliquées à chaud, sans recharger le modèle
 - ✅ Réglages complets : raccourcis (dictée, Command Mode, version brute, appui minimal, mains libres), micro, modèle Whisper (5 modèles vérifiés par SHA-256, téléchargés au redémarrage), carte graphique, démarrage avec Windows (clé Run de l'utilisateur)
 
-## v0.5 — Distribution et mises à jour 🚧
+## v0.5 — Distribution et mises à jour ✅
 
 - ✅ Hébergement des installeurs : dépôt public depuis le 03/11/2026, les Releases GitHub sont téléchargeables sans compte (plus besoin du VPS)
 - ✅ Vérification 1 min après le démarrage puis toutes les 6 h (`updates.check`) : notification Windows (une fois par version), entrée « Installer la version… » dans le menu de l'icône, bandeau sur l'accueil
 - ✅ Installation sur clic uniquement, via le module de mise à jour de Tauri : paquets **signés** (clé privée générée par le propriétaire, uniquement dans les secrets GitHub ; clé publique dans tauri.conf.json), signature et version signée vérifiées avant installation (protection contre le retour forcé à une ancienne version)
 - ✅ CI : installeur signé et manifeste `latest.json` publiés à chaque tag ; les PR ne touchent jamais aux secrets
 - ✅ Manuel d'utilisation complet dans le README
-- ⬜ Validation sur le PC : passage 0.5.0 → 0.5.1 par la mise à jour automatique
+- ✅ Validé sur le PC : mise à jour automatique (passage 0.5.0 → 0.5.1)
 
 ## v0.6 — Personnalisation du LLM ✅
 
