@@ -7,19 +7,27 @@ publish.workspace = true
 license.workspace = true
 
 [features]
+default = ["parakeet", "vosk"]
 # Accélération GPU via Vulkan (pilote NVIDIA/AMD/Intel, rien à embarquer).
 vulkan = ["whisper-rs/vulkan"]
+# Moteurs supplémentaires (PC) ; le téléphone n'embarque que Whisper.
+parakeet = ["dep:parakeet-rs"]
+vosk = ["dep:libloading", "dep:serde_json"]
 
 [dependencies]
 # Vosk : bibliothèque native téléchargée avec le modèle, chargée à l'exécution.
-libloading = "0.8"
+libloading = { version = "0.8", optional = true }
 log.workspace = true
 # Parakeet : ONNX Runtime (onnxruntime.dll officiel) téléchargé avec le
 # modèle et chargé à l'exécution : rien de plus dans l'installeur.
-parakeet-rs = { version = "0.4.4", default-features = false, features = ["load-dynamic", "api-28"] }
-serde_json.workspace = true
+parakeet-rs = { version = "0.4.4", default-features = false, features = ["load-dynamic", "api-28"], optional = true }
+serde_json = { workspace = true, optional = true }
 vtt-core = { path = "../vtt-core" }
 whisper-rs = { version = "0.16", features = ["log_backend"] }
 
 [dev-dependencies]
 hound = "3"
+
+[[example]]
+name = "transcribe_wav"
+required-features = ["parakeet", "vosk"]

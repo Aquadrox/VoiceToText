@@ -1,0 +1,26 @@
+[package]
+name = "vtt-android"
+description = "VoiceToText sur Android : moteur de dictée appelé par l'application Kotlin (JNI)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+# cdylib : libvtt_android.so chargée par l'application ; rlib : tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = "0.21"
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+ureq = "3"
+# Whisper seulement : Parakeet et Vosk restent sur PC.
+vtt-asr = { path = "../vtt-asr", default-features = false }
+vtt-core = { path = "../vtt-core" }
+vtt-llm = { path = "../vtt-llm" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"

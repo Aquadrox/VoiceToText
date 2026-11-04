@@ -138,9 +138,89 @@ jobs:
             D:\t\release\bundle\nsis\*.exe.sig
           if-no-files-found: error
 
+  # Application Android : moteur Rust (vtt-android) compilé pour ARM64, puis
+  # APK. PR et `main` : APK de test (identifiant .test, installable à côté de
+  # la version publiée) ; tags : APK de release signé avec la clé du projet.
+  android:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: "29.0.14206865"
+      CMAKE_VERSION: "3.31.6"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Fichiers modifiés
+        id: changes
+        shell: bash
+        run: .github/scripts/changes.sh
+      - uses: actions/setup-java@v5
+        if: steps.changes.outputs.android == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.android == 'true'
+        with:
+          targets: aarch64-linux-android
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.android == 'true'
+        with:
+          prefix-key: v1-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Outils Android (NDK, CMake) et cargo-ndk
+        if: steps.changes.outputs.android == 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" >/dev/null
+          cargo install cargo-ndk --locked
+      - if: steps.changes.outputs.android == 'true'
+        run: cargo clippy -p vtt-android --all-targets -- -D warnings
+      - if: steps.changes.outputs.android == 'true'
+        run: cargo test -p vtt-android
+      - name: Moteur natif (ARM64)
+        if: steps.changes.outputs.android == 'true'
+        run: apps/android/build-native.sh
+      - name: APK de test
+        if: steps.changes.outputs.android == 'true' && !startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/android
+        run: |
+          ./gradlew --no-daemon assembleDebug
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/VoiceToText-test.apk
+      # Release : APK signé. Les secrets ne sont lus qu'ici (tags), jamais
+      # dans les PR ; le fichier de clé n'existe que le temps de la signature.
+      - name: APK signé (release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::secret ANDROID_KEYSTORE_BASE64 absent : impossible de signer l'APK"
+            exit 1
+          fi
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/voicetotext.jks"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+          ./gradlew --no-daemon assembleRelease
+          rm -f "$ANDROID_KEYSTORE_FILE"
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/VoiceToText_${version}_android.apk"
+      - uses: actions/upload-artifact@v7
+        if: steps.changes.outputs.android == 'true'
+        with:
+          name: VoiceToText-android
+          path: apps/android/dist/*.apk
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows]
+    needs: [linux, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,6 +228,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-installeur-windows
+      - uses: actions/download-artifact@v8
+        with:
+          name: VoiceToText-android
       # Manifeste lu par l'application (releases/latest/download/latest.json) :
       # version, URL de l'installeur et sa signature.
       - name: Manifeste de mise à jour
@@ -177,4 +260,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe *.exe.sig latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes

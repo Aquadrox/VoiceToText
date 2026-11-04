@@ -10,6 +10,7 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 ## Sommaire
 
 1. [Installation](#installation)
+   - [Sur Android](#sur-android)
 2. [Premiers pas](#premiers-pas)
 3. [Dicter](#dicter)
 4. [Commandes vocales](#commandes-vocales)
@@ -38,6 +39,21 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 L'application est **discrète** : une icône dans la zone de notification (à côté de l'horloge) et une pastille qui n'apparaît que pendant la dictée. La fenêtre principale ne s'ouvre jamais d'elle-même.
 
 Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → Lancer VoiceToText à l'ouverture de session Windows**.
+
+### Sur Android
+
+Un **clavier de dictée** : on le choisit comme n'importe quel clavier, on maintient le micro, on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Whisper) ; seul le texte part au LLM choisi, comme sur PC.
+
+1. Télécharger `VoiceToText_x.y.z_android.apk` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits.
+2. Ouvrir **VoiceToText** :
+   1. **Autoriser le micro** ;
+   2. choisir un **modèle** (Small 8 bits recommandé, 264 Mo ; Base pour un petit téléphone ; Large v3 Turbo pour le plus précis) et le **télécharger** (vérifié à l'arrivée) ;
+   3. **Activer le clavier VoiceToText**, puis **Choisir le clavier**.
+3. **Nettoyage du texte** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées).
+
+Au clavier : **maintenir 🎤** pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; 🌐 revient au clavier habituel ; ⌫, espace et entrée sont là pour les retouches. Les commandes vocales (« nouvelle ligne », « annule la dernière dictée ») et les snippets fonctionnent comme sur PC.
+
+L'audio reste en mémoire le temps de la dictée, jamais sur le stockage du téléphone.
 
 ## Premiers pas
 
@@ -510,13 +526,23 @@ extra_body = {}
 
 ## Développement
 
-Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier) et `apps/desktop` (application). Les installeurs sont produits par la CI GitHub Actions.
+Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier), `apps/desktop` (application PC), et pour Android `vtt-android` (moteur appelé en JNI) et `apps/android` (clavier et réglages en Kotlin). Les installeurs et l'APK sont produits par la CI GitHub Actions ; une PR qui ne touche que le PC ne recompile pas Android, et inversement.
+
+Android (SDK avec `ndk;29.0.14206865` et `cmake;3.31.6`, cible Rust `aarch64-linux-android`, `cargo-ndk`) :
+
+```sh
+apps/android/build-native.sh               # moteur Rust → app/src/main/jniLibs
+(cd apps/android && ./gradlew assembleDebug)  # APK de test (VoiceToText (test))
+```
+
+Signature des APK publiés : clé générée par le mainteneur, jamais dans le dépôt ; la CI la lit dans les secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, seulement pour les tags.
 
 ```sh
 cargo test --workspace
 # Transcrire un WAV avec le pipeline complet (sans micro ni clavier) :
 cargo run --release -p vtt-asr --example transcribe_wav -- <modèle.bin> <fichier.wav>
 ```
+
 
 Documentation technique :
 

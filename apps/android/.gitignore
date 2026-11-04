@@ -1,0 +1,5 @@
+.gradle/
+build/
+local.properties
+# Bibliothèques natives produites par build-native.sh.
+app/src/main/jniLibs/
