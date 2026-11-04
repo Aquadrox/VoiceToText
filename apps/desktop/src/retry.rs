@@ -9,7 +9,7 @@
 use std::str::FromStr;
 use std::thread;
 
-use tauri::App;
+use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use vtt_core::{Error, TextSink};
 
@@ -46,11 +46,12 @@ pub fn validate_shortcut(shortcut: &str, label: &str, example: &str) -> Result<(
 }
 
 /// Enregistre le raccourci ; un raccourci vide le désactive. Un échec (déjà
-/// pris par une autre application, nom invalide) est journalisé, pas fatal.
-pub fn register(app: &App, shortcut: &str, worker: WorkerHandle) {
+/// pris par une autre application, nom invalide) n'est pas fatal : il est
+/// journalisé et renvoyé pour les réglages.
+pub fn register(app: &AppHandle, shortcut: &str, worker: WorkerHandle) -> Result<(), String> {
     let shortcut = shortcut.trim();
     if shortcut.is_empty() {
-        return;
+        return Ok(());
     }
     let registered = app
         .global_shortcut()
@@ -68,8 +69,16 @@ pub fn register(app: &App, shortcut: &str, worker: WorkerHandle) {
             }
         });
     match registered {
-        Ok(()) => log::info!("réessayer la dernière dictée : {shortcut}"),
-        Err(e) => log::warn!("raccourci « {shortcut} » indisponible : {e}"),
+        Ok(()) => {
+            log::info!("réessayer la dernière dictée : {shortcut}");
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("raccourci « {shortcut} » indisponible : {e}");
+            Err(format!(
+                "raccourci « {shortcut} » indisponible (déjà pris par une autre application ?)"
+            ))
+        }
     }
 }
 

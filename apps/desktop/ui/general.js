@@ -87,7 +87,7 @@ $("general-form").addEventListener("submit", async (event) => {
   const button = $("general-save");
   button.disabled = true;
   try {
-    await invoke("save_app_settings", {
+    const result = await invoke("save_app_settings", {
       hotkey: {
         key: $("hk-key").value,
         command_key: $("hk-command").value,
@@ -110,10 +110,69 @@ $("general-form").addEventListener("submit", async (event) => {
         voice_commands: $("dict-commands").checked,
       },
     });
-    showGeneralResult("Enregistré. Redémarrage de VoiceToText…");
+    const notes = result.notes.map((note) => `\n• ${note}`).join("");
+    showGeneralResult(`✓ Appliqué, sans redémarrage.${notes}`);
+    generalFilled = false;
+    showGeneral();
   } catch (e) {
     showGeneralResult(String(e), true);
+  } finally {
     button.disabled = false;
+  }
+});
+
+// Mises à jour : vérification à la demande, puis installation sur clic.
+function showUpdateResult(text, isError = false) {
+  const result = $("settings-update-result");
+  result.hidden = false;
+  result.textContent = text;
+  result.classList.toggle("error", isError);
+}
+
+$("settings-update-check").addEventListener("click", async () => {
+  const button = $("settings-update-check");
+  button.disabled = true;
+  $("settings-update-install").hidden = true;
+  showUpdateResult("Recherche d'une nouvelle version…");
+  try {
+    const status = await invoke("check_update");
+    if (!status.configured) {
+      showUpdateResult("Mises à jour non configurées dans cette version.", true);
+    } else if (status.available) {
+      showUpdateResult(`Version ${status.available} disponible (installée : ${status.current}).`);
+      $("settings-update-install").hidden = false;
+    } else {
+      showUpdateResult(`✓ VoiceToText est à jour (version ${status.current}).`);
+    }
+  } catch (e) {
+    showUpdateResult(String(e), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("settings-update-install").addEventListener("click", async () => {
+  const install = $("settings-update-install");
+  install.disabled = true;
+  $("settings-update-check").disabled = true;
+  showUpdateResult("Téléchargement de la mise à jour…");
+  try {
+    // VoiceToText se ferme pendant l'installation puis redémarre.
+    await invoke("install_update");
+  } catch (e) {
+    showUpdateResult(String(e), true);
+    install.disabled = false;
+    $("settings-update-check").disabled = false;
+  }
+});
+
+window.__TAURI__.event.listen("update-progress", (event) => {
+  if ($("settings-update-install").disabled && event.payload !== null) {
+    showUpdateResult(
+      event.payload < 100
+        ? `Téléchargement de la mise à jour : ${event.payload} %`
+        : "Téléchargé : vérification de la signature puis installation (VoiceToText va redémarrer)…",
+    );
   }
 });
 

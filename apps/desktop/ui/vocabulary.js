@@ -46,12 +46,9 @@ function markDirty(section, prefix) {
 async function save(section, prefix, button) {
   button.disabled = true;
   try {
-    const result = await invoke("save_vocabulary", { update: { [section]: vocabulary[section] } });
+    await invoke("save_vocabulary", { update: { [section]: vocabulary[section] } });
     dirty[section] = false;
-    setStatus(
-      prefix,
-      result.applied ? "Enregistré ✓ appliqué immédiatement" : "Enregistré ✓ appliqué au prochain démarrage",
-    );
+    setStatus(prefix, "Enregistré ✓ appliqué immédiatement");
     await loadVocabulary();
     return true;
   } catch (e) {

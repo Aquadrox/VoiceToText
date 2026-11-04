@@ -130,16 +130,14 @@ $("prompts-save").addEventListener("click", async () => {
   const status = $("prompts-status");
   button.disabled = true;
   try {
-    const applied = await invoke("save_prompts", {
+    await invoke("save_prompts", {
       prompts: promptsState.prompts,
       cleanupActive: promptsState.cleanup_active,
       commandActive: promptsState.command_active,
     });
     promptsDirty = false;
     status.className = "small muted";
-    status.textContent = applied
-      ? "Enregistré ✓ appliqué immédiatement"
-      : "Enregistré ✓ appliqué au prochain démarrage";
+    status.textContent = "Enregistré ✓ appliqué immédiatement";
     onPromptsSaved(promptsState.cleanup_active, promptsState.command_active);
   } catch (e) {
     status.className = "small error";

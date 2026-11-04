@@ -195,7 +195,8 @@
               <label for="asr-model">Modèle Whisper</label>
               <select id="asr-model"></select>
               <p class="muted small">
-                Un nouveau modèle est téléchargé au redémarrage (progression dans la pastille).
+                Un nouveau modèle est téléchargé puis chargé tout de suite (progression dans la
+                pastille) ; les dictées continuent avec l'ancien en attendant.
               </p>
               <label class="inline">
                 <input id="asr-gpu" type="checkbox" />
@@ -240,10 +241,17 @@
                 Version installée : <span id="current-version"></span>. Chaque mise à jour est signée ;
                 sa signature est vérifiée avant installation.
               </p>
+              <div class="row">
+                <button id="settings-update-check" type="button">Vérifier les mises à jour</button>
+                <button id="settings-update-install" type="button" class="primary" hidden>
+                  Télécharger et installer
+                </button>
+              </div>
+              <div id="settings-update-result" class="result" hidden></div>
             </section>
 
             <div class="row">
-              <button id="general-save" type="submit" class="primary">Enregistrer et redémarrer</button>
+              <button id="general-save" type="submit" class="primary">Appliquer</button>
             </div>
             <div id="general-result" class="result" hidden></div>
           </form>

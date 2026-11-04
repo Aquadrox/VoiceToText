@@ -82,6 +82,8 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 
 ## v0.9 — Apprentissage ⬜
 
+- ✅ Tous les réglages appliqués sans redémarrer (bouton **Appliquer**) : raccourcis, micro, modèle Whisper (téléchargé puis chargé à chaud), mémoire graphique, sons, pause de la musique, commandes vocales, mises à jour
+- ✅ Bouton **Vérifier les mises à jour** dans les réglages : version disponible, téléchargement et installation en un clic, avec progression
 - ⬜ Suggestions pour le dictionnaire tirées de l'historique (mots souvent corrigés par le LLM, noms propres récurrents), ajout en un clic
 - ⬜ Mode traduction : dicter en français, insérer en anglais (style ou raccourci dédié)
 

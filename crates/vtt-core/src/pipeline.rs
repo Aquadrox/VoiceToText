@@ -236,6 +236,16 @@ impl Pipeline {
         self
     }
 
+    pub fn set_voice_commands(&mut self, enabled: bool) {
+        self.voice_commands = enabled;
+    }
+
+    /// Remplace le modèle de transcription (changement de modèle dans les
+    /// réglages).
+    pub fn set_transcriber(&mut self, transcriber: Box<dyn Transcriber>) {
+        self.transcriber = transcriber;
+    }
+
     pub fn with_styles(mut self, styles: &[Style]) -> Self {
         self.styles = styles.to_vec();
         self

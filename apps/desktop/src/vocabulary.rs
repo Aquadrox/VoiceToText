@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use vtt_core::config::{self, Snippet, Style};
 
-use crate::controller::{self, WorkerHandle};
+use crate::controller::ControllerState;
 use crate::paths::Paths;
 use crate::settings::SharedConfig;
 
@@ -37,19 +37,13 @@ pub struct VocabularyUpdate {
     styles: Option<Vec<Style>>,
 }
 
-#[derive(Serialize)]
-pub struct Saved {
-    /// `false` : modèle encore en chargement, appliqué au prochain démarrage.
-    applied: bool,
-}
-
 #[tauri::command]
 pub fn save_vocabulary(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
-    worker: State<'_, WorkerHandle>,
+    controller: State<'_, ControllerState>,
     update: VocabularyUpdate,
-) -> Result<Saved, String> {
+) -> Result<(), String> {
     // Repartir du fichier sur disque ; s'il est invalide, ne pas l'écraser.
     let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
@@ -67,7 +61,7 @@ pub fn save_vocabulary(
         updated.styles = config::clean_styles(&styles)?;
     }
     paths.write_config(&updated)?;
-    let applied = controller::reconfigure(&worker, &updated);
+    controller.apply(&updated);
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated;
-    Ok(Saved { applied })
+    Ok(())
 }

@@ -77,30 +77,37 @@ pub fn catalog(dir: &Path) -> Vec<ModelChoice> {
             file: m.file,
             label: m.label,
             size_mb: m.size / 1_000_000,
-            downloaded: fs::metadata(dir.join(m.file)).is_ok_and(|meta| meta.len() == m.size),
+            downloaded: local(dir, m.file).is_some(),
         })
         .collect()
+}
+
+/// Chemin du modèle s'il est déjà présent et complet (un modèle hors
+/// catalogue, placé à la main, est pris tel quel).
+pub fn local(dir: &Path, file: &str) -> Option<PathBuf> {
+    let path = dir.join(file);
+    let size = fs::metadata(&path).ok()?.len();
+    match KNOWN_MODELS.iter().find(|m| m.file == file) {
+        Some(model) if model.size != size => None,
+        _ => Some(path),
+    }
 }
 
 /// Renvoie le chemin du modèle, en le téléchargeant si besoin.
 ///
 /// `progress` reçoit le pourcentage (0–100) à chaque point gagné.
 pub fn ensure(dir: &Path, file: &str, mut progress: impl FnMut(u8)) -> Result<PathBuf, String> {
-    let path = dir.join(file);
-    let known = KNOWN_MODELS.iter().find(|m| m.file == file);
-    let present_size = fs::metadata(&path).ok().map(|m| m.len());
-
-    match (known, present_size) {
-        (None, Some(_)) => return Ok(path),
-        (None, None) => {
-            return Err(format!(
-                "modèle {file} introuvable : placez-le dans {}",
-                dir.display()
-            ));
-        }
-        (Some(model), Some(size)) if size == model.size => return Ok(path),
-        (Some(model), _) => download(model, &path, &mut progress)?,
+    if let Some(path) = local(dir, file) {
+        return Ok(path);
     }
+    let Some(model) = KNOWN_MODELS.iter().find(|m| m.file == file) else {
+        return Err(format!(
+            "modèle {file} introuvable : placez-le dans {}",
+            dir.display()
+        ));
+    };
+    let path = dir.join(file);
+    download(model, &path, &mut progress)?;
     Ok(path)
 }
 
@@ -155,4 +162,26 @@ fn download(model: &KnownModel, path: &Path, progress: &mut impl FnMut(u8)) -> R
     fs::rename(&partial, path).map_err(|e| format!("installation du modèle : {e}"))?;
     log::info!("modèle installé : {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_requires_a_complete_known_model() {
+        let dir = std::env::temp_dir().join(format!("vtt-models-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let known = KNOWN_MODELS[0].file;
+        assert_eq!(local(&dir, known), None, "absent");
+        fs::write(dir.join(known), b"partiel").unwrap();
+        assert_eq!(local(&dir, known), None, "taille incorrecte");
+        fs::write(dir.join("perso.bin"), b"modele").unwrap();
+        assert_eq!(
+            local(&dir, "perso.bin"),
+            Some(dir.join("perso.bin")),
+            "hors catalogue, pris tel quel"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

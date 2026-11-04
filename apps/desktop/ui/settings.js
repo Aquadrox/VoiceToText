@@ -276,16 +276,12 @@ $("provider-form").addEventListener("submit", async (event) => {
   const button = $("save-provider");
   button.disabled = true;
   try {
-    const result = await invoke("apply_llm_settings", { llm: readProvider() });
-    activeLlm = result.llm;
-    currency = result.llm.pricing.currency;
-    fillProvider(result.llm);
+    const llm = await invoke("apply_llm_settings", { llm: readProvider() });
+    activeLlm = llm;
+    currency = llm.pricing.currency;
+    fillProvider(llm);
     renderProfiles();
-    showProviderResult(
-      result.applied
-        ? "✓ Appliqué : utilisé dès la prochaine dictée."
-        : "✓ Enregistré : appliqué une fois le modèle chargé (au prochain démarrage).",
-    );
+    showProviderResult("✓ Appliqué : utilisé dès la prochaine dictée.");
   } catch (e) {
     showProviderResult(String(e), true);
   } finally {
