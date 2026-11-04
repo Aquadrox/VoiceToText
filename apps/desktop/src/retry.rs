@@ -105,5 +105,7 @@ mod tests {
         assert!(validate_shortcut(&default, "réessayer", "Alt+Shift+R").is_ok());
         assert!(validate_shortcut("", "réessayer", "Alt+Shift+R").is_ok());
         assert!(validate_shortcut("Alt+Truc", "réessayer", "Alt+Shift+R").is_err());
+        let translate = HotkeyConfig::default().translate;
+        assert!(validate_shortcut(&translate, "mode traduction", "Alt+Shift+T").is_ok());
     }
 }

@@ -80,16 +80,17 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Niveau du micro dans la pastille (barres à la place du point pendant l'enregistrement)
 - ✅ Commandes vocales (`dictation.voice_commands`) : « nouvelle ligne », « à la ligne », « point à la ligne », « nouveau paragraphe » (reconnues seulement détachées de la phrase), « annule la dernière dictée » (Ctrl+Z)
 
-## v0.9 — Apprentissage ⬜
+## v0.9 — Apprentissage ✅
 
 - ✅ Tous les réglages appliqués sans redémarrer (bouton **Appliquer**) : raccourcis, micro, modèle Whisper (téléchargé puis chargé à chaud), mémoire graphique, sons, pause de la musique, commandes vocales, mises à jour
 - ✅ Bouton **Vérifier les mises à jour** dans les réglages : version disponible, téléchargement et installation en un clic, avec progression
-- ⬜ Suggestions pour le dictionnaire tirées de l'historique (mots souvent corrigés par le LLM, noms propres récurrents), ajout en un clic
-- ⬜ Mode traduction : dicter en français, insérer en anglais (style ou raccourci dédié)
+- ✅ Suggestions pour le dictionnaire tirées de l'historique (mots corrigés par le LLM, noms propres et sigles récurrents), ajout ou refus en un clic
+- ✅ Mode traduction : Alt+Maj+T ou menu de l'icône, langue d'arrivée au choix, langue affichée dans la pastille
 
 ## v0.10 — Pratique ⬜
 
 - ⬜ Export / import des réglages (configuration, prompts, profils ; jamais les clés API)
+- ⬜ Liste des clés API enregistrées (une par fournisseur) pour les remplacer ou les supprimer ; jamais affichées en clair, ni en entier ni en partie (seulement le fournisseur et « clé enregistrée »)
 - ⬜ Statistiques par application sur l'accueil
 - ⬜ Installeur signé (certificat de signature de code, ex. Azure Trusted Signing) : plus d'avertissement SmartScreen
 

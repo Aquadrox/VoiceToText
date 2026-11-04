@@ -5,9 +5,9 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tauri::State;
-use vtt_core::PostProcessor;
 use vtt_core::config::{self, PromptKind, PromptPreset};
 use vtt_core::usage::Usage;
+use vtt_core::{Directives, PostProcessor};
 use vtt_llm::{DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, LlmCleaner, Prompts};
 
 use crate::controller::ControllerState;
@@ -124,7 +124,7 @@ pub fn test_prompt(
     let (input, result) = match kind {
         PromptKind::Nettoyage => (
             SAMPLE_DICTATION.to_owned(),
-            cleaner.process(SAMPLE_DICTATION, None),
+            cleaner.process(SAMPLE_DICTATION, Directives::default()),
         ),
         PromptKind::Commande => (
             format!("Consigne : {SAMPLE_INSTRUCTION}\nSélection : {SAMPLE_SELECTION}"),

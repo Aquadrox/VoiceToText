@@ -4,8 +4,8 @@
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use vtt_core::config::{
-    AsrConfig, AudioConfig, DictationConfig, HOTKEY_NAMES, HotkeyConfig, UNLOAD_AFTER_CHOICES,
-    UpdatesConfig,
+    AsrConfig, AudioConfig, DictationConfig, HOTKEY_NAMES, HotkeyConfig, TRANSLATION_LANGUAGES,
+    TranslationConfig, UNLOAD_AFTER_CHOICES, UpdatesConfig,
 };
 
 use crate::controller::ControllerState;
@@ -23,6 +23,8 @@ pub struct AppSettingsView {
     asr: AsrConfig,
     updates: UpdatesConfig,
     dictation: DictationConfig,
+    translation: TranslationConfig,
+    languages: &'static [&'static str],
     keys: &'static [&'static str],
     unload_choices: Vec<u32>,
     microphones: Vec<String>,
@@ -44,6 +46,8 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         asr: config.asr,
         updates: config.updates,
         dictation: config.dictation,
+        translation: config.translation,
+        languages: TRANSLATION_LANGUAGES,
         keys: HOTKEY_NAMES,
         microphones: vtt_platform::audio::input_devices(),
         models: model::catalog(&paths.models_dir),
@@ -74,10 +78,13 @@ pub fn save_app_settings(
     asr: AsrConfig,
     updates: UpdatesConfig,
     dictation: DictationConfig,
+    translation: TranslationConfig,
 ) -> Result<Applied, String> {
     hotkey.validate()?;
     retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
     retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
+    retry::validate_shortcut(&hotkey.translate, "mode traduction", "Alt+Shift+T")?;
+    translation.validate()?;
     if !model::catalog(&paths.models_dir)
         .iter()
         .any(|m| m.file() == asr.model)
@@ -99,6 +106,9 @@ pub fn save_app_settings(
     config.asr.unload_in_fullscreen = asr.unload_in_fullscreen;
     config.updates = updates;
     config.dictation = dictation;
+    config.translation = TranslationConfig {
+        language: translation.language.trim().to_owned(),
+    };
     paths.write_config(&config)?;
     *shared.write().unwrap_or_else(|e| e.into_inner()) = config.clone();
     controller.apply(&config);

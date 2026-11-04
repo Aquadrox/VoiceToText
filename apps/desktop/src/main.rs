@@ -16,6 +16,7 @@ mod retry;
 mod settings;
 mod shortcuts;
 mod status;
+mod translation;
 mod tray;
 mod updates;
 mod vocabulary;
@@ -34,6 +35,7 @@ use crate::raw_paste::LastRaw;
 use crate::settings::SharedConfig;
 use crate::shortcuts::Shortcuts;
 use crate::status::{Status, StatusReporter};
+use crate::translation::Translation;
 use crate::updates::Updates;
 
 /// Marge entre la pastille et le bas de la zone de travail (au-dessus de la barre des tâches).
@@ -72,6 +74,9 @@ fn main() {
             main_window::home_view,
             vocabulary::vocabulary_view,
             vocabulary::save_vocabulary,
+            vocabulary::dictionary_suggestions,
+            vocabulary::ignore_suggestion,
+            translation::translation_state,
             app_settings::app_settings_view,
             app_settings::save_app_settings,
             app_settings::set_autostart,
@@ -106,7 +111,17 @@ fn main() {
                 Some(e) => reporter.set(Status::Error(e)),
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
-            let shortcuts = Shortcuts::new(Arc::clone(&last_raw), Arc::clone(&worker));
+            let translation = Translation::new(
+                app.handle().clone(),
+                tray_items.translate,
+                &config.translation.language,
+            );
+            app.manage(Arc::clone(&translation));
+            let shortcuts = Shortcuts::new(
+                Arc::clone(&last_raw),
+                Arc::clone(&worker),
+                Arc::clone(&translation),
+            );
             shortcuts.apply(app.handle(), &config.hotkey);
             app.manage(shortcuts);
             let recorders = Recorders {
@@ -117,7 +132,7 @@ fn main() {
             let updates = Updates::new(app.handle(), tray_items.update, config.updates.check);
             app.manage(Arc::clone(&updates));
             updates::spawn_checks(app.handle().clone(), updates);
-            let controller = Controller::new(reporter, recorders, worker, paths);
+            let controller = Controller::new(reporter, recorders, worker, paths, translation);
             controller.start(config);
             app.manage(controller);
             Ok(())

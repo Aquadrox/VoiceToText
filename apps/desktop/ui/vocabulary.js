@@ -101,8 +101,75 @@ $("dict-form").addEventListener("submit", (event) => {
 });
 
 $("dict-save").addEventListener("click", async () => {
-  if (await save("dictionary", "dict", $("dict-save"))) renderDictionary();
+  if (await save("dictionary", "dict", $("dict-save"))) {
+    renderDictionary();
+    renderSuggestions();
+  }
 });
+
+/* Suggestions tirées de l'historique. */
+let suggestions = [];
+
+function showSuggestionsMessage(text) {
+  $("suggestion-empty").hidden = !text;
+  $("suggestion-empty").textContent = text;
+}
+
+function renderSuggestions() {
+  const known = new Set(vocabulary.dictionary.map((w) => w.toLowerCase()));
+  const shown = suggestions.filter((s) => !known.has(s.word.toLowerCase()));
+  const items = shown.map((suggestion) => {
+    const item = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = suggestion.word;
+    const meta = document.createElement("span");
+    meta.className = "muted small";
+    const dictations = suggestion.count > 1 ? `${suggestion.count} dictées` : "1 dictée";
+    meta.textContent = suggestion.corrected ? `corrigé · ${dictations}` : dictations;
+    const add = document.createElement("button");
+    add.textContent = "+";
+    add.title = `Ajouter « ${suggestion.word} » au dictionnaire`;
+    add.addEventListener("click", async () => {
+      vocabulary.dictionary.push(suggestion.word);
+      renderDictionary();
+      if (await save("dictionary", "dict", add)) renderDictionary();
+      renderSuggestions();
+    });
+    const ignore = document.createElement("button");
+    ignore.textContent = "×";
+    ignore.title = `Ne plus proposer « ${suggestion.word} »`;
+    ignore.addEventListener("click", async () => {
+      try {
+        await invoke("ignore_suggestion", { word: suggestion.word });
+        suggestions = suggestions.filter((s) => s !== suggestion);
+        renderSuggestions();
+      } catch (e) {
+        showSuggestionsMessage(String(e));
+      }
+    });
+    item.append(label, meta, add, ignore);
+    return item;
+  });
+  $("suggestion-list").replaceChildren(...items);
+  if (!items.length) showSuggestionsMessage("Aucune suggestion pour l'instant : dictez, elles viendront.");
+  else showSuggestionsMessage("");
+}
+
+async function loadSuggestions() {
+  try {
+    const view = await invoke("dictionary_suggestions");
+    suggestions = view.suggestions;
+    if (!view.history_enabled) {
+      suggestions = [];
+      $("suggestion-list").replaceChildren();
+      showSuggestionsMessage("Historique désactivé dans config.toml : pas de suggestions.");
+      return;
+    }
+    renderSuggestions();
+  } catch (e) {
+    showSuggestionsMessage(String(e));
+  }
+}
 
 registerPage("dictionnaire", {
   show: async () => {
@@ -112,6 +179,7 @@ registerPage("dictionnaire", {
       setStatus("dict", String(e), "error");
     }
     renderDictionary();
+    loadSuggestions();
   },
 });
 
