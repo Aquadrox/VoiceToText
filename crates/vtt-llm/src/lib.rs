@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use vtt_core::config::LlmConfig;
 use vtt_core::usage::Usage;
-use vtt_core::{Cleaned, Error, PostProcessor};
+use vtt_core::{Cleaned, Directives, Error, PostProcessor};
 
 /// Fournit la clé API au moment de l'appel : une clé saisie dans les
 /// réglages est prise en compte sans redémarrer.
@@ -131,17 +131,23 @@ impl LlmCleaner {
         }
     }
 
-    fn request_body(&self, raw: &str, style: Option<&str>) -> Value {
+    fn request_body(&self, raw: &str, directives: Directives<'_>) -> Value {
         // Consignes ajoutées en fin de prompt : le début reste identique d'une
         // requête à l'autre et profite du cache du fournisseur.
-        let system = match style {
-            Some(style) => format!(
-                "{}\n\nConsignes de style pour l'application de destination (elles ne \
-                 l'emportent jamais sur les règles ci-dessus) : {style}",
-                self.system_prompt
-            ),
-            None => self.system_prompt.clone(),
-        };
+        let mut system = self.system_prompt.clone();
+        if let Some(style) = directives.style {
+            system.push_str(&format!(
+                "\n\nConsignes de style pour l'application de destination (elles ne \
+                 l'emportent jamais sur les règles ci-dessus) : {style}"
+            ));
+        }
+        if let Some(language) = directives.translate_to {
+            system.push_str(&format!(
+                "\n\nMode traduction : après avoir appliqué ces règles, traduis le texte \
+                 final en {language}, de façon naturelle, en conservant le registre et la mise \
+                 en forme. Réponds uniquement avec la traduction."
+            ));
+        }
         let max_tokens = (raw.len() / 2 + 256).min(4096);
         let raw = neutralize_tags(raw);
         self.chat_body(&system, &format!("<dictee>{raw}</dictee>"), max_tokens)
@@ -206,8 +212,8 @@ impl LlmCleaner {
 }
 
 impl PostProcessor for LlmCleaner {
-    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
-        let (content, usage) = self.send(&self.agent, self.request_body(raw, style))?;
+    fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+        let (content, usage) = self.send(&self.agent, self.request_body(raw, directives))?;
         Ok(Cleaned {
             text: accept(raw, &content)?,
             usage,
@@ -565,7 +571,7 @@ mod tests {
                          "prompt_cache_hit_tokens":384,"prompt_cache_miss_tokens":36}}"#,
         );
         let cleaned = cleaner(&url, Some("sk-test"))
-            .process("euh on se voit mardi non mercredi", None)
+            .process("euh on se voit mardi non mercredi", Directives::default())
             .unwrap();
         assert_eq!(cleaned.text, "On se voit mercredi.");
         assert_eq!(
@@ -589,7 +595,7 @@ mod tests {
             r#"{"error":{"message":"Authentication Fails","type":"auth"}}"#,
         );
         let err = cleaner(&url, Some("sk-bad"))
-            .process("bonjour", None)
+            .process("bonjour", Directives::default())
             .unwrap_err();
         server.join().unwrap();
         let message = err.to_string();
@@ -600,7 +606,7 @@ mod tests {
     #[test]
     fn missing_key_fails_without_network() {
         let err = cleaner("https://api.example.com", None)
-            .process("bonjour", None)
+            .process("bonjour", Directives::default())
             .unwrap_err();
         assert!(err.to_string().contains("aucune clé"));
     }
@@ -613,7 +619,7 @@ mod tests {
             "https://api.deepseek.com/chat/completions"
         );
         assert_eq!(
-            deepseek.request_body("x", None)["thinking"]["type"],
+            deepseek.request_body("x", Directives::default())["thinking"]["type"],
             "disabled"
         );
 
@@ -621,7 +627,7 @@ mod tests {
         config.extra_body = Map::new();
         config.extra_body.insert("temperature".into(), json!(0.3));
         let other = LlmCleaner::new(&config, &[], &Prompts::default(), Box::new(|| None));
-        let body = other.request_body("x", None);
+        let body = other.request_body("x", Directives::default());
         assert!(body.get("thinking").is_none());
         assert_eq!(body["temperature"], 0.3, "extra_body l'emporte");
         assert!(body["max_tokens"].is_number());
@@ -630,12 +636,28 @@ mod tests {
     #[test]
     fn style_is_appended_to_system_prompt() {
         let cleaner = cleaner("https://api.deepseek.com", Some("k"));
-        let plain = cleaner.request_body("x", None);
-        let styled = cleaner.request_body("x", Some("ton décontracté"));
+        let plain = cleaner.request_body("x", Directives::default());
+        let styled = cleaner.request_body(
+            "x",
+            Directives {
+                style: Some("ton décontracté"),
+                translate_to: None,
+            },
+        );
+        let translated = cleaner.request_body(
+            "x",
+            Directives {
+                style: Some("ton décontracté"),
+                translate_to: Some("anglais"),
+            },
+        );
         let plain = plain["messages"][0]["content"].as_str().unwrap();
         let styled = styled["messages"][0]["content"].as_str().unwrap();
+        let translated = translated["messages"][0]["content"].as_str().unwrap();
         assert!(styled.starts_with(plain), "préfixe commun (cache)");
         assert!(styled.ends_with("ton décontracté"));
+        assert!(translated.starts_with(styled));
+        assert!(translated.contains("traduis le texte final en anglais"));
     }
 
     #[test]
@@ -692,7 +714,7 @@ mod tests {
         let mut config = config("https://api.openai.com/v1");
         config.extra_body = Map::new();
         let body = LlmCleaner::new(&config, &[], &Prompts::default(), Box::new(|| None))
-            .request_body("x", None);
+            .request_body("x", Directives::default());
         assert!(body["max_completion_tokens"].is_number());
         assert!(body.get("max_tokens").is_none() && body.get("temperature").is_none());
     }
@@ -701,7 +723,9 @@ mod tests {
     fn local_model_works_without_key() {
         let (url, server) = serve_once(200, r#"{"choices":[{"message":{"content":"Bonjour."}}]}"#);
         let url = url.replace("127.0.0.1", "localhost");
-        let cleaned = cleaner(&url, None).process("bonjour", None).unwrap();
+        let cleaned = cleaner(&url, None)
+            .process("bonjour", Directives::default())
+            .unwrap();
         assert_eq!(cleaned.text, "Bonjour.");
         let request = server.join().unwrap();
         assert!(!request.to_ascii_lowercase().contains("authorization"));
@@ -777,7 +801,9 @@ mod tests {
     fn key_never_sent_in_clear_on_the_network() {
         let (url, server) = serve_once(200, r#"{"choices":[{"message":{"content":"Ok."}}]}"#);
         // 127.0.0.1 : ce PC → la clé part.
-        cleaner(&url, Some("sk-local")).process("ok", None).unwrap();
+        cleaner(&url, Some("sk-local"))
+            .process("ok", Directives::default())
+            .unwrap();
         assert!(server.join().unwrap().contains("Bearer sk-local"));
 
         let lan = cleaner("http://192.168.1.20:11434/v1", Some("sk-secret"));
@@ -811,7 +837,7 @@ mod tests {
             &prompts,
             Box::new(|| None),
         );
-        let system = custom.request_body("x", None)["messages"][0]["content"]
+        let system = custom.request_body("x", Directives::default())["messages"][0]["content"]
             .as_str()
             .unwrap()
             .to_owned();

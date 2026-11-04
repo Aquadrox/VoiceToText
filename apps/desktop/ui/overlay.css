@@ -81,6 +81,20 @@ body {
   background: var(--error);
 }
 
+.pill[data-state="info"] .dot {
+  background: var(--processing);
+}
+
+/* Mode traduction : langue d'arrivée. */
+.lang {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* Niveau du micro : remplace le point pendant l'enregistrement. */
 .meter {
   display: none;

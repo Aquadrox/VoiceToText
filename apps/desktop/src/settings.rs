@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::State;
 use vtt_core::config::{self, LlmConfig, LlmProfile, PromptKind};
 use vtt_core::usage::{Summary, Usage};
-use vtt_core::{Config, PostProcessor, WithFallback};
+use vtt_core::{Config, Directives, PostProcessor, WithFallback};
 use vtt_llm::{ApiKeyProvider, LlmCleaner, Prompts};
 
 use crate::controller::ControllerState;
@@ -306,7 +306,7 @@ pub fn test_llm_settings(
     };
 
     let started = Instant::now();
-    let result = cleaner.process(SAMPLE, None);
+    let result = cleaner.process(SAMPLE, Directives::default());
     let duration_ms = started.elapsed().as_millis();
     let (models, models_error) = match vtt_llm::list_models(&llm, key) {
         Ok(models) => (models, None),

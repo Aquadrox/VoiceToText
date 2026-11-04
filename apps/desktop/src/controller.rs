@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use vtt_asr::WhisperTranscriber;
 use vtt_core::config::{AsrConfig, HotkeyConfig, Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
-use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
+use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink};
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
 
@@ -28,6 +28,7 @@ use crate::raw_paste::{self, LastRaw};
 use crate::retry::{ClipboardCopy, Delivery};
 use crate::settings;
 use crate::status::{Status, StatusReporter};
+use crate::translation::TranslationState;
 
 /// Un enregistrement plus long est coupé et traité (touche restée bloquée…).
 const MAX_RECORDING_MS: u64 = 5 * 60 * 1000;
@@ -184,6 +185,7 @@ pub struct Controller {
     /// Réglages à appliquer par le thread clavier ; `None` avant le démarrage.
     keyboard: Mutex<Option<Sender<Config>>>,
     paths: Paths,
+    translation: TranslationState,
 }
 
 pub type ControllerState = Arc<Controller>;
@@ -194,6 +196,7 @@ impl Controller {
         recorders: Recorders,
         worker: WorkerHandle,
         paths: Paths,
+        translation: TranslationState,
     ) -> ControllerState {
         Arc::new(Self {
             reporter,
@@ -201,6 +204,7 @@ impl Controller {
             worker,
             keyboard: Mutex::new(None),
             paths,
+            translation,
         })
     }
 
@@ -217,6 +221,7 @@ impl Controller {
         let recorders = self.recorders.clone();
         let worker = Arc::clone(&self.worker);
         let paths = self.paths.clone();
+        let translation = Arc::clone(&self.translation);
         thread::Builder::new()
             .name("controller".into())
             .spawn(move || {
@@ -224,6 +229,7 @@ impl Controller {
                     work_tx,
                     work_rx,
                     settings: settings_rx,
+                    translation,
                 };
                 if let Err(e) = run(&reporter, recorders, &worker, channels, &config, &paths) {
                     reporter.set(Status::Error(e));
@@ -236,6 +242,7 @@ impl Controller {
     /// une erreur (modèle introuvable, touche inconnue…), ils sont relancés
     /// avec cette configuration.
     pub fn apply(&self, config: &Config) {
+        self.translation.set_language(&config.translation.language);
         if let Some(worker) = lock(&self.worker).clone() {
             let reconfiguration = Reconfiguration::from_config(config);
             let _ = worker.send(Work::Reconfigure(Box::new(reconfiguration)));
@@ -254,6 +261,7 @@ struct Channels {
     work_tx: Sender<Work>,
     work_rx: Receiver<Work>,
     settings: Receiver<Config>,
+    translation: TranslationState,
 }
 
 /// Machine à états du raccourci, d'après la configuration.
@@ -351,6 +359,8 @@ fn run(
         key_name: config.hotkey.key.clone(),
         target: Target::default(),
         command: false,
+        translation: channels.translation,
+        translate_to: None,
     };
 
     let (keys_tx, keys) = mpsc::channel();
@@ -453,6 +463,8 @@ pub struct Job {
     target: Target,
     /// Command Mode : la dictée est une consigne pour le texte sélectionné.
     command: bool,
+    /// Mode traduction actif au début de la dictée : langue d'arrivée.
+    translate_to: Option<String>,
 }
 
 /// Ce que le thread clavier pilote : micro, état affiché, file des dictées.
@@ -475,6 +487,9 @@ struct Controls<'a> {
     target: Target,
     /// La dictée en cours est une commande.
     command: bool,
+    translation: TranslationState,
+    /// Langue d'arrivée de la dictée en cours (mode traduction).
+    translate_to: Option<String>,
 }
 
 impl Controls<'_> {
@@ -488,6 +503,7 @@ impl Controls<'_> {
                     self.confirmed = false;
                     self.target = vtt_platform::foreground_target();
                     self.command = command;
+                    self.translate_to = self.translation.current();
                     self.recording.store(true, Ordering::SeqCst);
                     vtt_platform::suppress_menu_activation(self.trigger);
                     self.reporter.set(if command {
@@ -523,6 +539,7 @@ impl Controls<'_> {
                     clip,
                     target: std::mem::take(&mut self.target),
                     command: std::mem::take(&mut self.command),
+                    translate_to: self.translate_to.take(),
                 }));
             }
             None => {}
@@ -852,8 +869,16 @@ fn process(
             }))
         }
         (true, _) => run_command(pipeline, &job.clip, target),
-        (false, Some(Delivery::Clipboard)) => pipeline.run_to(&job.clip, target, &ClipboardCopy),
-        (false, _) => pipeline.run(&job.clip, target),
+        (false, delivery) => {
+            let sink: Option<&dyn TextSink> = match delivery {
+                Some(Delivery::Clipboard) => Some(&ClipboardCopy),
+                _ => None,
+            };
+            if let Some(language) = &job.translate_to {
+                log::info!("mode traduction : {language}");
+            }
+            pipeline.dictate(&job.clip, target, sink, job.translate_to.as_deref())
+        }
     }
 }
 

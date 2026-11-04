@@ -3,21 +3,23 @@
 use std::path::Path;
 use std::process::Command;
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{App, Wry};
+use tauri::{App, Manager, Wry};
 
 use crate::controller::WorkerHandle;
 use crate::main_window::{self, Page};
 use crate::paths::Paths;
 use crate::raw_paste::{self, LastRaw};
 use crate::retry::{self, Delivery};
+use crate::translation::TranslationState;
 
 /// Construit l'icône ; renvoie la ligne d'état du menu pour la mettre à jour.
 /// Entrées du menu mises à jour en cours de route.
 pub struct TrayItems {
     pub status: MenuItem<Wry>,
     pub update: MenuItem<Wry>,
+    pub translate: CheckMenuItem<Wry>,
 }
 
 pub fn build(
@@ -41,6 +43,14 @@ pub fn build(
         "retry",
         "Réessayer la dernière dictée (copie)",
         true,
+        None::<&str>,
+    )?;
+    let translate = CheckMenuItem::with_id(
+        app,
+        "translate",
+        "Mode traduction",
+        true,
+        false,
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
@@ -70,6 +80,7 @@ pub fn build(
             &history,
             &copy_raw,
             &retry,
+            &translate,
             &settings,
             &config,
             &logs,
@@ -91,6 +102,11 @@ pub fn build(
             "history" => main_window::open(app, Page::History),
             "copy_raw" => raw_paste::copy(&last_raw),
             "retry" => retry::send(&worker, Delivery::Clipboard),
+            "translate" => {
+                if let Some(translation) = app.try_state::<TranslationState>() {
+                    translation.toggle();
+                }
+            }
             "settings" => main_window::open(app, Page::Settings),
             "config" => open_in_editor(&config_file),
             "logs" => open(&logs_dir),
@@ -103,7 +119,11 @@ pub fn build(
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    Ok(TrayItems { status, update })
+    Ok(TrayItems {
+        status,
+        update,
+        translate,
+    })
 }
 
 fn open_in_editor(file: &Path) {

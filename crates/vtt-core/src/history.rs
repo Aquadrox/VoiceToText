@@ -44,6 +44,9 @@ pub struct Entry {
     /// Profil de secours qui a nettoyé le texte à la place du principal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+    /// Mode traduction : langue dans laquelle `text` a été traduit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translated: Option<String>,
 }
 
 pub struct History {
@@ -150,6 +153,7 @@ mod tests {
             cost: None,
             currency: None,
             fallback: None,
+            translated: None,
         }
     }
 

@@ -98,6 +98,17 @@
             <button id="dict-save" class="primary">Enregistrer</button>
             <span id="dict-status" class="muted small"></span>
           </div>
+
+          <section id="suggestions">
+            <h2>Suggestions</h2>
+            <p class="muted small">
+              Tirées de votre historique, sur ce PC : noms propres et sigles qui reviennent, et mots
+              que le LLM a dû corriger (« corrigé »). <strong>+</strong> ajoute le mot au dictionnaire,
+              <strong>×</strong> ne le propose plus.
+            </p>
+            <ul id="suggestion-list" class="chips"></ul>
+            <p id="suggestion-empty" class="muted small" hidden></p>
+          </section>
         </section>
 
         <!-- Snippets -->
@@ -178,6 +189,10 @@
                   <input id="hk-retry" type="text" placeholder="Alt+Shift+R (vide : désactivé)" spellcheck="false" />
                 </div>
                 <div>
+                  <label for="hk-translate">Mode traduction (activer / couper)</label>
+                  <input id="hk-translate" type="text" placeholder="Alt+Shift+T (vide : désactivé)" spellcheck="false" />
+                </div>
+                <div>
                   <label for="hk-hold">Appui minimal (ms)</label>
                   <input id="hk-hold" type="number" min="50" max="1000" step="10" required />
                 </div>
@@ -229,6 +244,17 @@
                 Commandes vocales : « nouvelle ligne », « nouveau paragraphe », « point à la ligne »,
                 « annule la dernière dictée »
               </label>
+            </section>
+
+            <section>
+              <h2>Mode traduction</h2>
+              <label for="tr-language">Traduire vers</label>
+              <select id="tr-language"></select>
+              <p class="muted small">
+                Raccourci ci-dessus (Alt+Maj+T) ou menu de l'icône → <strong>Mode traduction</strong> :
+                les dictées suivantes sont nettoyées puis traduites par le LLM. La pastille affiche la
+                langue pendant la dictée. Le mode reste actif jusqu'à ce que vous le coupiez.
+              </p>
             </section>
 
             <section>

@@ -16,15 +16,16 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 5. [Command Mode](#command-mode)
 6. [Coller la version brute](#coller-la-version-brute)
 7. [Réessayer une dictée](#réessayer-une-dictée)
-8. [La fenêtre principale](#la-fenêtre-principale)
-9. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-10. [Mises à jour](#mises-à-jour)
-11. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-12. [Fichiers et emplacements](#fichiers-et-emplacements)
-13. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-14. [Dépannage](#dépannage)
-15. [Développement](#développement)
-16. [Licence](#licence)
+8. [Mode traduction](#mode-traduction)
+9. [La fenêtre principale](#la-fenêtre-principale)
+10. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+11. [Mises à jour](#mises-à-jour)
+12. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+13. [Fichiers et emplacements](#fichiers-et-emplacements)
+14. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+15. [Dépannage](#dépannage)
+16. [Développement](#développement)
+17. [Licence](#licence)
 
 ## Installation
 
@@ -124,6 +125,19 @@ Rien n'est perdu quand une dictée échoue (transcription en erreur, réseau cou
 
 L'audio n'est jamais écrit sur le disque. Une dictée réessayée apparaît une seconde fois dans l'historique et son coût LLM est compté ; les statistiques de l'accueil ne la comptent qu'une fois.
 
+## Mode traduction
+
+Dicter en français, insérer dans une autre langue :
+
+1. **Alt+Maj+T** (ou menu de l'icône → **Mode traduction**) : la pastille confirme « Traduction → anglais ».
+2. Dicter normalement : le texte est nettoyé puis traduit par le LLM avant d'être collé. Pendant la dictée, la pastille affiche la langue (**→ EN**).
+3. **Alt+Maj+T** à nouveau pour revenir au français.
+
+- Langue d'arrivée : **Réglages → Mode traduction** (anglais, espagnol, allemand, italien, portugais, néerlandais).
+- Le mode s'applique aux dictées commencées pendant qu'il est actif, même dans les applications dont le style demande le texte brut. Les snippets et le Command Mode ne sont pas traduits.
+- Nécessite le LLM ; sans lui, le texte est collé en français et l'historique l'indique (*non nettoyé*).
+- L'historique marque ces dictées *traduit : anglais* ; **Alt+Maj+V** colle toujours la transcription française d'origine.
+
 ## La fenêtre principale
 
 Icône → **Ouvrir VoiceToText** (ou **Historique…**, **Réglages…** pour aller directement à la page).
@@ -134,11 +148,13 @@ Mots dictés, temps gagné (comparé à une frappe à 40 mots/min), vitesse de p
 
 ### Historique
 
-Les 1 000 dernières dictées : date, durée, application de destination, **coût de chaque dictée** (jetons au survol), texte final, transcription brute (ou consigne pour une commande). Recherche, copie, effacement complet (deux clics). Badges : *commande*, *snippet*, *non nettoyé*.
+Les 1 000 dernières dictées : date, durée, application de destination, **coût de chaque dictée** (jetons au survol), texte final, transcription brute (ou consigne pour une commande). Recherche, copie, effacement complet (deux clics). Badges : *commande*, *snippet*, *non nettoyé*, *traduit*, *secours*.
 
 ### Dictionnaire
 
 Noms propres, jargon, sigles : leur orthographe est transmise à Whisper et au LLM. **Ajouter** (ou Entrée), **×** pour retirer, **Enregistrer** : appliqué immédiatement, sans redémarrer.
+
+**Suggestions** : sous la liste, VoiceToText propose des mots tirés de l'historique (analysé sur le PC) : noms propres et sigles qui reviennent dans plusieurs dictées, et mots que le LLM a dû corriger parce que Whisper les avait mal transcrits (marqués *corrigé*). **+** ajoute le mot au dictionnaire (enregistré tout de suite), **×** ne le propose plus. Sans historique, pas de suggestions.
 
 ### Snippets
 
@@ -282,6 +298,10 @@ hands_free = true    # double appui → mains libres
 paste_raw = "Alt+Shift+V"   # coller la dernière dictée brute ("" = désactivé)
 retry = "Alt+Shift+R"       # réessayer la dernière dictée ("" = désactivé)
 command_key = "RightCtrl"   # tenue avec le raccourci → Command Mode ("" = désactivé)
+translate = "Alt+Shift+T"   # active ou coupe le mode traduction ("" = désactivé)
+
+[translation]
+language = "anglais"   # langue d'arrivée du mode traduction
 
 [dictation]
 sounds = true          # sons de début et de fin

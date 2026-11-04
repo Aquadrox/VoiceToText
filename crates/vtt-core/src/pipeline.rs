@@ -102,9 +102,17 @@ pub struct Cleaned {
     pub fallback: Option<String>,
 }
 
+/// Consignes ajoutées au nettoyage d'une dictée.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Directives<'a> {
+    /// Consignes propres à l'application de destination (style).
+    pub style: Option<&'a str>,
+    /// Mode traduction : langue dans laquelle traduire le texte final.
+    pub translate_to: Option<&'a str>,
+}
+
 pub trait PostProcessor: Send + Sync {
-    /// `style` : consignes propres à l'application de destination.
-    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error>;
+    fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error>;
 
     /// Command Mode : applique la consigne dictée au texte sélectionné, ou
     /// rédige le texte demandé s'il n'y a pas de sélection.
@@ -162,8 +170,8 @@ impl WithFallback {
 }
 
 impl PostProcessor for WithFallback {
-    fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
-        self.attempt(|p| p.process(raw, style))
+    fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+        self.attempt(|p| p.process(raw, directives))
     }
 
     fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
@@ -201,6 +209,8 @@ pub enum Outcome {
         command: bool,
         /// Profil de secours qui a répondu à la place du LLM principal.
         fallback: Option<String>,
+        /// Mode traduction : langue dans laquelle `text` a été traduit.
+        translated: Option<String>,
     },
 }
 
@@ -346,6 +356,21 @@ impl Pipeline {
         target: &Target,
         sink: &dyn TextSink,
     ) -> Result<Outcome, Error> {
+        self.dictate(clip, target, Some(sink), None)
+    }
+
+    /// Dictée complète. `sink` : `None` pour l'insertion habituelle.
+    /// `translate_to` (mode traduction) : le texte nettoyé est traduit dans
+    /// cette langue par le LLM, même quand le style de l'application demande
+    /// le texte brut.
+    pub fn dictate(
+        &self,
+        clip: &AudioClip,
+        target: &Target,
+        sink: Option<&dyn TextSink>,
+        translate_to: Option<&str>,
+    ) -> Result<Outcome, Error> {
+        let sink = sink.unwrap_or(self.sink.as_ref());
         let Some((raw, asr_ms)) = self.transcribe(clip)? else {
             return Ok(Outcome::Skipped);
         };
@@ -374,6 +399,7 @@ impl Pipeline {
                 usage: None,
                 command: false,
                 fallback: None,
+                translated: None,
             });
         }
 
@@ -399,16 +425,25 @@ impl Pipeline {
             );
         }
         let processor = match style {
-            Some((_, style)) if !style.cleanup => None,
+            Some((_, style)) if !style.cleanup && translate_to.is_none() => None,
             _ => self.post_processor.as_ref(),
         };
-        let instructions = style
-            .map(|(_, s)| s.instructions.trim())
-            .filter(|i| !i.is_empty());
+        let directives = Directives {
+            style: style
+                .map(|(_, s)| s.instructions.trim())
+                .filter(|i| !i.is_empty()),
+            translate_to,
+        };
         let started = Instant::now();
         let (text, post_process_error, usage, fallback) = match processor {
+            None if translate_to.is_some() => (
+                raw.clone(),
+                Some("mode traduction : le nettoyage LLM est désactivé".to_owned()),
+                None,
+                None,
+            ),
             None => (raw.clone(), None, None, None),
-            Some(processor) => match processor.process(&raw, instructions) {
+            Some(processor) => match processor.process(&raw, directives) {
                 Ok(cleaned) if !cleaned.text.trim().is_empty() => (
                     cleaned.text.trim().to_owned(),
                     None,
@@ -449,6 +484,9 @@ impl Pipeline {
         Ok(Outcome::Inserted {
             raw,
             text,
+            translated: translate_to
+                .filter(|_| post_process_error.is_none())
+                .map(str::to_owned),
             post_process_error,
             snippet: false,
             usage,
@@ -506,6 +544,7 @@ impl Pipeline {
             usage: result.usage,
             command: true,
             fallback: result.fallback,
+            translated: None,
         })
     }
 }
@@ -530,11 +569,14 @@ mod tests {
 
     struct Upper;
     impl PostProcessor for Upper {
-        fn process(&self, raw: &str, style: Option<&str>) -> Result<Cleaned, Error> {
-            let text = match style {
+        fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+            let mut text = match directives.style {
                 Some(style) => format!("{} [{style}]", raw.to_uppercase()),
                 None => raw.to_uppercase(),
             };
+            if let Some(language) = directives.translate_to {
+                text = format!("{text} ({language})");
+            }
             Ok(Cleaned {
                 text,
                 usage: Some(USAGE),
@@ -553,7 +595,7 @@ mod tests {
 
     struct Failing;
     impl PostProcessor for Failing {
-        fn process(&self, _: &str, _: Option<&str>) -> Result<Cleaned, Error> {
+        fn process(&self, _: &str, _: Directives<'_>) -> Result<Cleaned, Error> {
             Err(Error::PostProcess("délai dépassé".into()))
         }
     }
@@ -652,6 +694,7 @@ mod tests {
                 usage: Some(USAGE),
                 command: false,
                 fallback: None,
+                translated: None,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["BONJOUR"]);
@@ -680,7 +723,7 @@ mod tests {
     #[test]
     fn fallback_is_skipped_when_primary_succeeds() {
         let processor = WithFallback::new(Box::new(Upper), Box::new(Failing), "Ollama");
-        let cleaned = processor.process("salut", None).unwrap();
+        let cleaned = processor.process("salut", Directives::default()).unwrap();
         assert_eq!(cleaned.text, "SALUT");
         assert_eq!(cleaned.fallback, None);
     }
@@ -796,6 +839,7 @@ mod tests {
                 usage: None,
                 command: false,
                 fallback: None,
+                translated: None,
             }
         );
         assert_eq!(*sink.0.lock().unwrap(), ["Florian\nVoiceToText"]);
@@ -840,6 +884,37 @@ mod tests {
         p.run(&clip_ms(1000), &target("Slack.exe")).unwrap();
         p.run(&clip_ms(1000), &target("notepad.exe")).unwrap();
         assert_eq!(*sink.0.lock().unwrap(), ["SALUT [décontracté]", "SALUT"]);
+    }
+
+    #[test]
+    fn translation_reaches_post_processor_even_for_raw_styles() {
+        let (p, sink) = pipeline("salut", Some(Box::new(Upper)));
+        let p = p.with_styles(&styles());
+        let outcome = p
+            .dictate(&clip_ms(1000), &target("code.exe"), None, Some("anglais"))
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            Outcome::Inserted { translated: Some(ref l), .. } if l == "anglais"
+        ));
+        assert_eq!(*sink.0.lock().unwrap(), ["SALUT (anglais)"]);
+    }
+
+    #[test]
+    fn translation_without_llm_inserts_raw_with_error() {
+        let (p, sink) = pipeline("salut", None);
+        let outcome = p
+            .dictate(&clip_ms(1000), &no_target(), None, Some("anglais"))
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            Outcome::Inserted {
+                translated: None,
+                post_process_error: Some(_),
+                ..
+            }
+        ));
+        assert_eq!(*sink.0.lock().unwrap(), ["salut"]);
     }
 
     #[test]

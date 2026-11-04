@@ -29,6 +29,7 @@ function fillGeneral(view) {
   $("hk-command").value = view.hotkey.command_key;
   $("hk-paste").value = view.hotkey.paste_raw;
   $("hk-retry").value = view.hotkey.retry;
+  $("hk-translate").value = view.hotkey.translate;
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
 
@@ -59,6 +60,13 @@ function fillGeneral(view) {
   $("dict-sounds").checked = view.dictation.sounds;
   $("dict-media").checked = view.dictation.pause_media;
   $("dict-commands").checked = view.dictation.voice_commands;
+
+  // Une langue saisie à la main dans config.toml reste proposée.
+  const languages = view.languages.includes(view.translation.language)
+    ? view.languages
+    : [...view.languages, view.translation.language];
+  $("tr-language").replaceChildren(...languages.map((l) => option(l, l)));
+  $("tr-language").value = view.translation.language;
 }
 
 async function showGeneral() {
@@ -93,6 +101,7 @@ $("general-form").addEventListener("submit", async (event) => {
         command_key: $("hk-command").value,
         paste_raw: $("hk-paste").value.trim(),
         retry: $("hk-retry").value.trim(),
+        translate: $("hk-translate").value.trim(),
         min_hold_ms: Number($("hk-hold").value),
         hands_free: $("hk-handsfree").checked,
       },
@@ -109,6 +118,7 @@ $("general-form").addEventListener("submit", async (event) => {
         pause_media: $("dict-media").checked,
         voice_commands: $("dict-commands").checked,
       },
+      translation: { language: $("tr-language").value },
     });
     const notes = result.notes.map((note) => `\n• ${note}`).join("");
     showGeneralResult(`✓ Appliqué, sans redémarrage.${notes}`);

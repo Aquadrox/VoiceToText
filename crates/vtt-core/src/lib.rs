@@ -9,11 +9,12 @@ pub mod config;
 pub mod history;
 pub mod hotkey;
 pub mod pipeline;
+pub mod suggest;
 pub mod text;
 pub mod usage;
 
 pub use config::Config;
 pub use pipeline::{
-    AudioClip, Cleaned, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, Target, TextSink,
-    Transcriber, WithFallback,
+    AudioClip, Cleaned, Directives, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, Target,
+    TextSink, Transcriber, WithFallback,
 };
