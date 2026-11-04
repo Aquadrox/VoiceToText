@@ -79,6 +79,18 @@ pub trait Transcriber: Send + Sync {
     fn set_vocabulary(&self, words: &[String]) {
         let _ = words;
     }
+
+    /// Libère le modèle (mémoire graphique) ; `true` s'il était chargé. La
+    /// transcription suivante le recharge.
+    fn unload(&self) -> bool {
+        false
+    }
+
+    /// Recharge le modèle s'il a été libéré (au début d'une dictée, pendant
+    /// que l'utilisateur parle).
+    fn preload(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// Texte nettoyé et, si le fournisseur l'indique, les jetons facturés.
@@ -189,6 +201,16 @@ impl Pipeline {
         self.post_processor = post_processor;
         self.set_snippets(snippets);
         self.styles = styles.to_vec();
+    }
+
+    /// Libère le modèle de transcription ; `true` s'il était chargé.
+    pub fn unload_model(&self) -> bool {
+        self.transcriber.unload()
+    }
+
+    /// Recharge le modèle de transcription s'il a été libéré.
+    pub fn preload_model(&self) -> Result<(), Error> {
+        self.transcriber.preload()
     }
 
     fn snippet_for(&self, raw: &str) -> Option<(usize, &str)> {

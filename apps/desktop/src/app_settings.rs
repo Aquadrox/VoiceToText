@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use vtt_core::config::{AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig, UpdatesConfig};
+use vtt_core::config::{
+    AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig, UNLOAD_AFTER_CHOICES, UpdatesConfig,
+};
 
 use crate::model::{self, ModelChoice};
 use crate::paths::Paths;
@@ -19,6 +21,7 @@ pub struct AppSettingsView {
     asr: AsrConfig,
     updates: UpdatesConfig,
     keys: &'static [&'static str],
+    unload_choices: Vec<u32>,
     microphones: Vec<String>,
     models: Vec<ModelChoice>,
     autostart: bool,
@@ -31,6 +34,8 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         return Err(error);
     }
     Ok(AppSettingsView {
+        // Une valeur saisie à la main dans config.toml reste proposée.
+        unload_choices: unload_choices(config.asr.unload_after_min),
         hotkey: config.hotkey,
         audio: config.audio,
         asr: config.asr,
@@ -71,9 +76,11 @@ pub fn save_app_settings(
     }
     config.hotkey = hotkey;
     config.audio = audio;
-    // La langue n'est pas encore réglable : seuls le modèle et le GPU changent.
+    // La langue n'est pas encore réglable.
     config.asr.model = asr.model;
     config.asr.use_gpu = asr.use_gpu;
+    config.asr.unload_after_min = asr.unload_after_min;
+    config.asr.unload_in_fullscreen = asr.unload_in_fullscreen;
     config.updates = updates;
     paths.write_config(&config)?;
     log::info!("réglages généraux enregistrés, redémarrage");
@@ -82,6 +89,15 @@ pub fn save_app_settings(
         app.restart();
     });
     Ok(())
+}
+
+fn unload_choices(current: u32) -> Vec<u32> {
+    let mut choices = UNLOAD_AFTER_CHOICES.to_vec();
+    if !choices.contains(&current) {
+        choices.push(current);
+        choices.sort_unstable();
+    }
+    choices
 }
 
 #[tauri::command]

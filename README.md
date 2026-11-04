@@ -140,8 +140,8 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 ### Réglages
 
-- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », appui minimal, mains libres.
-- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique.
+- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », « réessayer », appui minimal, mains libres.
+- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
@@ -160,6 +160,15 @@ Modèles Whisper proposés :
 | Small, 8 bits | 264 Mo | PC sans carte graphique |
 
 Un nouveau modèle est téléchargé au redémarrage ; son empreinte SHA-256 est vérifiée.
+
+#### Libérer la mémoire graphique
+
+Le modèle Whisper occupe en permanence de la mémoire graphique (environ 1 à 1,5 Go avec le modèle recommandé). Pour la rendre aux jeux ou à d'autres logiciels :
+
+- **Libérer la mémoire graphique sans dictée depuis** 5, 15, 30 ou 60 minutes (par défaut : jamais) ;
+- **pendant les jeux et vidéos en plein écran** (une minute après la dernière dictée, pour ne pas recharger à chaque message dicté en jeu).
+
+Le modèle est rechargé **dès que vous commencez à dicter**, pendant que vous parlez : seule cette dictée prend une à deux secondes de plus. Le journal indique « modèle déchargé » et le temps de rechargement.
 
 ## Nettoyage du texte (LLM)
 
@@ -255,6 +264,8 @@ device = ""          # nom du micro ; vide = micro par défaut de Windows
 model = "ggml-large-v3-turbo-q8_0.bin"
 language = "fr"
 use_gpu = true
+unload_after_min = 0          # libérer la mémoire graphique après N min sans dicter (0 = jamais)
+unload_in_fullscreen = false  # la libérer pendant les jeux et vidéos en plein écran
 
 [llm]
 enabled = true

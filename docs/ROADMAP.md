@@ -69,8 +69,8 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 
 ## v0.7 — Fiabilité 🚧
 
-- 🚧 Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
-- ⬜ Libérer la mémoire graphique : décharger Whisper après X minutes sans dicter ou pendant un jeu en plein écran, recharger pendant la dictée suivante
+- ✅ Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
+- ✅ Libérer la mémoire graphique : Whisper déchargé après 5 à 60 min sans dicter (`asr.unload_after_min`) ou pendant un jeu / une vidéo en plein écran (`asr.unload_in_fullscreen`, après une minute sans dicter), rechargé dès le début de la dictée suivante, pendant que l'utilisateur parle
 - ⬜ Profil LLM de secours : si le fournisseur principal échoue, essai d'un second profil avant le repli sur le texte brut
 
 ## v0.8 — Confort de dictée ⬜

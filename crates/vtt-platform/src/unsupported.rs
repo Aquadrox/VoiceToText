@@ -31,6 +31,10 @@ pub fn foreground_target() -> vtt_core::Target {
     vtt_core::Target::default()
 }
 
+pub fn fullscreen_app_running() -> bool {
+    false
+}
+
 pub fn autostart_enabled() -> bool {
     false
 }
