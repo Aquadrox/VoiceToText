@@ -756,6 +756,15 @@ ol.entries li {
   margin-top: 16px;
 }
 
+select.compact {
+  flex: none;
+  width: auto;
+}
+
+.providers td:last-child select {
+  width: auto;
+}
+
 .meeting-settings fieldset {
   margin: 8px 0;
   padding: 8px 12px;

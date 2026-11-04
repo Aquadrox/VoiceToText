@@ -1,0 +1,108 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1c1c24;
+  --muted: #6b6b78;
+  --border: #dcdce4;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --rec: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202028;
+    --fg: #ececf1;
+    --muted: #9d9daa;
+    --border: #34343f;
+    --accent: #818cf8;
+    --accent-fg: #11111a;
+    --rec: #f87171;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.35 "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+}
+
+p {
+  margin: 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rec);
+}
+
+.note {
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.actions[hidden] {
+  display: none;
+}
+
+button {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+#more,
+#back {
+  margin-left: auto;
+}

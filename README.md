@@ -148,7 +148,11 @@ Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcriptio
 3. **Alt+Maj+N** colle dans l'application active ce qui a été dit depuis la dernière copie (« Moi : … / Eux : … »).
 4. **Alt+Maj+M** à nouveau pour arrêter : les derniers blocs sont transcrits, puis le **compte rendu** est rédigé par le LLM choisi (résumé, décisions, actions « qui : quoi », questions ouvertes). Prompt modifiable dans la page **Prompts** (« Compte rendu de réunion »), coût compté dans la consommation.
 
-Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendant l'enregistrement), compte rendu, renommer, **Copier** (Markdown), **Exporter (.md)**, **Supprimer**.
+**Détection d'appel** : quand Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype ou Webex utilise le micro (2 s), ou un navigateur (20 s, pour ne pas confondre avec un message vocal), une petite fenêtre en bas à droite propose **Enregistrer** / **Pas maintenant**, ou **…** → **Toujours enregistrer** / **Ne plus proposer** pour ce service. Sans réponse, elle se referme au bout de 20 s sans rien enregistrer ; le même appel n'est pas reproposé. Seul le nom du programme qui utilise le micro est lu. Choix par service et désactivation dans les réglages des réunions.
+
+**Écho** (appel sur haut-parleurs, le micro réentend les autres) : les passages du micro qui ne font que suivre le son du PC sont écartés avant transcription, puis les répliques « Moi » qui répètent mot pour mot ce que « Eux » venaient de dire sont masquées. Au casque, rien n'est écarté. Désactivable.
+
+Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendant l'enregistrement), compte rendu (dans la langue de la réunion ou traduit : anglais, espagnol…), renommer, **Copier** (Markdown), **Exporter (.md)**, **Supprimer**.
 
 **Audio de la réunion**, au choix (page Réunions → Réglages des réunions) :
 
@@ -158,7 +162,7 @@ Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendan
 | Fichier temporaire chiffré (**par défaut**) | Chiffré par Windows (DPAPI, lisible seulement par votre session), supprimé une fois la transcription terminée | Transcription reprise au redémarrage |
 | Conservé, chiffré | Gardé ; export en WAV et **Transcrire à nouveau** (après un changement de modèle) | Transcription reprise au redémarrage |
 
-Autres réglages : capter ou non le son du PC, compte rendu automatique ou à la demande, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
+Autres réglages : capter ou non le son du PC, écarter l'écho, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
 
 ## La fenêtre principale
 
@@ -310,6 +314,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Export des réglages | Fichier `.toml` où vous le choisissez ; **jamais de clé API** |
 | Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
 | Titre de la fenêtre active | Sert à choisir un style ; ni stocké, ni journalisé, ni envoyé |
+| Programmes qui utilisent le micro | Nom seulement, lu chaque seconde pour la détection d'appel ; ni stocké, ni envoyé (désactivable) |
 | Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
 
 ## Fichiers et emplacements
@@ -357,6 +362,13 @@ system_audio = true    # capter le son du PC (les autres participants)
 auto_summary = true    # compte rendu par le LLM à la fin
 summary_prompt = ""    # prompt « compte_rendu » (page Prompts) ; "" = intégré
 keep_days = 0          # réunions supprimées au-delà ; 0 = jamais
+detect = true          # proposer d'enregistrer quand un appel commence
+echo_filter = true     # écarter l'écho (haut-parleurs)
+summary_language = ""  # langue du compte rendu ; "" = celle de la réunion
+# Choix par service (absent = proposer) : "toujours" ou "jamais".
+# [[meetings.providers]]
+# key = "zoom"
+# policy = "toujours"
 
 [dictation]
 sounds = true          # sons de début et de fin

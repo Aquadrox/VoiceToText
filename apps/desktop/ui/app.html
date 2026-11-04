@@ -119,6 +119,7 @@
               <p id="meeting-notes" class="warning" hidden></p>
               <div class="row wrap">
                 <button id="meeting-summarize" class="primary">Rédiger le compte rendu</button>
+                <select id="meeting-summary-language" class="compact" aria-label="Langue du compte rendu"></select>
                 <button id="meeting-copy">Copier</button>
                 <button id="meeting-export">Exporter (.md)</button>
                 <button id="meeting-audio-me" hidden>Audio « Moi » (.wav)</button>
@@ -165,10 +166,34 @@
                 Capter le son du PC (les autres participants), en plus du micro
               </label>
               <label class="inline">
+                <input id="meeting-echo" type="checkbox" />
+                Écarter l'écho (appel sur haut-parleurs : le micro réentend les autres)
+              </label>
+              <fieldset>
+                <legend>Détection d'appel</legend>
+                <label class="inline">
+                  <input id="meeting-detect" type="checkbox" />
+                  Proposer d'enregistrer quand un appel commence (programme qui utilise le micro ;
+                  seul son nom est lu)
+                </label>
+                <table id="meeting-providers" class="providers">
+                  <thead>
+                    <tr><th>Service</th><th>Quand un appel est détecté</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+                <p class="muted small">
+                  Navigateurs : proposé après 20 s de micro (pas pour un message vocal). Sans
+                  réponse, la proposition se referme au bout de 20 s sans rien enregistrer.
+                </p>
+              </fieldset>
+              <label class="inline">
                 <input id="meeting-auto-summary" type="checkbox" />
                 Rédiger le compte rendu automatiquement à la fin (LLM choisi dans les réglages ;
                 prompt modifiable dans la page Prompts)
               </label>
+              <label for="meeting-language">Langue du compte rendu</label>
+              <select id="meeting-language"></select>
               <label for="meeting-keep">Conserver les réunions</label>
               <select id="meeting-keep"></select>
               <div class="row">

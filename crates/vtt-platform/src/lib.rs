@@ -13,6 +13,10 @@ mod media_windows;
 #[cfg(windows)]
 pub use media_windows::MediaPauser;
 #[cfg(windows)]
+mod microphone_windows;
+#[cfg(windows)]
+pub use microphone_windows::microphone_apps;
+#[cfg(windows)]
 mod secrets_windows;
 #[cfg(windows)]
 pub use secrets_windows::{
@@ -33,7 +37,7 @@ mod unsupported;
 pub use unsupported::{
     ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys, copy_selection,
     copy_text, delete_secret, foreground_target, fullscreen_app_running, key_code, key_is_down,
-    list_secrets, load_secret, modifiers_down, play_sound, protect, set_autostart,
+    list_secrets, load_secret, microphone_apps, modifiers_down, play_sound, protect, set_autostart,
     spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
 };
 

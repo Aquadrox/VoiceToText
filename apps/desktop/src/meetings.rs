@@ -16,10 +16,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::menu::MenuItem;
-use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig};
+use vtt_core::calls::{self, Decision, Detector, Policy, Provider};
+use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig, TRANSLATION_LANGUAGES};
 use vtt_core::meeting::{self, Chunk, Chunker, Segment, Track};
 use vtt_core::usage::Usage;
 use vtt_core::{AudioClip, Pipeline, TextSink};
@@ -37,6 +38,13 @@ const RECORD_FILE: &str = "meeting.json";
 const TICK: Duration = Duration::from_secs(1);
 /// Durée enregistrée dans meeting.json pendant l'enregistrement.
 const SAVE_EVERY: Duration = Duration::from_secs(10);
+/// Relevé des programmes qui utilisent le micro (détection d'appel).
+const DETECT_EVERY: Duration = Duration::from_secs(1);
+/// Proposition sans réponse : refermée (jamais d'enregistrement par défaut).
+const OFFER_TIMEOUT: Duration = Duration::from_secs(20);
+const OFFER_LABEL: &str = "offer";
+const OFFER_SIZE: (f64, f64) = (380.0, 132.0);
+const OFFER_MARGIN: f64 = 16.0;
 
 /// Une réunion est en cours d'enregistrement (lu par la dictée : pas de
 /// pause des médias, qui couperait un appel dans le navigateur).
@@ -99,6 +107,16 @@ pub struct MeetingRecord {
     /// Remarques (son du PC non capté, audio non chiffrable…).
     #[serde(default)]
     pub notes: Vec<String>,
+    /// Écho écarté de la piste « Moi » (appel sur haut-parleurs).
+    #[serde(default = "enabled")]
+    pub echo_filter: bool,
+    /// Blocs du micro écartés comme écho.
+    #[serde(default)]
+    pub echo_chunks: u32,
+}
+
+fn enabled() -> bool {
+    true
 }
 
 impl MeetingRecord {
@@ -119,6 +137,15 @@ impl MeetingRecord {
             });
         if let Err(e) = result {
             log::error!("enregistrement de la réunion {} : {e}", self.id);
+        }
+    }
+
+    /// Segments affichés : sans l'écho si le filtre est actif.
+    fn segments(&self) -> Vec<Segment> {
+        if self.echo_filter {
+            meeting::without_echo(&self.segments)
+        } else {
+            self.segments.clone()
         }
     }
 
@@ -248,6 +275,8 @@ pub struct Meetings {
     active: Mutex<Option<Active>>,
     /// Réunions en cours de transcription, par identifiant.
     sessions: Mutex<HashMap<String, Arc<Session>>>,
+    /// Appel détecté, proposé à l'enregistrement (et quand).
+    offer: Mutex<Option<(&'static Provider, Instant)>>,
 }
 
 pub type MeetingsState = Arc<Meetings>;
@@ -277,6 +306,7 @@ impl Meetings {
             tray_item,
             active: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
+            offer: Mutex::new(None),
         })
     }
 
@@ -321,7 +351,8 @@ impl Meetings {
     }
 
     /// Démarre l'enregistrement ; renvoie l'identifiant de la réunion.
-    pub fn start(self: &Arc<Self>) -> Result<String, String> {
+    /// `call` : service de l'appel détecté, pour le titre.
+    pub fn start(self: &Arc<Self>, call: Option<&str>) -> Result<String, String> {
         let mut active = lock(&self.active);
         if active.is_some() {
             return Err("une réunion est déjà en cours d'enregistrement".into());
@@ -340,7 +371,7 @@ impl Meetings {
         }
         let record = MeetingRecord {
             id: id.clone(),
-            title: default_title(),
+            title: default_title(call),
             started_at_ms,
             duration_ms: 0,
             status: MeetingStatus::Enregistrement,
@@ -351,6 +382,8 @@ impl Meetings {
             summary_error: None,
             failed_chunks: 0,
             notes,
+            echo_filter: settings.echo_filter,
+            echo_chunks: 0,
         };
         record.save(&dir);
         log::info!(
@@ -404,7 +437,7 @@ impl Meetings {
         let result = if lock(&self.active).is_some() {
             self.stop()
         } else {
-            self.start().map(|_| ())
+            self.start(None).map(|_| ())
         };
         if let Err(e) = result {
             log::warn!("réunion : {e}");
@@ -412,13 +445,154 @@ impl Meetings {
         }
     }
 
+    /// Détection d'appel : chaque seconde, les programmes qui utilisent le
+    /// micro ; un appel qui dure → proposition (ou enregistrement, selon le
+    /// choix pour ce service).
+    pub fn spawn_detection(self: &Arc<Self>) {
+        let meetings = Arc::clone(self);
+        let spawned = thread::Builder::new()
+            .name("call-detection".into())
+            .spawn(move || {
+                let mut detector = Detector::default();
+                loop {
+                    thread::sleep(DETECT_EVERY);
+                    let settings = meetings.config().meetings;
+                    if !settings.detect {
+                        detector = Detector::default();
+                        continue;
+                    }
+                    let apps = vtt_platform::microphone_apps();
+                    let decision =
+                        detector.observe(now_ms(), &apps, recording(), |key| settings.policy(key));
+                    match decision {
+                        Some(Decision::Offer(provider)) => {
+                            log::info!("appel détecté : {}", provider.label);
+                            meetings.show_offer(provider);
+                        }
+                        Some(Decision::Record(provider)) => {
+                            log::info!(
+                                "appel détecté : {} (enregistrement automatique)",
+                                provider.label
+                            );
+                            if let Err(e) = meetings.start(Some(provider.label)) {
+                                log::warn!("enregistrement automatique : {e}");
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            log::error!("détection d'appel : {e}");
+        }
+    }
+
+    /// Petite fenêtre « Appel détecté : Enregistrer / Pas maintenant », en
+    /// bas à droite, sans prendre le focus de l'appel.
+    fn show_offer(self: &Arc<Self>, provider: &'static Provider) {
+        *lock(&self.offer) = Some((provider, Instant::now()));
+        if let Some(window) = self.app.get_webview_window(OFFER_LABEL) {
+            let _ = self.app.emit_to(OFFER_LABEL, "offer", ());
+            let _ = window.show();
+        } else {
+            let mut builder = WebviewWindowBuilder::new(
+                &self.app,
+                OFFER_LABEL,
+                WebviewUrl::App("offer.html".into()),
+            )
+            .title("VoiceToText : appel détecté")
+            .inner_size(OFFER_SIZE.0, OFFER_SIZE.1)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(false);
+            if let Ok(Some(monitor)) = self.app.primary_monitor() {
+                let scale = monitor.scale_factor();
+                let area = monitor.work_area();
+                let right = f64::from(area.position.x) / scale + f64::from(area.size.width) / scale;
+                let bottom =
+                    f64::from(area.position.y) / scale + f64::from(area.size.height) / scale;
+                builder = builder.position(
+                    right - OFFER_SIZE.0 - OFFER_MARGIN,
+                    bottom - OFFER_SIZE.1 - OFFER_MARGIN,
+                );
+            }
+            if let Err(e) = builder.build() {
+                log::warn!("fenêtre de proposition : {e}");
+                return;
+            }
+        }
+        // Sans réponse : refermée, rien n'est enregistré.
+        let meetings = Arc::clone(self);
+        thread::spawn(move || {
+            thread::sleep(OFFER_TIMEOUT);
+            let expired =
+                lock(&meetings.offer).is_some_and(|(_, shown)| shown.elapsed() >= OFFER_TIMEOUT);
+            if expired {
+                meetings.close_offer();
+            }
+        });
+    }
+
+    fn close_offer(&self) {
+        *lock(&self.offer) = None;
+        if let Some(window) = self.app.get_webview_window(OFFER_LABEL) {
+            let _ = window.close();
+        }
+    }
+
+    /// Réponse à la proposition.
+    fn answer_offer(self: &Arc<Self>, choice: &str) -> Result<(), String> {
+        let provider = lock(&self.offer).map(|(p, _)| p);
+        self.close_offer();
+        let Some(provider) = provider else {
+            return Ok(());
+        };
+        let policy = match choice {
+            "toujours" => Some(Policy::Toujours),
+            "jamais" => Some(Policy::Jamais),
+            _ => None,
+        };
+        if let Some(policy) = policy {
+            self.save_policy(provider.key, policy)?;
+        }
+        if matches!(choice, "enregistrer" | "toujours") {
+            self.start(Some(provider.label))?;
+        }
+        Ok(())
+    }
+
+    fn save_policy(&self, key: &str, policy: Policy) -> Result<(), String> {
+        let paths = self.app.state::<Paths>();
+        let (mut config, error) = paths.load_config();
+        if let Some(error) = error {
+            return Err(error);
+        }
+        config.meetings.set_policy(key, policy);
+        paths.write_config(&config)?;
+        *self
+            .app
+            .state::<SharedConfig>()
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = config;
+        log::info!("appels {key} : {policy:?}");
+        Ok(())
+    }
+
     /// Thread d'enregistrement : chaque seconde, l'audio capté est écrit
     /// (selon le réglage) et découpé en blocs pour la transcription.
     fn record(&self, session: Arc<Session>, capture: Capture, stop: mpsc::Receiver<()>) {
-        let (dir, mut audio, system) = {
+        let (dir, mut audio, system, echo_filter) = {
             let record = lock(&session.record);
-            (session.dir.clone(), record.audio, record.system)
+            (
+                session.dir.clone(),
+                record.audio,
+                record.system,
+                record.echo_filter,
+            )
         };
+        let mut echo = meeting::EchoGate::default();
         let mut chunkers = [Chunker::default(), Chunker::default()];
         // `Capture::stop` consomme la capture : gardée jusqu'à l'arrêt.
         let mut capture = Some(capture);
@@ -435,10 +609,13 @@ impl Meetings {
                 capture.as_ref().map(Capture::take).unwrap_or_default()
             };
             let Tracks { mic, system: other } = tracks;
-            let mut feeds = vec![(Track::Moi, mic)];
+            // Son du PC d'abord : il sert à reconnaître l'écho dans le micro.
+            let mut feeds = Vec::new();
             if system {
+                echo.feed_system(&other);
                 feeds.push((Track::Eux, other));
             }
+            feeds.push((Track::Moi, mic));
             for (track, samples) in feeds {
                 if audio != MeetingAudio::Memoire
                     && let Err(e) = meeting::append_audio(
@@ -458,10 +635,15 @@ impl Meetings {
                     ));
                 }
                 let chunker = &mut chunkers[track as usize];
-                for chunk in chunker.feed(&samples) {
-                    self.enqueue(&session, track, chunk);
+                let mut chunks = chunker.feed(&samples);
+                if stopped {
+                    chunks.extend(chunker.finish());
                 }
-                if stopped && let Some(chunk) = chunker.finish() {
+                for chunk in chunks {
+                    if track == Track::Moi && system && echo_filter && echo.is_echo(&chunk) {
+                        lock(&session.record).echo_chunks += 1;
+                        continue;
+                    }
                     self.enqueue(&session, track, chunk);
                 }
             }
@@ -492,7 +674,7 @@ impl Meetings {
             let meetings = Arc::clone(self);
             let id = id.to_owned();
             thread::spawn(move || {
-                if let Err(e) = meetings.summarize(&id) {
+                if let Err(e) = meetings.summarize(&id, None) {
                     log::warn!("compte rendu de la réunion {id} : {e}");
                 }
             });
@@ -647,8 +829,10 @@ impl Meetings {
         Ok(())
     }
 
-    /// Compte rendu par le LLM actif ; remplace le précédent.
-    pub fn summarize(&self, id: &str) -> Result<(), String> {
+    /// Compte rendu par le LLM actif ; remplace le précédent. `language` :
+    /// langue voulue (`None` : celle des réglages des réunions ; vide : celle
+    /// de la réunion).
+    pub fn summarize(&self, id: &str, language: Option<String>) -> Result<(), String> {
         let (record, _) = self.load(id)?;
         if record.segments.is_empty() {
             return Err("transcription vide : rien à résumer".into());
@@ -656,13 +840,21 @@ impl Meetings {
         let config = self.config();
         let cleaner = settings::summarizer(&config)
             .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
-        let transcript = meeting::transcript_text(&record.segments);
+        let transcript = meeting::transcript_text(&record.segments());
+        let language = language
+            .unwrap_or_else(|| config.meetings.summary_language.clone())
+            .trim()
+            .to_owned();
         log::info!(
             "compte rendu de la réunion {id} ({} caractères) via {}",
             transcript.chars().count(),
             config.llm.model
         );
-        match cleaner.summarize(&record.title, &transcript) {
+        match cleaner.summarize(
+            &record.title,
+            &transcript,
+            Some(language.as_str()).filter(|l| !l.is_empty()),
+        ) {
             Ok(cleaned) => {
                 let pricing = &config.llm.pricing;
                 let cost = cleaned.usage.map(|u: Usage| pricing.cost(&u));
@@ -702,10 +894,9 @@ impl Meetings {
         let text = {
             let mut record = lock(&session.record);
             let fresh: Vec<Segment> = record
-                .segments
-                .iter()
+                .segments()
+                .into_iter()
                 .filter(|s| !s.copied)
-                .cloned()
                 .collect();
             for segment in &mut record.segments {
                 segment.copied = true;
@@ -734,15 +925,16 @@ impl Meetings {
     }
 }
 
-/// « Réunion du 4 nov. 2026 à 14:30 ».
-fn default_title() -> String {
+/// « Réunion du 4 nov. 2026 à 14:30 », ou « Appel Zoom du … ».
+fn default_title(call: Option<&str>) -> String {
     const MONTHS: [&str; 12] = [
         "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
         "déc.",
     ];
     let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let kind = call.map_or_else(|| "Réunion".to_owned(), |label| format!("Appel {label}"));
     format!(
-        "Réunion du {} {} {} à {:02}:{:02}",
+        "{kind} du {} {} {} à {:02}:{:02}",
         now.day(),
         MONTHS[usize::from(u8::from(now.month())) - 1],
         now.year(),
@@ -817,6 +1009,17 @@ pub struct MeetingsView {
     settings: MeetingsConfig,
     keep_days: &'static [u32],
     llm_enabled: bool,
+    /// Services d'appel reconnus et le choix pour chacun.
+    providers: Vec<ProviderView>,
+    languages: &'static [&'static str],
+}
+
+#[derive(Serialize)]
+pub struct ProviderView {
+    key: &'static str,
+    label: &'static str,
+    browser: bool,
+    policy: Policy,
 }
 
 #[tauri::command]
@@ -855,6 +1058,15 @@ pub fn meetings_view(
         settings: config.meetings.clone(),
         keep_days: MEETING_KEEP_DAYS,
         llm_enabled: config.llm.enabled,
+        providers: calls::providers()
+            .map(|p| ProviderView {
+                key: p.key,
+                label: p.label,
+                browser: p.browser,
+                policy: config.meetings.policy(p.key),
+            })
+            .collect(),
+        languages: TRANSLATION_LANGUAGES,
     }
 }
 
@@ -879,7 +1091,7 @@ pub fn meeting_detail(
     id: String,
 ) -> Result<MeetingDetail, String> {
     let (record, dir) = meetings.load(&id)?;
-    let turns = meeting::turns(&record.segments)
+    let turns = meeting::turns(&record.segments())
         .into_iter()
         .map(|(track, start_ms, text)| Turn {
             track,
@@ -895,6 +1107,26 @@ pub fn meeting_detail(
     })
 }
 
+#[derive(Serialize)]
+pub struct OfferView {
+    label: &'static str,
+    browser: bool,
+}
+
+#[tauri::command]
+pub fn offer_view(meetings: State<'_, MeetingsState>) -> Option<OfferView> {
+    lock(&meetings.offer).map(|(p, _)| OfferView {
+        label: p.label,
+        browser: p.browser,
+    })
+}
+
+/// `choice` : « enregistrer », « plus-tard », « toujours », « jamais ».
+#[tauri::command]
+pub fn offer_answer(meetings: State<'_, MeetingsState>, choice: String) -> Result<(), String> {
+    meetings.answer_offer(&choice)
+}
+
 #[tauri::command]
 pub fn meeting_state(meetings: State<'_, MeetingsState>) -> MeetingState {
     meetings.state()
@@ -902,7 +1134,7 @@ pub fn meeting_state(meetings: State<'_, MeetingsState>) -> MeetingState {
 
 #[tauri::command]
 pub fn start_meeting(meetings: State<'_, MeetingsState>) -> Result<String, String> {
-    meetings.start()
+    meetings.start(None)
 }
 
 #[tauri::command]
@@ -924,8 +1156,12 @@ pub fn rename_meeting(
 }
 
 #[tauri::command(async)]
-pub fn summarize_meeting(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
-    meetings.summarize(&id)
+pub fn summarize_meeting(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    language: Option<String>,
+) -> Result<(), String> {
+    meetings.summarize(&id, language)
 }
 
 #[tauri::command]
@@ -963,7 +1199,7 @@ pub fn copy_meeting(
     let (record, _) = meetings.load(&id)?;
     let text = match part.as_str() {
         "summary" => record.summary.map(|s| s.text).unwrap_or_default(),
-        "transcript" => meeting::transcript_text(&record.segments),
+        "transcript" => meeting::transcript_text(&record.segments()),
         _ => markdown(&record),
     };
     vtt_platform::copy_text(&text)
@@ -986,7 +1222,7 @@ fn markdown(record: &MeetingRecord) -> String {
         &date,
         record.duration_ms,
         record.summary.as_ref().map(|s| s.text.as_str()),
-        &record.segments,
+        &record.segments(),
     )
 }
 
@@ -1072,9 +1308,11 @@ pub fn save_meeting_settings(
             "{error} : corrigez-le d'abord (menu « Modifier la configuration »)"
         ));
     }
+    settings.validate()?;
     config.meetings = MeetingsConfig {
         // Le prompt se choisit dans la page Prompts.
         summary_prompt: config.meetings.summary_prompt.clone(),
+        summary_language: settings.summary_language.trim().to_owned(),
         ..settings
     };
     paths.write_config(&config)?;
@@ -1118,6 +1356,8 @@ mod tests {
             summary_error: None,
             failed_chunks: 0,
             notes: Vec::new(),
+            echo_filter: true,
+            echo_chunks: 0,
         }
     }
 

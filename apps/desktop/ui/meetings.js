@@ -8,6 +8,11 @@ const MEETING_STATUS = {
   interrompue: "interrompue",
 };
 const DELETE_CONFIRM_MS = 4000;
+const POLICIES = [
+  ["demander", "Proposer d'enregistrer"],
+  ["toujours", "Enregistrer sans demander"],
+  ["jamais", "Ne rien proposer"],
+];
 let meetingsView = null;
 let selectedMeeting = null;
 let meetingSettingsFilled = false;
@@ -100,6 +105,7 @@ async function showMeetingDetail() {
     record.system ? "micro + son du PC" : "micro seulement",
   ];
   if (record.failed_chunks) meta.push(`${record.failed_chunks} passage(s) non transcrit(s)`);
+  if (record.echo_chunks) meta.push(`${record.echo_chunks} passage(s) d'écho écarté(s)`);
   $("meeting-meta").textContent = meta.join(" · ");
   $("meeting-notes").hidden = record.notes.length === 0;
   $("meeting-notes").textContent = record.notes.join("\n");
@@ -184,8 +190,36 @@ function renderSummary(markdown) {
   return nodes;
 }
 
+/** Langues proposées pour le compte rendu ; `selected` reste proposée. */
+function languageOptions(selected) {
+  const languages = [...meetingsView.languages];
+  if (selected && !languages.includes(selected)) languages.push(selected);
+  return [option("", "Langue de la réunion"), ...languages.map((l) => option(l, l))];
+}
+
 function fillMeetingSettings() {
   const settings = meetingsView.settings;
+  $("meeting-echo").checked = settings.echo_filter;
+  $("meeting-detect").checked = settings.detect;
+  const rows = meetingsView.providers.map((provider) => {
+    const row = document.createElement("tr");
+    const name = document.createElement("th");
+    name.textContent = provider.browser ? `${provider.label} (navigateur)` : provider.label;
+    const cell = document.createElement("td");
+    const select = document.createElement("select");
+    select.dataset.provider = provider.key;
+    select.setAttribute("aria-label", `Appels ${provider.label}`);
+    select.replaceChildren(...POLICIES.map(([value, label]) => option(value, label)));
+    select.value = provider.policy;
+    cell.append(select);
+    row.append(name, cell);
+    return row;
+  });
+  $("meeting-providers").tBodies[0].replaceChildren(...rows);
+  $("meeting-language").replaceChildren(...languageOptions(settings.summary_language));
+  $("meeting-language").value = settings.summary_language;
+  $("meeting-summary-language").replaceChildren(...languageOptions(settings.summary_language));
+  $("meeting-summary-language").value = settings.summary_language;
   for (const radio of document.querySelectorAll('input[name="meeting-audio"]')) {
     radio.checked = radio.value === settings.audio;
   }
@@ -248,7 +282,10 @@ $("meeting-title").addEventListener("keydown", (e) => {
 $("meeting-summarize").addEventListener("click", () =>
   meetingAction($("meeting-summarize"), async () => {
     showMeetingResult("Rédaction du compte rendu par le LLM…");
-    await invoke("summarize_meeting", { id: selectedMeeting });
+    await invoke("summarize_meeting", {
+      id: selectedMeeting,
+      language: $("meeting-summary-language").value,
+    });
     showMeetingResult("✓ Compte rendu rédigé.");
   }),
 );
@@ -320,6 +357,12 @@ $("meeting-settings-form").addEventListener("submit", async (event) => {
         auto_summary: $("meeting-auto-summary").checked,
         summary_prompt: "",
         keep_days: Number($("meeting-keep").value),
+        detect: $("meeting-detect").checked,
+        echo_filter: $("meeting-echo").checked,
+        summary_language: $("meeting-language").value,
+        providers: [...document.querySelectorAll("[data-provider]")]
+          .filter((select) => select.value !== "demander")
+          .map((select) => ({ key: select.dataset.provider, policy: select.value })),
       },
     });
     result.classList.remove("error");

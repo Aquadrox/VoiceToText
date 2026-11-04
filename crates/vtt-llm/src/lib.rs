@@ -270,11 +270,25 @@ impl PostProcessor for LlmCleaner {
 impl LlmCleaner {
     /// Compte rendu de la réunion `title` d'après sa transcription
     /// (`[12:34] Moi : …`, une réplique par ligne).
-    pub fn summarize(&self, title: &str, transcript: &str) -> Result<Cleaned, Error> {
+    /// `language` : langue du compte rendu (`None` : celle de la réunion).
+    pub fn summarize(
+        &self,
+        title: &str,
+        transcript: &str,
+        language: Option<&str>,
+    ) -> Result<Cleaned, Error> {
         let title = neutralize_tags(title);
         let transcript = neutralize_tags(transcript);
         let user = format!("Réunion : {title}\n<transcription>\n{transcript}\n</transcription>");
-        let body = self.chat_body(&self.summary_prompt, &user, SUMMARY_MAX_TOKENS);
+        // Consigne en fin de prompt : le début reste identique (cache).
+        let mut system = self.summary_prompt.clone();
+        if let Some(language) = language {
+            system.push_str(&format!(
+                "\n\nRédige le compte rendu en {language}, titres de section compris, quelle \
+                 que soit la langue de la réunion."
+            ));
+        }
+        let body = self.chat_body(&system, &user, SUMMARY_MAX_TOKENS);
         let (content, usage) = self.send(&self.summary_agent, body)?;
         Ok(Cleaned {
             text: strip_wrappers(&content).to_owned(),

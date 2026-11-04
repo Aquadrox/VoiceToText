@@ -209,6 +209,54 @@ pub struct MeetingsConfig {
     pub summary_prompt: String,
     /// Réunions supprimées au-delà de ce nombre de jours ; 0 : jamais.
     pub keep_days: u32,
+    /// Proposer d'enregistrer quand un appel est détecté.
+    pub detect: bool,
+    /// Choix par service (absent : demander).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<ProviderChoice>,
+    /// Écarter l'écho (appel sur haut-parleurs) de la piste « Moi ».
+    pub echo_filter: bool,
+    /// Langue du compte rendu ; vide : celle de la réunion.
+    pub summary_language: String,
+}
+
+/// Choix de l'utilisateur pour un service d'appel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderChoice {
+    pub key: String,
+    pub policy: crate::calls::Policy,
+}
+
+impl MeetingsConfig {
+    pub fn policy(&self, key: &str) -> crate::calls::Policy {
+        self.providers
+            .iter()
+            .find(|p| p.key == key)
+            .map(|p| p.policy)
+            .unwrap_or_default()
+    }
+
+    /// Change le choix pour un service (« demander » n'est pas gardé).
+    pub fn set_policy(&mut self, key: &str, policy: crate::calls::Policy) {
+        self.providers.retain(|p| p.key != key);
+        if policy != crate::calls::Policy::Demander {
+            self.providers.push(ProviderChoice {
+                key: key.to_owned(),
+                policy,
+            });
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.summary_language.is_empty() {
+            TranslationConfig {
+                language: self.summary_language.clone(),
+            }
+            .validate()
+            .map_err(|e| format!("langue du compte rendu : {e}"))?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for MeetingsConfig {
@@ -219,6 +267,10 @@ impl Default for MeetingsConfig {
             auto_summary: true,
             summary_prompt: String::new(),
             keep_days: 0,
+            detect: true,
+            providers: Vec::new(),
+            echo_filter: true,
+            summary_language: String::new(),
         }
     }
 }
@@ -934,6 +986,7 @@ impl Config {
     pub fn checked(mut self) -> Result<Config, String> {
         self.hotkey.validate()?;
         self.translation.validate()?;
+        self.meetings.validate()?;
         self.llm.base_url = self.llm.normalized_base_url();
         self.llm
             .validate()

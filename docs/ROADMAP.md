@@ -101,23 +101,23 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Bibliothèques natives (ONNX Runtime, libvosk) téléchargées avec le modèle et vérifiées (SHA-256) : installeur inchangé
 - ⬜ Vosk en continu (transcription pendant la dictée, texte prêt au relâchement), si les essais le demandent
 
-## v0.12 — Réunions 🚧
+## v0.12 — Réunions ✅
 
 Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcription et un compte rendu, sur Windows. Rien d'automatique par défaut, chaque comportement est un réglage.
 
 - ✅ Deux pistes séparées : le micro (« Moi ») et le son du PC (« Eux », capture de toutes les sorties audio actives, casque compris), alignées sur l'horloge (silences du son du PC comblés)
 - ✅ Démarrage à la main : menu de l'icône, raccourci (Alt+Maj+M), page Réunions
-- ⬜ Détection d'appel : application qui utilise le micro (Teams, Zoom, Discord, Slack, WhatsApp, navigateur) → pastille « Appel détecté : Enregistrer / Pas maintenant » ; par service : Demander, Toujours enregistrer, Ne jamais proposer (v0.12.2)
+- ✅ Détection d'appel (v0.12.2) : programme qui utilise le micro (Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype, Webex : 2 s ; navigateurs : 20 s) → petite fenêtre « Appel détecté : Enregistrer / Pas maintenant » ; par service : Proposer, Toujours enregistrer, Ne rien proposer ; jamais d'enregistrement sans réponse
 - ✅ Rappel de consentement dans la pastille au démarrage : en France, les participants doivent être prévenus de l'enregistrement
 - ✅ Pastille « Réunion 12:34 » pendant l'enregistrement ; « Coller les nouvelles répliques » (Alt+Maj+N : ce qui a été dit depuis la dernière copie)
 - ✅ Transcription en direct avec le moteur choisi (Whisper, Parakeet, Vosk), par blocs de 6 à 15 s coupés aux pauses, seulement quand aucune dictée n'est en cours ; blocs silencieux ignorés
-- ⬜ Suppression de l'écho (appel sur haut-parleurs : le micro réentend les autres) (v0.12.2)
+- ✅ Suppression de l'écho (v0.12.2) : passages du micro qui suivent le son du PC écartés (enveloppes corrélées, retard 0 à 600 ms), puis répliques « Moi » répétant « Eux » masquées ; rien au casque
 - ✅ Audio de la réunion, au choix de l'utilisateur :
   - en mémoire seulement (rien sur le disque ; perdu si l'application plante)
   - fichier temporaire chiffré par Windows (DPAPI), supprimé après la transcription ; reprise automatique après une coupure
   - conservé (chiffré) : export WAV, nouvelle transcription
 - ✅ Compte rendu par le LLM choisi (n'importe quel fournisseur) : résumé, décisions, actions (qui fait quoi), questions ouvertes ; prompt modifiable dans la page Prompts ; coût suivi ; automatique ou à la demande
-- ⬜ Compte rendu traduit (v0.12.2)
+- ✅ Compte rendu dans la langue choisie (v0.12.2), par défaut et pour chaque réunion
 - ✅ Correctif v0.12.1 : boutons radio des réglages des réunions alignés
 - ✅ Page Réunions : liste, transcription Moi / Eux horodatée (en direct), compte rendu, renommer, copier, exporter en Markdown, supprimer ; durée de conservation réglable
 
