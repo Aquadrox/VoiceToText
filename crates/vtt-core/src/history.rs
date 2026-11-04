@@ -41,6 +41,9 @@ pub struct Entry {
     pub cost: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// Profil de secours qui a nettoyé le texte à la place du principal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
 }
 
 pub struct History {
@@ -146,6 +149,7 @@ mod tests {
             usage: None,
             cost: None,
             currency: None,
+            fallback: None,
         }
     }
 

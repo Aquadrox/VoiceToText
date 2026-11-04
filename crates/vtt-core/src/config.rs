@@ -188,6 +188,10 @@ pub struct LlmConfig {
     pub cleanup_prompt: String,
     /// Nom du prompt du Command Mode ; vide : prompt intégré.
     pub command_prompt: String,
+    /// Profil LLM (voir `llm_profiles`) essayé si celui-ci échoue, avant
+    /// le repli sur le texte brut ; vide : aucun.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub fallback_profile: String,
 }
 
 /// Usage d'un prompt système.
@@ -268,6 +272,41 @@ impl Config {
             }
         }
         Ok(())
+    }
+}
+
+impl Config {
+    /// Profil de secours de `llm`, s'il existe, est activé et diffère de
+    /// `llm` (même adresse et même modèle : inutile de réessayer).
+    pub fn fallback_for(&self, llm: &LlmConfig) -> Option<&LlmProfile> {
+        let name = llm.fallback_profile.trim();
+        if name.is_empty() {
+            return None;
+        }
+        self.llm_profiles.iter().find(|p| {
+            p.name == name
+                && p.llm.enabled
+                && (p.llm.normalized_base_url() != llm.normalized_base_url()
+                    || p.llm.model.trim() != llm.model.trim())
+        })
+    }
+
+    /// Le profil de secours choisi dans `llm` existe et sert à quelque chose.
+    pub fn check_fallback_ref(&self, llm: &LlmConfig) -> Result<(), String> {
+        let name = llm.fallback_profile.trim();
+        if name.is_empty() || self.fallback_for(llm).is_some() {
+            return Ok(());
+        }
+        match self.llm_profiles.iter().find(|p| p.name == name) {
+            None => Err(format!("profil de secours introuvable : « {name} »")),
+            Some(p) if !p.llm.enabled => Err(format!(
+                "profil de secours « {name} » : nettoyage désactivé dans ce profil"
+            )),
+            Some(_) => Err(format!(
+                "profil de secours « {name} » : même adresse et même modèle que les réglages \
+                 actuels"
+            )),
+        }
     }
 }
 
@@ -440,6 +479,7 @@ impl Default for LlmConfig {
             extra_body: deepseek_extra_body(),
             cleanup_prompt: String::new(),
             command_prompt: String::new(),
+            fallback_profile: String::new(),
         }
     }
 }
@@ -844,6 +884,53 @@ mod tests {
     }
 
     #[test]
+    fn fallback_profile_lookup() {
+        let ollama = LlmConfig {
+            base_url: "http://192.168.1.20:11434/v1".into(),
+            model: "qwen3:8b".into(),
+            ..LlmConfig::default()
+        };
+        let mut config = Config {
+            llm_profiles: vec![
+                LlmProfile {
+                    name: "Ollama".into(),
+                    llm: ollama.clone(),
+                },
+                LlmProfile {
+                    name: "DeepSeek".into(),
+                    llm: LlmConfig::default(),
+                },
+            ],
+            ..Config::default()
+        };
+        let mut llm = LlmConfig::default();
+        assert!(config.fallback_for(&llm).is_none(), "aucun secours choisi");
+        config.check_fallback_ref(&llm).unwrap();
+
+        llm.fallback_profile = "Ollama".into();
+        assert_eq!(config.fallback_for(&llm).unwrap().llm, ollama);
+        config.check_fallback_ref(&llm).unwrap();
+
+        llm.fallback_profile = "DeepSeek".into();
+        assert!(config.fallback_for(&llm).is_none(), "même fournisseur");
+        assert!(config.check_fallback_ref(&llm).is_err());
+
+        llm.fallback_profile = "Inconnu".into();
+        assert!(config.check_fallback_ref(&llm).is_err());
+
+        config.llm_profiles[0].llm.enabled = false;
+        llm.fallback_profile = "Ollama".into();
+        assert!(config.fallback_for(&llm).is_none(), "secours désactivé");
+        assert!(config.check_fallback_ref(&llm).is_err());
+    }
+
+    #[test]
+    fn empty_fallback_is_not_written() {
+        let text = Config::default().to_toml().unwrap();
+        assert!(!text.contains("fallback_profile"), "{text}");
+    }
+
+    #[test]
     fn hotkey_validation() {
         assert!(HotkeyConfig::default().validate().is_ok());
         let with = |f: &dyn Fn(&mut HotkeyConfig)| {
@@ -888,6 +975,7 @@ mod tests {
         let config = Config::from_toml(&readme[start..end]).expect("TOML du README");
         config.hotkey.validate().unwrap();
         config.llm.validate().unwrap();
+        config.check_fallback_ref(&config.llm).unwrap();
         clean_dictionary(&config.dictionary).unwrap();
         assert_eq!(clean_snippets(&config.snippets).unwrap(), config.snippets);
         assert_eq!(clean_styles(&config.styles).unwrap(), config.styles);
