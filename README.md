@@ -2,7 +2,7 @@
 
 Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler, relâcher**. Le texte est transcrit sur votre PC, nettoyé (hésitations, ponctuation, auto-corrections) puis collé dans l'application active : traitement de texte, messagerie, navigateur, e-mail…
 
-- **Transcription locale** : Whisper tourne sur votre carte graphique, l'audio ne quitte jamais le PC.
+- **Transcription locale** : Whisper tourne sur votre carte graphique (ou Parakeet / Vosk sur un PC sans carte graphique), l'audio ne quitte jamais le PC.
 - **Nettoyage par LLM** (DeepSeek par défaut, ou GLM, OpenAI, Mistral, OpenRouter, un modèle local Ollama…), désactivable.
 - **Mains libres**, **Command Mode** (« traduis ça en anglais »), **snippets**, **dictionnaire**, **styles par application**, **historique**, **statistiques**, **suivi du coût**.
 - Français pour l'instant ; Windows d'abord, Linux et Android plus tard.
@@ -181,14 +181,14 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 - **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », « réessayer », appui minimal, mains libres.
 - **Pendant la dictée** : sons, pause de la musique et des vidéos, commandes vocales.
-- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
+- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
 - **Exporter / importer les réglages** : voir ci-dessous.
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
 - **Clé API** (pour l'adresse saisie), **Clés API enregistrées** (une par fournisseur : remplacer, supprimer ; les clés ne sont jamais affichées, ni en entier ni en partie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
 
-Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, micro, modèle Whisper, mémoire graphique, options de dictée et mises à jour. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent aussi immédiatement.
+Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, micro, modèle de transcription, mémoire graphique, options de dictée et mises à jour. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent aussi immédiatement.
 
 #### Exporter / importer les réglages
 
@@ -196,17 +196,27 @@ Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, mic
 
 **Importer…** vérifie le fichier comme si chaque réglage avait été saisi à la main, garde les réglages actuels dans `config.avant-import.toml`, puis applique tout sans redémarrer. Sur un nouveau PC, saisissez ensuite la clé API.
 
-Modèles Whisper proposés :
+#### Modèles de transcription
 
-| Modèle | Taille | Pour qui |
-|---|---|---|
-| Large v3 Turbo, 8 bits (**recommandé**) | 874 Mo | Carte graphique récente |
-| Large v3 Turbo, pleine précision | 1,6 Go | Un peu plus précis |
-| Large v3 Turbo, 5 bits | 574 Mo | Moins de mémoire graphique |
-| Large v3, 5 bits | 1,1 Go | Plus précis, plus lent |
-| Small, 8 bits | 264 Mo | PC sans carte graphique |
+Trois moteurs, tous locaux (l'audio ne quitte jamais le PC) :
 
-Un nouveau modèle est téléchargé dès **Appliquer** (progression dans la pastille), son empreinte SHA-256 est vérifiée, puis il remplace l'ancien. Les dictées continuent avec l'ancien modèle pendant le téléchargement.
+| Moteur | Modèle | Téléchargement | Pour qui |
+|---|---|---|---|
+| Whisper | Large v3 Turbo, 8 bits (**recommandé**) | 874 Mo | Carte graphique récente |
+| Whisper | Large v3 Turbo, pleine précision | 1,6 Go | Un peu plus précis |
+| Whisper | Large v3 Turbo, 5 bits | 574 Mo | Moins de mémoire graphique |
+| Whisper | Large v3, 5 bits | 1,1 Go | Plus précis, plus lent |
+| Whisper | Small, 8 bits | 264 Mo | Petite carte graphique |
+| **Parakeet** (NVIDIA) | TDT 0.6B v3, 8 bits | 753 Mo | **PC sans carte graphique** : rapide sur le processeur, ponctué |
+| **Vosk** | Small français | 57 Mo | Vieux PC, peu de mémoire |
+
+- **Whisper** : le plus précis ; quasi instantané avec une carte graphique, lent sur le processeur seul.
+- **Parakeet** : conçu pour le processeur (plusieurs fois plus rapide que le temps réel sur un processeur ordinaire), ponctuation et majuscules comprises, langue détectée automatiquement. Le téléchargement comprend ONNX Runtime (bibliothèque officielle de Microsoft).
+- **Vosk** : quelques dizaines de Mo, fonctionne partout, mais moins précis et **sans ponctuation ni majuscules** : gardez le [nettoyage LLM](#nettoyage-du-texte-llm) activé (sans lui, seuls une majuscule initiale et un point final sont ajoutés). Le téléchargement comprend la bibliothèque Vosk.
+
+Avec Parakeet et Vosk, la case « carte graphique » est sans effet, et le dictionnaire ne sert qu'au nettoyage LLM (seul Whisper l'utilise aussi pour transcrire).
+
+Un nouveau modèle est téléchargé dès **Appliquer** (progression dans la pastille), chaque fichier est vérifié (taille et empreinte SHA-256), puis il remplace l'ancien. Les dictées continuent avec l'ancien modèle pendant le téléchargement. Les bibliothèques de Parakeet et Vosk ne sont téléchargées que si vous choisissez ces moteurs : l'installeur ne grossit pas.
 
 #### Libérer la mémoire graphique
 
@@ -283,7 +293,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Fichier | Emplacement |
 |---|---|
 | Configuration | `%APPDATA%\VoiceToText\config.toml` |
-| Modèles Whisper | `%LOCALAPPDATA%\VoiceToText\models\` |
+| Modèles de transcription (et bibliothèques de Parakeet, Vosk) | `%LOCALAPPDATA%\VoiceToText\models\` |
 | Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
 | Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json`, `usage-apps.json` |
 | Réglages remplacés par un import | `%APPDATA%\VoiceToText\config.avant-import.toml` |
@@ -404,7 +414,7 @@ extra_body = {}
 
 ## Développement
 
-Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier) et `apps/desktop` (application). Les installeurs sont produits par la CI GitHub Actions.
+Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier) et `apps/desktop` (application). Les installeurs sont produits par la CI GitHub Actions.
 
 ```sh
 cargo test --workspace
@@ -422,4 +432,4 @@ Documentation technique :
 
 [MIT](LICENSE) © 2026 Florian Langlois : utilisation, modification et redistribution libres, y compris dans d'autres projets, à condition de conserver la mention de copyright. Logiciel fourni sans garantie.
 
-Composants tiers : [whisper.cpp](https://github.com/ggml-org/whisper.cpp) et les modèles [Whisper](https://github.com/openai/whisper) (MIT), [Tauri](https://tauri.app) (MIT / Apache 2.0). Le service LLM choisi (DeepSeek, OpenAI…) reste soumis à ses propres conditions d'utilisation.
+Composants tiers : [whisper.cpp](https://github.com/ggml-org/whisper.cpp) et les modèles [Whisper](https://github.com/openai/whisper) (MIT), [Tauri](https://tauri.app) (MIT / Apache 2.0). Téléchargés seulement si vous les choisissez : le modèle [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) © NVIDIA ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), conversion ONNX de [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx)), [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT, Microsoft), [Vosk](https://alphacephei.com/vosk/) et son modèle français (Apache 2.0, Alpha Cephei) ; [parakeet-rs](https://github.com/altunenes/parakeet-rs) (MIT / Apache 2.0). Le service LLM choisi (DeepSeek, OpenAI…) reste soumis à ses propres conditions d'utilisation.

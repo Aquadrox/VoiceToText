@@ -226,15 +226,16 @@
               <h2>Micro et transcription</h2>
               <label for="audio-device">Micro</label>
               <select id="audio-device"></select>
-              <label for="asr-model">Modèle Whisper</label>
+              <label for="asr-model">Modèle de transcription</label>
               <select id="asr-model"></select>
+              <p id="asr-engine-note" class="muted small"></p>
               <p class="muted small">
                 Un nouveau modèle est téléchargé puis chargé tout de suite (progression dans la
                 pastille) ; les dictées continuent avec l'ancien en attendant.
               </p>
               <label class="inline">
                 <input id="asr-gpu" type="checkbox" />
-                Utiliser la carte graphique (beaucoup plus rapide)
+                Utiliser la carte graphique (beaucoup plus rapide ; Whisper seulement)
               </label>
               <label for="asr-unload">Libérer la mémoire graphique sans dictée depuis</label>
               <select id="asr-unload"></select>

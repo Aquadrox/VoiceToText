@@ -18,6 +18,35 @@ function option(value, label) {
   return element;
 }
 
+/** Moteurs de transcription, dans l'ordre de la liste. */
+const ENGINES = [
+  {
+    id: "whisper",
+    label: "Whisper (OpenAI) : le plus précis, idéal avec une carte graphique",
+    note: "Whisper : le plus précis. Avec une carte graphique, quasi instantané ; sur le processeur seul, préférez Parakeet.",
+  },
+  {
+    id: "parakeet",
+    label: "Parakeet (NVIDIA) : rapide sur le processeur",
+    note: "Parakeet : pensé pour le processeur, rapide et ponctué, langue détectée automatiquement. Le dictionnaire ne sert qu'au nettoyage LLM. Télécharge aussi ONNX Runtime (Microsoft).",
+  },
+  {
+    id: "vosk",
+    label: "Vosk : très léger, pour les vieux PC",
+    note: "Vosk : très léger (quelques dizaines de Mo), moins précis, sans ponctuation ni majuscules : gardez le nettoyage LLM activé. Le dictionnaire ne sert qu'au nettoyage LLM. Télécharge aussi la bibliothèque Vosk.",
+  },
+];
+/** Moteur de chaque modèle proposé. */
+let engineOf = {};
+
+function showEngineNote() {
+  const engine = engineOf[$("asr-model").value] ?? "whisper";
+  $("asr-engine-note").textContent = ENGINES.find((e) => e.id === engine)?.note ?? "";
+  $("asr-gpu").disabled = engine !== "whisper";
+}
+
+$("asr-model").addEventListener("change", showEngineNote);
+
 function fillGeneral(view) {
   const keys = view.keys.map((k) => option(k, keyLabel(k)));
   $("hk-key").replaceChildren(...keys);
@@ -41,15 +70,29 @@ function fillGeneral(view) {
   $("audio-device").replaceChildren(option("", "Micro par défaut de Windows"), ...microphones);
   $("audio-device").value = configured;
 
-  $("asr-model").replaceChildren(
-    ...view.models.map((m) =>
-      option(
-        m.file,
-        `${m.label} · ${integer.format(m.size_mb)} Mo${m.downloaded ? " · téléchargé" : ""}`,
-      ),
-    ),
-  );
+  // Un groupe par moteur ; un modèle placé à la main reste proposé.
+  const groups = ENGINES.map(({ id, label }) => {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    group.append(
+      ...view.models
+        .filter((m) => m.engine === id)
+        .map((m) =>
+          option(
+            m.file,
+            `${m.label} · ${integer.format(m.size_mb)} Mo${m.downloaded ? " · téléchargé" : ""}`,
+          ),
+        ),
+    );
+    return group;
+  });
+  if (!view.models.some((m) => m.file === view.asr.model)) {
+    groups[0].append(option(view.asr.model, `${view.asr.model} (placé à la main)`));
+  }
+  engineOf = Object.fromEntries(view.models.map((m) => [m.file, m.engine]));
+  $("asr-model").replaceChildren(...groups);
   $("asr-model").value = view.asr.model;
+  showEngineNote();
   $("asr-gpu").checked = view.asr.use_gpu;
   $("asr-unload").replaceChildren(
     ...view.unload_choices.map((min) => option(String(min), min === 0 ? "Jamais" : `${min} min`)),

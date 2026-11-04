@@ -93,6 +93,14 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Liste des clés API enregistrées (une par fournisseur) pour les remplacer ou les supprimer ; jamais affichées en clair, ni en entier ni en partie (seulement le fournisseur et « clé enregistrée »). Seuls les noms des identifiants sont lus pour la liste
 - ✅ Statistiques par application sur l'accueil (mots, part, dictées, coût ; ce mois ou depuis le début ; nom du programme seulement)
 
+## v0.11 — Moteurs légers 🚧
+
+- ✅ Choix du moteur de transcription dans Réglages → Micro et transcription, appliqué sans redémarrer
+- ✅ Parakeet TDT 0.6B v3 (NVIDIA, int8, ONNX Runtime) : PC sans carte graphique, rapide et ponctué
+- ✅ Vosk Small français : très léger, pour les vieux PC
+- ✅ Bibliothèques natives (ONNX Runtime, libvosk) téléchargées avec le modèle et vérifiées (SHA-256) : installeur inchangé
+- ⬜ Vosk en continu (transcription pendant la dictée, texte prêt au relâchement), si les premiers essais le demandent
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

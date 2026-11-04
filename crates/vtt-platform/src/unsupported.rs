@@ -94,3 +94,7 @@ pub fn list_secrets(_prefix: &str) -> Vec<String> {
 pub fn delete_secret(_name: &str) -> Result<(), String> {
     Err(format!("stockage des secrets {MESSAGE}"))
 }
+
+pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.to_owned()
+}
