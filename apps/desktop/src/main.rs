@@ -106,6 +106,7 @@ fn main() {
             meetings::import_recording,
             meetings::search_meetings,
             meetings::ask_meetings,
+            meetings::meeting_clip,
             meetings::rename_meeting,
             meetings::summarize_meeting,
             meetings::delete_meeting,

@@ -169,11 +169,12 @@ Page **Réunions** → **Conférence ou fichier audio / vidéo…** :
 
 - **Enregistrer une conférence** (cours, exposé, webinaire, podcast) : micro (sur place), son du PC (en ligne), ou les deux ; mêmes choix pour l'audio que les réunions ; « Arrêter l'enregistrement » à la fin. La pastille affiche « Conférence 42:10 ».
 - **Transcrire un fichier** : MP3, M4A, MP4, MKV, WebM, WAV, FLAC, OGG… Le fichier est lu sur le PC au fil de l'eau (même plusieurs heures, sans tout charger en mémoire), ni copié ni modifié ; la progression s'affiche dans la liste.
-- **Ensuite** : transcription et compte rendu, transcription seule, ou compte rendu seul (la transcription est effacée une fois résumée). Le compte rendu d'une conférence suit un autre plan : résumé, plan horodaté, idées clés, citations, questions et réponses.
+- **Ensuite** : transcription et compte rendu, transcription seule, ou compte rendu seul (la transcription est effacée une fois résumée). Le compte rendu d'une conférence suit un autre plan : résumé, plan horodaté, idées clés, citations, questions et réponses ; prompt modifiable dans la page **Prompts** (« Compte rendu de conférence ou de fichier »).
 
 ### Rechercher et poser des questions
 
 - **Rechercher dans toutes les transcriptions** (en haut de la page Réunions) : sans tenir compte des majuscules ni des accents (« reunion » trouve « Réunion ») ; chaque résultat indique l'enregistrement et l'heure, et un clic ouvre la transcription au bon passage, surligné.
+- **Réécouter un passage** : quand l'audio est disponible (réunion ou conférence avec l'audio « conservé », ou fichier importé toujours à sa place), l'heure de chaque réplique devient **▶ 12:34** : un clic joue 30 s à partir de ce moment. L'audio conservé est déchiffré à la volée, rien n'est écrit sur le disque.
 - **Poser une question** au LLM, sur l'enregistrement affiché ou sur **tous** (« qu'a-t-on décidé pour le budget ? ») : les passages qui contiennent les mots de la question sont envoyés au LLM, qui répond en citant ses sources (titre, heure). Coût compté comme le reste.
 
 Autres réglages : capter ou non le son du PC, écarter l'écho, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).

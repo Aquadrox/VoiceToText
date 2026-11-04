@@ -141,13 +141,18 @@ const CAPTURE_SEEN: &str = "Les images te sont jointes dans l'ordre (image 1, im
 appuie-toi dessus pour préciser ce que montre l'utilisateur (textes, boutons, messages \
 d'erreur visibles), sans rien inventer.";
 
-/// Image jointe à une requête : `data:image/png;base64,…`.
-pub fn png_data_url(png: &[u8]) -> String {
+/// Contenu en `data:` URL (`data:image/png;base64,…`).
+pub fn data_url(mime: &str, bytes: &[u8]) -> String {
     use base64::Engine as _;
     format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(png)
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
     )
+}
+
+/// Image jointe à une requête : `data:image/png;base64,…`.
+pub fn png_data_url(png: &[u8]) -> String {
+    data_url("image/png", png)
 }
 
 /// Modèles proposés ; « brut » (narration seule, sans LLM) est géré par
@@ -197,6 +202,7 @@ pub struct Prompts {
     pub cleanup: Option<String>,
     pub command: Option<String>,
     pub summary: Option<String>,
+    pub conference: Option<String>,
 }
 
 pub struct LlmCleaner {
@@ -214,6 +220,7 @@ pub struct LlmCleaner {
     system_prompt: String,
     command_prompt: String,
     summary_prompt: String,
+    conference_prompt: String,
     api_key: ApiKeyProvider,
     agent: ureq::Agent,
     command_agent: ureq::Agent,
@@ -253,6 +260,13 @@ impl LlmCleaner {
             ),
             summary_prompt: with_dictionary(
                 prompts.summary.as_deref().unwrap_or(DEFAULT_SUMMARY_PROMPT),
+                dictionary,
+            ),
+            conference_prompt: with_dictionary(
+                prompts
+                    .conference
+                    .as_deref()
+                    .unwrap_or(DEFAULT_CONFERENCE_PROMPT),
                 dictionary,
             ),
             api_key,
@@ -401,7 +415,7 @@ impl LlmCleaner {
         let user = format!("Réunion : {title}\n<transcription>\n{transcript}\n</transcription>");
         // Consigne en fin de prompt : le début reste identique (cache).
         let mut system = if conference {
-            DEFAULT_CONFERENCE_PROMPT.to_owned()
+            self.conference_prompt.clone()
         } else {
             self.summary_prompt.clone()
         };
@@ -1082,6 +1096,7 @@ mod tests {
             cleanup: Some("Corrige seulement la ponctuation.".into()),
             command: None,
             summary: None,
+            conference: None,
         };
         let custom = LlmCleaner::new(
             &config("https://api.deepseek.com"),

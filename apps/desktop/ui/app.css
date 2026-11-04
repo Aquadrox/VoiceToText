@@ -733,6 +733,31 @@ ol.entries li {
   border-top: none;
 }
 
+#meeting-player {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+}
+
+#meeting-player[hidden] {
+  display: none;
+}
+
+.turns button.time {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.turns button.time:hover {
+  text-decoration: underline;
+}
+
 .turns .time {
   color: var(--muted);
   font-size: 12px;

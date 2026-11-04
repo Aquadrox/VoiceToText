@@ -147,6 +147,10 @@ pub struct MeetingRecord {
     /// Fichier importé (nom seulement : il n'est ni copié ni modifié).
     #[serde(default)]
     pub source: Option<String>,
+    /// Chemin du fichier importé, pour réécouter un passage (s'il existe
+    /// toujours).
+    #[serde(default)]
+    pub source_path: Option<String>,
     /// Lecture du fichier importé (pourcentage), pendant l'import.
     #[serde(default)]
     pub progress: Option<u8>,
@@ -157,6 +161,22 @@ fn enabled() -> bool {
 }
 
 impl MeetingRecord {
+    /// Un passage peut être réécouté : audio conservé, ou fichier importé
+    /// toujours présent.
+    fn replayable(&self, dir: &Path) -> bool {
+        match self.kind {
+            MeetingKind::Fichier => self
+                .source_path
+                .as_deref()
+                .is_some_and(|p| Path::new(p).is_file()),
+            _ => {
+                self.audio == MeetingAudio::Conserve
+                    && (dir.join(Track::Moi.file()).is_file()
+                        || dir.join(Track::Eux.file()).is_file())
+            }
+        }
+    }
+
     fn load(dir: &Path) -> Result<Self, String> {
         let path = dir.join(RECORD_FILE);
         let json = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -468,6 +488,7 @@ impl Meetings {
             output,
             mic,
             source: None,
+            source_path: None,
             progress: None,
         };
         record.save(&dir);
@@ -822,6 +843,7 @@ impl Meetings {
             output,
             mic: false,
             source: Some(name),
+            source_path: Some(path.display().to_string()),
             progress: Some(0),
         };
         record.save(&dir);
@@ -1294,6 +1316,8 @@ pub struct MeetingDetail {
     turns: Vec<Turn>,
     busy: bool,
     audio_kept: bool,
+    /// Un passage peut être réécouté.
+    replay: bool,
 }
 
 #[tauri::command]
@@ -1313,6 +1337,7 @@ pub fn meeting_detail(
     Ok(MeetingDetail {
         audio_kept: dir.join(Track::Moi.file()).is_file() && record.audio == MeetingAudio::Conserve,
         busy: meetings.busy(&id),
+        replay: record.replayable(&dir),
         record,
         turns,
     })
@@ -1388,6 +1413,7 @@ pub struct SearchResult {
     started_at_ms: u64,
     start_ms: u64,
     parts: vtt_core::search::Parts,
+    replay: bool,
 }
 
 /// Au plus ce nombre de passages trouvés.
@@ -1412,6 +1438,7 @@ impl Meetings {
 pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec<SearchResult> {
     let mut results = Vec::new();
     for record in meetings.all() {
+        let replay = record.replayable(&meetings.dir.join(&record.id));
         for hit in vtt_core::search::find(&record.segments(), &query) {
             results.push(SearchResult {
                 id: record.id.clone(),
@@ -1420,6 +1447,7 @@ pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec
                 started_at_ms: record.started_at_ms,
                 start_ms: hit.start_ms,
                 parts: hit.parts,
+                replay,
             });
             if results.len() >= MAX_RESULTS {
                 return results;
@@ -1511,6 +1539,70 @@ pub fn ask_meetings(
         currency: pricing.currency.clone(),
         sources,
     })
+}
+
+/// Extrait réécouté : un peu avant le passage, puis 30 s.
+const CLIP_BEFORE_MS: u64 = 2_000;
+const CLIP_MS: u64 = 30_000;
+
+/// Extrait audio (WAV en `data:` URL) qui commence peu avant `start_ms` :
+/// audio conservé (les deux pistes mêlées) ou fichier importé d'origine.
+#[tauri::command(async)]
+pub fn meeting_clip(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    start_ms: u64,
+) -> Result<String, String> {
+    let (record, dir) = meetings.load(&id)?;
+    if !record.replayable(&dir) {
+        return Err("audio non conservé pour cet enregistrement".into());
+    }
+    let rate = u64::from(vtt_core::SAMPLE_RATE);
+    let from = (start_ms.saturating_sub(CLIP_BEFORE_MS) * rate / 1000) as usize;
+    let to = ((start_ms + CLIP_MS) * rate / 1000) as usize;
+    let samples = match (&record.kind, &record.source_path) {
+        (MeetingKind::Fichier, Some(path)) => {
+            let mut read = Vec::new();
+            let mut position = 0usize;
+            crate::decode::decode(
+                Path::new(path),
+                |block| {
+                    let start = from.saturating_sub(position).min(block.len());
+                    let end = to.saturating_sub(position).min(block.len());
+                    read.extend_from_slice(&block[start..end]);
+                    position += block.len();
+                    position < to
+                },
+                |_| {},
+            )?;
+            read
+        }
+        _ => {
+            let mut mixed: Vec<f32> = Vec::new();
+            for track in [Track::Moi, Track::Eux] {
+                let part = meeting::read_audio_range(
+                    &dir.join(track.file()),
+                    vtt_platform::unprotect,
+                    from,
+                    to,
+                )?;
+                if mixed.len() < part.len() {
+                    mixed.resize(part.len(), 0.0);
+                }
+                for (m, s) in mixed.iter_mut().zip(part) {
+                    *m = (*m + s).clamp(-1.0, 1.0);
+                }
+            }
+            mixed
+        }
+    };
+    if samples.is_empty() {
+        return Err("rien à réécouter à ce moment".into());
+    }
+    Ok(vtt_llm::data_url(
+        "audio/wav",
+        &meeting::wav_bytes(&samples),
+    ))
 }
 
 #[tauri::command]
@@ -1738,6 +1830,7 @@ mod tests {
             output: Output::LesDeux,
             mic: true,
             source: None,
+            source_path: None,
             progress: None,
         }
     }

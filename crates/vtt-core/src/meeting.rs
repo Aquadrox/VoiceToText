@@ -460,13 +460,26 @@ pub fn append_audio(path: &Path, samples: &[f32], protect: Protect) -> Result<()
 /// Relit l'audio d'une piste ; un dernier bloc tronqué (coupure pendant
 /// l'écriture) est ignoré.
 pub fn read_audio(path: &Path, unprotect: Protect) -> Result<Vec<f32>, String> {
+    read_audio_range(path, unprotect, 0, usize::MAX)
+}
+
+/// Extrait d'une piste, échantillons `start..end` : la lecture s'arrête dès
+/// la fin de l'extrait (inutile de tout déchiffrer pour un passage du début).
+pub fn read_audio_range(
+    path: &Path,
+    unprotect: Protect,
+    start: usize,
+    end: usize,
+) -> Result<Vec<f32>, String> {
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
     let mut samples = Vec::new();
-    loop {
+    // Position (en échantillons) du début du prochain bloc.
+    let mut position = 0usize;
+    while position < end {
         let mut len = [0u8; 4];
         if file.read_exact(&mut len).is_err() {
             break;
@@ -477,12 +490,15 @@ pub fn read_audio(path: &Path, unprotect: Protect) -> Result<Vec<f32>, String> {
             break;
         }
         let pcm = unprotect(&block)?;
+        let block_samples = pcm.len() / 2;
+        let from = start.saturating_sub(position).min(block_samples);
+        let to = end.saturating_sub(position).min(block_samples);
         samples.extend(
-            pcm.as_chunks::<2>()
-                .0
+            pcm.as_chunks::<2>().0[from..to]
                 .iter()
                 .map(|b| f32::from(i16::from_le_bytes(*b)) / f32::from(i16::MAX)),
         );
+        position += block_samples;
     }
     Ok(samples)
 }
@@ -737,6 +753,10 @@ mod tests {
             read_audio(&dir.join("absent"), xor).unwrap(),
             Vec::<f32>::new()
         );
+        // Extrait à cheval sur deux blocs.
+        let part = read_audio_range(&path, xor, 1, 3).unwrap();
+        assert_eq!(part.len(), 2);
+        assert!((part[0] + 0.5).abs() < 1e-3 && (part[1] - 0.25).abs() < 1e-3);
         assert_eq!(&wav_bytes(&samples)[..4], b"RIFF");
         delete_audio(&dir);
         assert!(!path.exists());
