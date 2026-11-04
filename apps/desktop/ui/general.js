@@ -56,6 +56,9 @@ function fillGeneral(view) {
   $("asr-unload").value = String(view.asr.unload_after_min);
   $("asr-fullscreen").checked = view.asr.unload_in_fullscreen;
   $("updates-check").checked = view.updates.check;
+  $("dict-sounds").checked = view.dictation.sounds;
+  $("dict-media").checked = view.dictation.pause_media;
+  $("dict-commands").checked = view.dictation.voice_commands;
 }
 
 async function showGeneral() {
@@ -101,6 +104,11 @@ $("general-form").addEventListener("submit", async (event) => {
         unload_in_fullscreen: $("asr-fullscreen").checked,
       },
       updates: { check: $("updates-check").checked },
+      dictation: {
+        sounds: $("dict-sounds").checked,
+        pause_media: $("dict-media").checked,
+        voice_commands: $("dict-commands").checked,
+      },
     });
     showGeneralResult("Enregistré. Redémarrage de VoiceToText…");
   } catch (e) {

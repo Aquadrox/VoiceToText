@@ -7,7 +7,8 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use vtt_core::config::{
-    AsrConfig, AudioConfig, HOTKEY_NAMES, HotkeyConfig, UNLOAD_AFTER_CHOICES, UpdatesConfig,
+    AsrConfig, AudioConfig, DictationConfig, HOTKEY_NAMES, HotkeyConfig, UNLOAD_AFTER_CHOICES,
+    UpdatesConfig,
 };
 
 use crate::model::{self, ModelChoice};
@@ -20,6 +21,7 @@ pub struct AppSettingsView {
     audio: AudioConfig,
     asr: AsrConfig,
     updates: UpdatesConfig,
+    dictation: DictationConfig,
     keys: &'static [&'static str],
     unload_choices: Vec<u32>,
     microphones: Vec<String>,
@@ -40,6 +42,7 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         audio: config.audio,
         asr: config.asr,
         updates: config.updates,
+        dictation: config.dictation,
         keys: HOTKEY_NAMES,
         microphones: vtt_platform::audio::input_devices(),
         models: model::catalog(&paths.models_dir),
@@ -58,6 +61,7 @@ pub fn save_app_settings(
     audio: AudioConfig,
     asr: AsrConfig,
     updates: UpdatesConfig,
+    dictation: DictationConfig,
 ) -> Result<(), String> {
     hotkey.validate()?;
     retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
@@ -82,6 +86,7 @@ pub fn save_app_settings(
     config.asr.unload_after_min = asr.unload_after_min;
     config.asr.unload_in_fullscreen = asr.unload_in_fullscreen;
     config.updates = updates;
+    config.dictation = dictation;
     paths.write_config(&config)?;
     log::info!("réglages généraux enregistrés, redémarrage");
     thread::spawn(move || {

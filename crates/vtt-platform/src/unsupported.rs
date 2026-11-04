@@ -35,6 +35,22 @@ pub fn fullscreen_app_running() -> bool {
     false
 }
 
+pub fn play_sound(_wav: &'static [u8]) {}
+
+/// Sans contrôles multimédias : ne fait rien.
+#[derive(Clone)]
+pub struct MediaPauser;
+
+impl MediaPauser {
+    pub fn spawn() -> Self {
+        Self
+    }
+
+    pub fn pause(&self) {}
+
+    pub fn resume(&self) {}
+}
+
 pub fn autostart_enabled() -> bool {
     false
 }

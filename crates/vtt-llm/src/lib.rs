@@ -29,6 +29,7 @@ Règles :
 - Corrige la ponctuation, les majuscules, l'orthographe et les accords.
 - Si l'utilisateur énumère plusieurs éléments distincts, présente-les en liste, un élément \
 par ligne commençant par « - ».
+- Conserve les retours à la ligne présents dans la dictée.
 - Conserve le sens, le registre, le tutoiement ou le vouvoiement. N'ajoute aucune \
 information ni formule de politesse.
 - Réponds uniquement avec le texte final : ni guillemets, ni balises, ni commentaire.

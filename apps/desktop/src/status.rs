@@ -62,6 +62,11 @@ impl StatusReporter {
         *self.current.lock().unwrap_or_else(|e| e.into_inner()) = status;
     }
 
+    /// Niveau du micro (0 à 1) pour la pastille, pendant l'enregistrement.
+    pub fn level(&self, level: f32) {
+        let _ = self.app.emit_to("overlay", "level", level);
+    }
+
     /// Notification Windows (jamais le texte dicté : elle reste affichée
     /// dans le centre de notifications).
     pub fn notify(&self, title: &str, body: &str) {

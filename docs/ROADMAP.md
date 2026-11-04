@@ -73,12 +73,12 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Libérer la mémoire graphique : Whisper déchargé après 5 à 60 min sans dicter (`asr.unload_after_min`) ou pendant un jeu / une vidéo en plein écran (`asr.unload_in_fullscreen`, après une minute sans dicter), rechargé dès le début de la dictée suivante, pendant que l'utilisateur parle
 - ✅ Profil LLM de secours (`llm.fallback_profile`) : si le fournisseur principal échoue ou répond vide, un second profil est essayé (nettoyage et Command Mode) avant le repli sur le texte brut ; coût au tarif du secours, dictée marquée dans l'historique
 
-## v0.8 — Confort de dictée ⬜
+## v0.8 — Confort de dictée ✅
 
-- ⬜ Sons de début et de fin de dictée (désactivables)
-- ⬜ Couper la musique et les vidéos pendant la dictée, puis les remettre
-- ⬜ Niveau du micro dans la pastille
-- ⬜ Commandes vocales simples : « nouvelle ligne », « nouveau paragraphe », « annule la dernière dictée »
+- ✅ Sons de début, de fin et d'annulation (générés par l'application, `dictation.sounds`)
+- ✅ Musique et vidéos en pause pendant la dictée puis relancées, via les contrôles multimédias de Windows ; seul ce qui jouait est relancé (`dictation.pause_media`)
+- ✅ Niveau du micro dans la pastille (barres à la place du point pendant l'enregistrement)
+- ✅ Commandes vocales (`dictation.voice_commands`) : « nouvelle ligne », « à la ligne », « point à la ligne », « nouveau paragraphe » (reconnues seulement détachées de la phrase), « annule la dernière dictée » (Ctrl+Z)
 
 ## v0.9 — Apprentissage ⬜
 

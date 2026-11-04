@@ -19,6 +19,7 @@ pub struct Config {
     pub prompts: Vec<PromptPreset>,
     pub history: HistoryConfig,
     pub updates: UpdatesConfig,
+    pub dictation: DictationConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     pub snippets: Vec<Snippet>,
@@ -127,6 +128,29 @@ impl HotkeyConfig {
             ));
         }
         Ok(())
+    }
+}
+
+/// Confort pendant la dictée.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DictationConfig {
+    /// Sons de début et de fin de dictée.
+    pub sounds: bool,
+    /// Met en pause la musique et les vidéos pendant la dictée, puis les relance.
+    pub pause_media: bool,
+    /// Commandes vocales : « nouvelle ligne », « nouveau paragraphe »,
+    /// « point à la ligne », « annule la dernière dictée ».
+    pub voice_commands: bool,
+}
+
+impl Default for DictationConfig {
+    fn default() -> Self {
+        Self {
+            sounds: true,
+            pause_media: true,
+            voice_commands: true,
+        }
     }
 }
 

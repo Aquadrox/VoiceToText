@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use vtt_core::{Error, Target, TextSink};
 use windows::Win32::Foundation::{CloseHandle, HINSTANCE, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
@@ -15,7 +16,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_RMENU,
-    VK_V,
+    VK_V, VK_Z,
 };
 use windows::Win32::UI::Shell::{
     QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState,
@@ -265,6 +266,23 @@ pub fn copy_text(text: &str) -> Result<(), String> {
         .map_err(|e| format!("presse-papier : {e}"))
 }
 
+/// Joue un son WAV en mémoire sans attendre la fin (le son précédent est
+/// interrompu).
+pub fn play_sound(wav: &'static [u8]) {
+    // SAFETY: avec SND_MEMORY, le pointeur désigne l'image du fichier WAV,
+    // qui doit rester valide pendant la lecture asynchrone : `'static`.
+    let played = unsafe {
+        PlaySoundW(
+            windows::core::PCWSTR(wav.as_ptr().cast()),
+            None,
+            SND_MEMORY | SND_ASYNC | SND_NODEFAULT,
+        )
+    };
+    if !played.as_bool() {
+        log::warn!("lecture du son impossible");
+    }
+}
+
 /// Insère le texte via le presse-papier et un Ctrl+V simulé, puis remet
 /// l'ancien contenu texte du presse-papier.
 pub struct ClipboardPaster;
@@ -308,6 +326,22 @@ impl TextSink for ClipboardPaster {
             });
         }
         Ok(())
+    }
+
+    fn undo(&self) -> Result<(), Error> {
+        let sent = send_keys(&[
+            (VK_CONTROL, false),
+            (VK_Z, false),
+            (VK_Z, true),
+            (VK_CONTROL, true),
+        ]);
+        if sent {
+            Ok(())
+        } else {
+            Err(Error::Sink(
+                "Ctrl+Z refusé par Windows (application lancée en administrateur ?)".into(),
+            ))
+        }
     }
 }
 
