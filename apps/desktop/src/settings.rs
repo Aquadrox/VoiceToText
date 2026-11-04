@@ -36,9 +36,10 @@ const SAMPLE: &str =
 
 /// Une clé par fournisseur (`VoiceToText/llm-api-key/api.z.ai`…) : changer de
 /// fournisseur ne fait pas perdre la clé du précédent. DeepSeek garde le nom
-/// historique.
-fn secret_name(llm: &LlmConfig) -> String {
-    secret_for_host(llm.host().unwrap_or(LEGACY_API_KEY_HOST))
+/// historique. Adresse sans hôte valide : aucune clé (jamais celle d'un
+/// autre fournisseur).
+fn secret_name(llm: &LlmConfig) -> Option<String> {
+    llm.host().map(secret_for_host)
 }
 
 fn secret_for_host(host: &str) -> String {
@@ -72,7 +73,7 @@ fn hosts_with_key() -> Vec<String> {
 
 pub fn api_key_provider(llm: &LlmConfig) -> ApiKeyProvider {
     let name = secret_name(llm);
-    Box::new(move || vtt_platform::load_secret(&name))
+    Box::new(move || name.as_deref().and_then(vtt_platform::load_secret))
 }
 
 /// Prompts choisis pour `llm` (`None` : prompt intégré).
@@ -198,7 +199,9 @@ pub fn key_status(base_url: String) -> KeyStatus {
     let llm = llm_for(&base_url);
     KeyStatus {
         host: llm.host().unwrap_or_default().to_owned(),
-        has_key: llm.host().is_some() && vtt_platform::load_secret(&secret_name(&llm)).is_some(),
+        has_key: secret_name(&llm)
+            .and_then(|name| vtt_platform::load_secret(&name))
+            .is_some(),
         optional: llm.is_local(),
         cleartext: llm.host().is_some() && !llm.may_send_key(),
     }
@@ -212,7 +215,7 @@ pub fn save_api_key(base_url: String, key: String) -> Result<(), String> {
     }
     let llm = llm_for(&base_url);
     let host = llm.host().ok_or("adresse de l'API invalide")?;
-    vtt_platform::store_secret(&secret_name(&llm), key)?;
+    vtt_platform::store_secret(&secret_for_host(host), key)?;
     log::info!("clé API enregistrée pour {host}");
     Ok(())
 }
@@ -220,7 +223,10 @@ pub fn save_api_key(base_url: String, key: String) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_api_key(base_url: String) -> Result<(), String> {
     let llm = llm_for(&base_url);
-    vtt_platform::delete_secret(&secret_name(&llm))?;
+    let Some(name) = secret_name(&llm) else {
+        return Ok(());
+    };
+    vtt_platform::delete_secret(&name)?;
     log::info!("clé API supprimée pour {}", llm.host().unwrap_or("?"));
     Ok(())
 }
@@ -374,7 +380,7 @@ pub fn test_llm_settings(
     let key = key
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
-        .or_else(|| vtt_platform::load_secret(&secret_name(&llm)));
+        .or_else(|| secret_name(&llm).and_then(|name| vtt_platform::load_secret(&name)));
     let (dictionary, prompts) = {
         let config = read(&config);
         (config.dictionary.clone(), prompts_for(&config, &llm))
@@ -460,14 +466,22 @@ mod tests {
 
     #[test]
     fn deepseek_keeps_legacy_secret_others_get_their_own() {
-        assert_eq!(secret_name(&llm("https://api.deepseek.com")), "llm-api-key");
         assert_eq!(
-            secret_name(&llm("https://api.z.ai/api/paas/v4")),
-            "llm-api-key/api.z.ai"
+            secret_name(&llm("https://api.deepseek.com")).as_deref(),
+            Some("llm-api-key")
+        );
+        // Adresse ambiguë : aucune clé, surtout pas celle de DeepSeek.
+        assert_eq!(
+            secret_name(&llm("https://api.deepseek.com:x@evil.example/v1")),
+            None
         );
         assert_eq!(
-            secret_name(&llm("http://localhost:11434/v1")),
-            "llm-api-key/localhost"
+            secret_name(&llm("https://api.z.ai/api/paas/v4")).as_deref(),
+            Some("llm-api-key/api.z.ai")
+        );
+        assert_eq!(
+            secret_name(&llm("http://localhost:11434/v1")).as_deref(),
+            Some("llm-api-key/localhost")
         );
     }
 

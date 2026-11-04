@@ -435,18 +435,43 @@ pub const LLM_TIMEOUT_RANGE_MS: std::ops::RangeInclusive<u32> = 500..=60_000;
 
 impl LlmConfig {
     /// Nom d'hôte de `base_url`, sans port (`api.deepseek.com`, `localhost`…).
+    ///
+    /// Analyse stricte : l'hôte décide de la clé API envoyée, il doit donc
+    /// être celui que joindra le client HTTP. Une adresse ambiguë
+    /// (`https://api.deepseek.com:x@autre.site`, `\`, `?` ou `#` avant le
+    /// chemin…) n'a pas d'hôte, et est refusée par [`LlmConfig::validate`].
     pub fn host(&self) -> Option<&str> {
         let rest = self
             .base_url
             .strip_prefix("https://")
             .or_else(|| self.base_url.strip_prefix("http://"))?;
         let authority = rest.split('/').next()?;
-        let host = match authority.strip_prefix('[') {
+        let (host, port) = match authority.strip_prefix('[') {
             // IPv6 : [::1]:8080
-            Some(v6) => v6.split(']').next()?,
-            None => authority.split(':').next()?,
+            Some(v6) => {
+                let (host, after) = v6.split_once(']')?;
+                let valid = !host.is_empty()
+                    && host
+                        .chars()
+                        .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+                (valid.then_some(host)?, after)
+            }
+            None => {
+                let end = authority.find(':').unwrap_or(authority.len());
+                let host = &authority[..end];
+                let valid = !host.is_empty()
+                    && host
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+                (valid.then_some(host)?, &authority[end..])
+            }
         };
-        (!host.is_empty()).then_some(host)
+        // Rien après l'hôte, ou un port (`:8080`).
+        let port_ok = match port.strip_prefix(':') {
+            None => port.is_empty(),
+            Some(digits) => !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()),
+        };
+        port_ok.then_some(host)
     }
 
     /// Serveur sur ce PC (`localhost`, `127.x.x.x`, `::1`).
@@ -475,7 +500,7 @@ impl LlmConfig {
 
     /// La clé API peut être envoyée : HTTPS, ou HTTP vers ce PC seulement.
     pub fn may_send_key(&self) -> bool {
-        self.base_url.starts_with("https://") || self.is_loopback()
+        self.host().is_some() && (self.base_url.starts_with("https://") || self.is_loopback())
     }
 
     /// Adresse nettoyée : espaces et `/` final retirés, et `/chat/completions`
@@ -999,6 +1024,26 @@ mod tests {
         assert_eq!(llm("http://localhost:11434/v1").host(), Some("localhost"));
         assert_eq!(llm("http://[::1]:8080/v1").host(), Some("::1"));
         assert_eq!(llm("ftp://x").host(), None);
+        // Adresses ambiguës : le client HTTP joindrait un autre hôte que
+        // celui qui choisit la clé.
+        for url in [
+            "https://api.deepseek.com:x@evil.example/v1",
+            "https://api.deepseek.com@evil.example",
+            "https://evil.example\\@api.deepseek.com",
+            "https://evil.example?@api.deepseek.com",
+            "https://evil.example#@api.deepseek.com",
+            "https://api.deepseek.com:/v1",
+            "https://api.deepseek.com:44a3",
+            "https://[::1]x/v1",
+            "https://api deepseek.com",
+        ] {
+            assert_eq!(llm(url).host(), None, "{url}");
+            assert!(llm(url).validate().is_err(), "{url}");
+        }
+        assert_eq!(
+            llm("https://api.deepseek.com:443/v1").host(),
+            Some("api.deepseek.com")
+        );
         assert_eq!(llm("https://").host(), None);
         assert!(llm("http://127.0.0.1:1234/v1").is_local());
         assert!(!llm("https://api.openai.com/v1").is_local());
