@@ -756,6 +756,69 @@ ol.entries li {
   margin-top: 16px;
 }
 
+.meeting-more {
+  margin: 8px 0;
+}
+
+.meeting-more fieldset,
+.meeting-settings fieldset {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.meeting-more fieldset button {
+  margin-top: 8px;
+}
+
+.search-bar {
+  margin-top: 12px;
+}
+
+.search-results {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-results button {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.search-results .where {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+mark {
+  border-radius: 3px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.ask {
+  margin-top: 12px;
+}
+
+.ask input {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.ask .row {
+  flex-wrap: wrap;
+}
+
+.turns li.highlight {
+  background: var(--warning-bg);
+}
+
 select.compact {
   flex: none;
   width: auto;
@@ -763,13 +826,6 @@ select.compact {
 
 .providers td:last-child select {
   width: auto;
-}
-
-.meeting-settings fieldset {
-  margin: 8px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 @media (max-width: 760px) {

@@ -13,6 +13,7 @@ pub mod history;
 pub mod hotkey;
 pub mod meeting;
 pub mod pipeline;
+pub mod search;
 pub mod suggest;
 pub mod text;
 pub mod usage;

@@ -152,7 +152,7 @@ pub fn test_prompt(
         ),
         PromptKind::CompteRendu => (
             format!("Réunion : {SAMPLE_MEETING_TITLE}\n{SAMPLE_MEETING}"),
-            cleaner.summarize(SAMPLE_MEETING_TITLE, SAMPLE_MEETING, None),
+            cleaner.summarize(SAMPLE_MEETING_TITLE, SAMPLE_MEETING, None, false),
         ),
     };
     let duration_ms = started.elapsed().as_millis();
