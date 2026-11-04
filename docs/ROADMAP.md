@@ -93,13 +93,51 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Liste des clés API enregistrées (une par fournisseur) pour les remplacer ou les supprimer ; jamais affichées en clair, ni en entier ni en partie (seulement le fournisseur et « clé enregistrée »). Seuls les noms des identifiants sont lus pour la liste
 - ✅ Statistiques par application sur l'accueil (mots, part, dictées, coût ; ce mois ou depuis le début ; nom du programme seulement)
 
-## v0.11 — Moteurs légers 🚧
+## v0.11 — Moteurs légers ✅
 
 - ✅ Choix du moteur de transcription dans Réglages → Micro et transcription, appliqué sans redémarrer
 - ✅ Parakeet TDT 0.6B v3 (NVIDIA, int8, ONNX Runtime) : PC sans carte graphique, rapide et ponctué
 - ✅ Vosk Small français : très léger, pour les vieux PC
 - ✅ Bibliothèques natives (ONNX Runtime, libvosk) téléchargées avec le modèle et vérifiées (SHA-256) : installeur inchangé
-- ⬜ Vosk en continu (transcription pendant la dictée, texte prêt au relâchement), si les premiers essais le demandent
+- ⬜ Vosk en continu (transcription pendant la dictée, texte prêt au relâchement), si les essais le demandent
+
+## v0.12 — Réunions ⬜
+
+Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcription et un compte rendu, sur Windows. Rien d'automatique par défaut, chaque comportement est un réglage.
+
+- ⬜ Deux pistes séparées : le micro (« Moi ») et le son du PC (« Eux », capture de toutes les sorties audio actives, casque compris)
+- ⬜ Démarrage à la main : menu de l'icône, raccourci, page Réunions
+- ⬜ Détection d'appel : application qui utilise le micro (Teams, Zoom, Discord, Slack, WhatsApp, navigateur) → pastille « Appel détecté : Enregistrer / Pas maintenant » ; par service : Demander, Toujours enregistrer, Ne jamais proposer
+- ⬜ Rappel de consentement dans la pastille : en France, les participants doivent être prévenus de l'enregistrement
+- ⬜ Pastille d'enregistrement : chrono, Arrêter, « Copier les nouvelles répliques » (ce qui a été dit depuis la dernière copie)
+- ⬜ Transcription en direct avec le moteur choisi (Whisper, Parakeet, Vosk), par blocs coupés aux pauses, seulement quand aucune dictée n'est en cours ; blocs silencieux ignorés
+- ⬜ Suppression de l'écho (appel sur haut-parleurs : le micro réentend les autres)
+- ⬜ Audio de la réunion, au choix de l'utilisateur :
+  - en mémoire seulement (rien sur le disque ; perdu si l'application plante)
+  - fichier temporaire chiffré par Windows (DPAPI), supprimé après la transcription
+  - conservé (chiffré), réécoutable, supprimable
+- ⬜ Compte rendu par le LLM choisi (n'importe quel fournisseur) : résumé, décisions, actions (qui fait quoi), questions ouvertes ; prompt modifiable dans la page Prompts ; traduction possible ; coût suivi
+- ⬜ Page Réunions : liste, transcription Moi / Eux horodatée, compte rendu, copier, exporter en Markdown, supprimer ; durée de conservation réglable
+
+## v0.13 — Capture commentée ⬜
+
+Montrer plutôt qu'écrire : parler et dessiner sur l'écran, et obtenir un texte et des images prêts à coller (Slack, Jira, mail, ChatGPT, Claude…).
+
+- ⬜ Une touche : appui pour démarrer / arrêter, maintien pour dessiner à l'écran avec la souris (traits qui s'effacent à l'écran mais restent sur les captures)
+- ⬜ Captures d'écran aux moments clés plutôt qu'une vidéo (léger) : mots « ici », « là », « ça », « regarde », clics, dessins ; transcription mot par mot horodatée
+- ⬜ Résultat : planche d'images annotées + texte mis en forme par le LLM selon un modèle au choix (rapport de bug : étapes, attendu, obtenu ; explication ; consigne pour une IA), collé dans l'application active
+- ⬜ Option (désactivée par défaut) : description des images par une IA qui « voit » ; les captures quittent alors le PC, c'est dit clairement
+- ⬜ Écran entier, une fenêtre ou une zone ; captures conservées ou supprimées au choix
+
+## v0.14 — Conférences et recherche ⬜
+
+Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
+
+- ⬜ Enregistrer une conférence (sur place : micro ; en ligne : son du PC ; ou les deux), longue durée, mêmes choix pour l'audio qu'en v0.12
+- ⬜ Importer un fichier audio ou vidéo existant (MP3, M4A, WAV, MP4…) et le transcrire, avec progression
+- ⬜ Au choix : transcription seule, compte rendu seul, ou les deux ; compte rendu par le LLM choisi (plan, idées clés, citations, chapitres horodatés)
+- ⬜ Recherche dans toutes les réunions et conférences : mots exacts, résultats horodatés qui mènent au passage (et à l'audio s'il est conservé)
+- ⬜ Questions au LLM sur une ou plusieurs transcriptions (« qu'a-t-on décidé sur le budget ? »), avec les passages cités
 
 ## Outillage ✅
 
@@ -117,4 +155,4 @@ Accélérer la CI sans baisser la garde :
 ## Plus tard
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, Linux, Android, nettoyage local.
+- Anglais, Linux, Android, nettoyage local. Pas de macOS (pas de Mac pour tester).
