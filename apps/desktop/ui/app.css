@@ -229,7 +229,8 @@ thead th {
   font-size: 12px;
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   flex: none;
   width: auto;
   margin: 0;
