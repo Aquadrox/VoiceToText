@@ -22,9 +22,10 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
- * Clavier vocal : maintenir le micro pour dicter (relâcher pour insérer), ou
- * un appui court pour dicter mains libres (nouvel appui pour finir). Le texte
- * nettoyé est inséré dans le champ en cours, comme sur PC.
+ * Clavier vocal : maintenir 🎤 pour dicter (relâcher pour insérer), ou un
+ * appui court pour dicter mains libres (nouvel appui pour finir). 🌍 active
+ * le mode traduction ; maintenir ✨ dicte une consigne appliquée au texte
+ * sélectionné (Command Mode). Le texte s'insère dans le champ en cours.
  */
 class VoiceKeyboard : InputMethodService() {
     private val store by lazy { Store(this) }
@@ -34,20 +35,25 @@ class VoiceKeyboard : InputMethodService() {
 
     private lateinit var status: TextView
     private lateinit var mic: Button
+    private lateinit var command: Button
+    private lateinit var translate: Button
 
     /** Version des réglages chargée dans le moteur (-1 : pas encore). */
     private var loaded = -1L
     private var ready = false
     private var pressedAt = 0L
     private var handsFree = false
+    /** Mode de la dictée en cours (Native.DICTATE, TRANSLATE, COMMAND). */
+    private var mode = Native.DICTATE
     /** Longueur de la dernière insertion (commande « annule la dernière dictée »). */
     private var lastInserted = 0
+    private var language = "anglais"
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1E1E26"))
+            setBackgroundColor(Color.parseColor(BACKGROUND))
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
         }
         status = TextView(this).apply {
@@ -62,37 +68,55 @@ class VoiceKeyboard : InputMethodService() {
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#4F46E5"))
+                setColor(Color.parseColor(ACCENT))
             }
-            setOnTouchListener(::onMicTouch)
             contentDescription = "Dicter"
+            setOnTouchListener { view, event -> onHold(view, event, Native.DICTATE) }
         }
-        fun key(label: String, description: String, action: () -> Unit) = Button(this).apply {
+        fun key(label: String, description: String) = Button(this).apply {
             text = label
             textSize = 18f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#2C2C38"))
+            setBackgroundColor(Color.parseColor(KEY))
             contentDescription = description
-            setOnClickListener { action() }
         }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        command = key("✨", "Consigne sur le texte sélectionné (maintenir)").apply {
+            setOnTouchListener { view, event -> onHold(view, event, Native.COMMAND) }
+        }
+        translate = key("🌍", "Mode traduction").apply {
+            setOnClickListener {
+                store.translate = !store.translate
+                showTranslate()
+                show(if (store.translate) "Traduction → $language" else "Traduction coupée")
+            }
         }
         val keyHeight = (56 * dp).toInt()
-        fun side(view: View) = row.addView(
+        val margin = (4 * dp).toInt()
+        fun LinearLayout.side(view: View, weight: Float = 1f) = addView(
             view,
-            LinearLayout.LayoutParams(0, keyHeight, 1f).apply { setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0) },
+            LinearLayout.LayoutParams(0, keyHeight, weight).apply { setMargins(margin, margin, margin, margin) },
         )
-        side(key("🌐", "Clavier suivant") { switchToNextInputMethod(false) })
-        side(key("⌫", "Effacer") { sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL) })
-        row.addView(mic, LinearLayout.LayoutParams((88 * dp).toInt(), (88 * dp).toInt()).apply {
-            setMargins((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
-        })
-        side(key("␣", "Espace") { currentInputConnection?.commitText(" ", 1) })
-        side(key("↵", "Entrée") { enter() })
-        root.addView(status, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(row, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            side(key("🌐", "Clavier suivant").apply { setOnClickListener { switchToNextInputMethod(false) } })
+            side(translate)
+            addView(mic, LinearLayout.LayoutParams((88 * dp).toInt(), (88 * dp).toInt()).apply {
+                setMargins((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            })
+            side(command)
+            side(key("⌫", "Effacer").apply { setOnClickListener { sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL) } })
+        }
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            side(key("espace", "Espace").apply { setOnClickListener { currentInputConnection?.commitText(" ", 1) } }, 3f)
+            side(key("↵", "Entrée").apply { setOnClickListener { enter() } })
+        }
+        val wide = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        root.addView(status, wide)
+        root.addView(top, wide)
+        root.addView(bottom, wide)
+        showTranslate()
         return root
     }
 
@@ -114,17 +138,23 @@ class VoiceKeyboard : InputMethodService() {
         super.onFinishInputView(finishingInput)
     }
 
+    private fun showTranslate() {
+        if (!::translate.isInitialized) return
+        translate.setBackgroundColor(Color.parseColor(if (store.translate) ACCENT else KEY))
+    }
+
     private fun loadEngine() {
         val version = store.version
         val config = store.config
         ready = false
         show("Chargement du modèle…")
         worker.execute {
-            val host = JSONObject(Native.settings(config, store.modelsDir)).optJSONObject("ok")
-                ?.optJSONObject("llm")?.optString("host").orEmpty()
+            val settings = JSONObject(Native.settings(config, store.modelsDir)).optJSONObject("ok")
+            val host = settings?.optJSONObject("llm")?.optString("host").orEmpty()
             Native.setApiKey(store.key(host).orEmpty())
-            val error = JSONObject(Native.start(store.modelsDir, config)).optString("error")
+            val error = JSONObject(Native.start(store.modelsDir, store.historyFile, config)).optString("error")
             main.post {
+                language = settings?.optString("translation")?.ifEmpty { null } ?: language
                 if (error.isEmpty()) {
                     loaded = version
                     ready = true
@@ -136,8 +166,9 @@ class VoiceKeyboard : InputMethodService() {
         }
     }
 
+    /** 🎤 et ✨ : maintenir pour dicter ; appui court sur 🎤 : mains libres. */
     @SuppressLint("ClickableViewAccessibility")
-    private fun onMicTouch(view: View, event: MotionEvent): Boolean {
+    private fun onHold(view: View, event: MotionEvent, kind: Int): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (handsFree) {
@@ -146,12 +177,17 @@ class VoiceKeyboard : InputMethodService() {
                     finishDictation()
                 } else {
                     pressedAt = SystemClock.uptimeMillis()
-                    startDictation()
+                    mode = when {
+                        kind == Native.COMMAND -> Native.COMMAND
+                        store.translate -> Native.TRANSLATE
+                        else -> Native.DICTATE
+                    }
+                    startDictation(view)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (!recorder.recording) return true
-                if (SystemClock.uptimeMillis() - pressedAt < TAP_MS) {
+                if (kind == Native.DICTATE && SystemClock.uptimeMillis() - pressedAt < TAP_MS) {
                     // Appui court : mains libres jusqu'au prochain appui.
                     handsFree = true
                     show("Mains libres : appuyez pour terminer")
@@ -164,7 +200,7 @@ class VoiceKeyboard : InputMethodService() {
         return true
     }
 
-    private fun startDictation() {
+    private fun startDictation(view: View) {
         if (!hasMicPermission()) {
             show("Autorisez le micro dans l'application VoiceToText")
             return
@@ -177,29 +213,47 @@ class VoiceKeyboard : InputMethodService() {
             show("Micro indisponible")
             return
         }
-        mic.alpha = 0.7f
-        show("Écoute…")
+        view.alpha = 0.7f
+        show(
+            when (mode) {
+                Native.COMMAND -> "Consigne… (appliquée au texte sélectionné)"
+                Native.TRANSLATE -> "Écoute… → $language"
+                else -> "Écoute…"
+            },
+        )
     }
 
     private fun finishDictation() {
         val samples = recorder.stop()
         mic.alpha = 1f
-        show("Transcription…")
+        command.alpha = 1f
+        show(if (mode == Native.COMMAND) "Application de la consigne…" else "Transcription…")
         val app = currentInputEditorInfo?.packageName.orEmpty()
+        val selection = if (mode == Native.COMMAND) {
+            currentInputConnection?.getSelectedText(0)?.toString().orEmpty()
+        } else {
+            ""
+        }
+        val current = mode
         worker.execute {
-            val result = JSONObject(Native.dictate(samples, app))
-            main.post { apply(result) }
+            val result = JSONObject(Native.dictate(samples, app, current, selection))
+            main.post { apply(result, current) }
         }
     }
 
-    private fun apply(result: JSONObject) {
+    private fun apply(result: JSONObject, kind: Int) {
         val connection = currentInputConnection
         when (result.optString("kind")) {
             "text" -> {
                 val text = result.optString("text")
-                // Une espace entre deux dictées, pas en début de champ.
+                // Une espace entre deux dictées, pas en début de champ ; une
+                // consigne remplace la sélection telle quelle.
                 val before = connection?.getTextBeforeCursor(1, 0)?.toString().orEmpty()
-                val spaced = if (before.isNotEmpty() && !before.last().isWhitespace()) " $text" else text
+                val spaced = if (kind != Native.COMMAND && before.isNotEmpty() && !before.last().isWhitespace()) {
+                    " $text"
+                } else {
+                    text
+                }
                 connection?.commitText(spaced, 1)
                 lastInserted = spaced.length
                 val error = result.optString("error")
@@ -247,7 +301,10 @@ class VoiceKeyboard : InputMethodService() {
     private companion object {
         /** En dessous : appui court (mains libres). */
         const val TAP_MS = 300L
-        const val IDLE = "Maintenez 🎤 pour dicter · appui court : mains libres"
+        const val IDLE = "Maintenez 🎤 pour dicter · ✨ consigne sur la sélection"
         const val IDLE_SHORT = "maintenez 🎤 pour dicter"
+        const val BACKGROUND = "#1E1E26"
+        const val KEY = "#2C2C38"
+        const val ACCENT = "#4F46E5"
     }
 }

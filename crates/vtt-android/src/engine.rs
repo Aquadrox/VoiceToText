@@ -1,13 +1,15 @@
 //! Moteur de dictée du téléphone : Whisper + pipeline commun (snippets,
-//! commandes vocales, nettoyage LLM). Le texte est rendu à l'application,
-//! qui l'insère dans le champ en cours (clavier Android).
+//! commandes vocales, nettoyage LLM, traduction, Command Mode). Le texte est
+//! rendu à l'application, qui l'insère dans le champ en cours (clavier
+//! Android) ; l'historique reste sur le téléphone.
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use vtt_core::config::{LlmConfig, PromptKind};
+use vtt_core::config::{LlmConfig, Pricing, PromptKind};
+use vtt_core::history::{Entry, History};
 use vtt_core::{AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink};
 use vtt_llm::{LlmCleaner, Prompts};
 
@@ -20,6 +22,11 @@ static API_KEY: Mutex<Option<String>> = Mutex::new(None);
 struct Engine {
     pipeline: Pipeline,
     model: String,
+    /// `None` : historique désactivé dans les réglages.
+    history: Option<History>,
+    pricing: Pricing,
+    /// Langue du mode traduction.
+    translate_to: String,
 }
 
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
@@ -66,9 +73,13 @@ fn cleaner(config: &Config) -> Option<Box<dyn PostProcessor>> {
 }
 
 /// (Re)démarre le moteur avec ces réglages ; le modèle n'est rechargé que
-/// s'il a changé.
-pub fn start(models_dir: &Path, toml: &str) -> Result<(), String> {
+/// s'il a changé. `history_file` : historique des dictées sur le téléphone.
+pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), String> {
     let (config, _) = settings::parse(toml)?;
+    let history = config
+        .history
+        .enabled
+        .then(|| History::open(history_file.to_owned(), config.history.max_entries));
     let path = models::local(models_dir, &config.asr.model)
         .ok_or_else(|| format!("modèle {} non téléchargé", config.asr.model))?;
     let mut engine = lock(&ENGINE);
@@ -84,6 +95,9 @@ pub fn start(models_dir: &Path, toml: &str) -> Result<(), String> {
         engine
             .pipeline
             .set_voice_commands(config.dictation.voice_commands);
+        engine.history = history;
+        engine.pricing = config.llm.pricing.clone();
+        engine.translate_to = config.translation.language.clone();
         log::info!("réglages appliqués");
         return Ok(());
     }
@@ -109,6 +123,9 @@ pub fn start(models_dir: &Path, toml: &str) -> Result<(), String> {
     *engine = Some(Engine {
         pipeline,
         model: config.asr.model.clone(),
+        history,
+        pricing: config.llm.pricing.clone(),
+        translate_to: config.translation.language.clone(),
     });
     log::info!("moteur prêt : {}", config.asr.model);
     Ok(())
@@ -158,20 +175,98 @@ pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
     }
 }
 
+/// Ce que l'utilisateur dicte.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    Dictate,
+    /// Mode traduction : texte nettoyé puis traduit.
+    Translate,
+    /// Command Mode : consigne appliquée au texte sélectionné (ou rédaction
+    /// s'il n'y en a pas).
+    Command(Option<String>),
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+/// Entrée d'historique d'une dictée insérée (comme sur PC).
+fn entry(
+    outcome: &Outcome,
+    clip: &AudioClip,
+    app: Option<String>,
+    pricing: &Pricing,
+) -> Option<Entry> {
+    let Outcome::Inserted {
+        raw,
+        text,
+        post_process_error,
+        snippet,
+        command,
+        usage,
+        fallback,
+        translated,
+    } = outcome
+    else {
+        return None;
+    };
+    Some(Entry {
+        at_ms: now_ms(),
+        duration_ms: clip.duration_ms(),
+        raw: raw.clone(),
+        text: text.clone(),
+        snippet: *snippet,
+        cleanup_failed: post_process_error.is_some(),
+        command: *command,
+        app,
+        usage: *usage,
+        cost: usage.map(|u| pricing.cost(&u)),
+        currency: usage.map(|_| pricing.currency.clone()),
+        fallback: fallback.clone(),
+        translated: translated.clone(),
+    })
+}
+
 /// Dicte `samples` (16 kHz mono) ; `app` : application de destination
 /// (styles par application).
-pub fn dictate(samples: Vec<f32>, app: Option<String>) -> Dictation {
-    let engine = lock(&ENGINE);
-    let Some(engine) = engine.as_ref() else {
+pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode) -> Dictation {
+    let mut engine = lock(&ENGINE);
+    let Some(engine) = engine.as_mut() else {
         return Dictation {
             kind: "error",
             error: Some("moteur non démarré : téléchargez un modèle".into()),
             ..Dictation::default()
         };
     };
-    let target = Target { app, title: None };
+    let target = Target {
+        app: app.clone(),
+        title: None,
+    };
+    let clip = AudioClip { samples };
     let started = Instant::now();
-    let mut result = outcome(engine.pipeline.run(&AudioClip { samples }, &target));
+    let raw = match &mode {
+        Mode::Dictate => engine.pipeline.run(&clip, &target),
+        Mode::Translate => {
+            engine
+                .pipeline
+                .dictate(&clip, &target, None, Some(engine.translate_to.as_str()))
+        }
+        Mode::Command(selection) => {
+            engine
+                .pipeline
+                .run_command(&clip, &target, selection.as_deref())
+        }
+    };
+    if let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
+        && let Some(entry) = entry(outcome, &clip, app, &engine.pricing)
+        && let Err(e) = history.append(&entry)
+    {
+        log::warn!("historique : {e}");
+    }
+    let mut result = outcome(raw);
     result.ms = started.elapsed().as_millis() as u64;
     log::info!("dictée traitée en {} ms ({})", result.ms, result.kind);
     result
@@ -207,11 +302,69 @@ mod tests {
         assert_eq!(outcome(Ok(Outcome::Skipped)).kind, "skip");
         assert_eq!(outcome(Err(Error::Asr("x".into()))).kind, "error");
         assert_eq!(
-            dictate(vec![0.0; 16_000], None).kind,
+            dictate(vec![0.0; 16_000], None, Mode::Dictate).kind,
             "error",
             "pas de moteur"
         );
         set_api_key(Some("  ".into()));
         assert_eq!(*lock(&API_KEY), None);
+    }
+}
+
+/// Dictées récentes (la plus récente d'abord).
+pub fn history(file: &Path, limit: usize) -> Result<Vec<Entry>, String> {
+    History::open(file.to_owned(), usize::MAX)
+        .recent(limit)
+        .map_err(|e| format!("historique : {e}"))
+}
+
+pub fn clear_history(file: &Path) -> Result<(), String> {
+    History::open(file.to_owned(), usize::MAX)
+        .clear()
+        .map_err(|e| format!("historique : {e}"))
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn inserted_dictations_become_history_entries() {
+        let inserted = Outcome::Inserted {
+            raw: "envoie le jason".into(),
+            text: "Envoie le JSON.".into(),
+            post_process_error: None,
+            snippet: false,
+            usage: Some(vtt_core::usage::Usage {
+                input_tokens: 1_000_000,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+            }),
+            command: false,
+            fallback: None,
+            translated: Some("anglais".into()),
+        };
+        let clip = AudioClip {
+            samples: vec![0.0; 32_000],
+        };
+        let pricing = Pricing {
+            input_per_million: 0.3,
+            ..Pricing::default()
+        };
+        let e = entry(&inserted, &clip, Some("com.whatsapp".into()), &pricing).unwrap();
+        assert_eq!((e.duration_ms, e.text.as_str()), (2_000, "Envoie le JSON."));
+        assert_eq!(e.app.as_deref(), Some("com.whatsapp"));
+        assert!((e.cost.unwrap() - 0.3).abs() < 1e-9);
+        assert_eq!(e.translated.as_deref(), Some("anglais"));
+        assert!(entry(&Outcome::Skipped, &clip, None, &pricing).is_none());
+
+        let dir = std::env::temp_dir().join(format!("vtt-android-history-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("history.jsonl");
+        History::open(file.clone(), 10).append(&e).unwrap();
+        assert_eq!(history(&file, 5).unwrap().len(), 1);
+        clear_history(&file).unwrap();
+        assert!(history(&file, 5).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

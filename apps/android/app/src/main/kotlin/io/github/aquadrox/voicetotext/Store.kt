@@ -23,6 +23,15 @@ class Store(private val context: Context) {
     val modelsDir: String
         get() = File(context.filesDir, "models").apply { mkdirs() }.absolutePath
 
+    /** Historique des dictées, sur le téléphone seulement. */
+    val historyFile: String
+        get() = File(context.filesDir, "history.jsonl").absolutePath
+
+    /** Mode traduction du clavier (gardé d'une ouverture à l'autre). */
+    var translate: Boolean
+        get() = prefs.getBoolean("translate", false)
+        set(value) = prefs.edit().putBoolean("translate", value).apply()
+
     var config: String
         get() = if (configFile.exists()) configFile.readText() else ""
         set(value) {

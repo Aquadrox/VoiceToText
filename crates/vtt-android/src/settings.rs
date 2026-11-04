@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use vtt_core::Config;
+use vtt_core::config::{self, Snippet, TRANSLATION_LANGUAGES, TranslationConfig};
 
 use crate::models;
 
@@ -59,6 +60,9 @@ struct View<'a> {
     dictionary: usize,
     snippets: usize,
     voice_commands: bool,
+    translation: &'a str,
+    languages: &'static [&'static str],
+    history: bool,
 }
 
 /// Réglages affichés par l'application (JSON).
@@ -76,6 +80,9 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         dictionary: config.dictionary.len(),
         snippets: config.snippets.len(),
         voice_commands: config.dictation.voice_commands,
+        translation: &config.translation.language,
+        languages: TRANSLATION_LANGUAGES,
+        history: config.history.enabled,
     };
     serde_json::to_string(&view).map_err(|e| e.to_string())
 }
@@ -88,6 +95,8 @@ pub struct Update {
     pub llm_model: String,
     pub model: String,
     pub voice_commands: bool,
+    pub translation: String,
+    pub history: bool,
 }
 
 /// Applique `update` à la configuration ; renvoie le nouveau config.toml.
@@ -108,8 +117,37 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
         }
     }
     config.llm = llm;
+    let translation = TranslationConfig {
+        language: update.translation.trim().to_owned(),
+    };
+    translation.validate()?;
     config.asr.model = update.model.clone();
     config.dictation.voice_commands = update.voice_commands;
+    config.translation = translation;
+    config.history.enabled = update.history;
+    to_toml(&config)
+}
+
+/// Dictionnaire et snippets, modifiables sur le téléphone.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Vocabulary {
+    pub dictionary: Vec<String>,
+    pub snippets: Vec<Snippet>,
+}
+
+pub fn vocabulary(toml: &str) -> Result<Vocabulary, String> {
+    let (config, _) = parse(toml)?;
+    Ok(Vocabulary {
+        dictionary: config.dictionary,
+        snippets: config.snippets,
+    })
+}
+
+/// Enregistre dictionnaire et snippets (vérifiés comme sur PC).
+pub fn save_vocabulary(toml: &str, vocabulary: &Vocabulary) -> Result<String, String> {
+    let (mut config, _) = parse(toml)?;
+    config.dictionary = config::clean_dictionary(&vocabulary.dictionary)?;
+    config.snippets = config::clean_snippets(&vocabulary.snippets)?;
     to_toml(&config)
 }
 
@@ -143,6 +181,8 @@ mod tests {
             llm_model: "deepseek-flash".into(),
             model: model.into(),
             voice_commands: true,
+            translation: "anglais".into(),
+            history: true,
         }
     }
 
@@ -186,5 +226,34 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn vocabulary_and_translation_are_validated() {
+        let saved = save_vocabulary(
+            "",
+            &Vocabulary {
+                dictionary: vec![" Aquadrox ".into(), "Kubernetes".into()],
+                snippets: vec![Snippet {
+                    trigger: "ma signature".into(),
+                    text: "Florian".into(),
+                }],
+            },
+        )
+        .unwrap();
+        let back = vocabulary(&saved).unwrap();
+        assert_eq!(back.dictionary, ["Aquadrox", "Kubernetes"]);
+        assert_eq!(back.snippets.len(), 1);
+        let empty_trigger = Vocabulary {
+            dictionary: Vec::new(),
+            snippets: vec![Snippet {
+                trigger: " ".into(),
+                text: "x".into(),
+            }],
+        };
+        assert!(save_vocabulary("", &empty_trigger).is_err());
+        let mut no_language = update_with(models::DEFAULT_MODEL, "https://api.z.ai");
+        no_language.translation = " ".into();
+        assert!(update("", &no_language).is_err());
     }
 }
