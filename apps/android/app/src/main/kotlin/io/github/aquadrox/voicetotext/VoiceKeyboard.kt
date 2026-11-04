@@ -203,7 +203,11 @@ class VoiceKeyboard : InputMethodService() {
                 connection?.commitText(spaced, 1)
                 lastInserted = spaced.length
                 val error = result.optString("error")
-                show(if (error.isEmpty() || error == "null") IDLE else "Texte brut inséré : $error")
+                val seconds = "%.1f".format(result.optLong("ms") / 1000.0).replace('.', ',')
+                show(
+                    if (error.isEmpty() || error == "null") "✓ $seconds s · $IDLE_SHORT"
+                    else "Texte brut inséré : $error",
+                )
             }
             "undo" -> {
                 if (lastInserted > 0) connection?.deleteSurroundingText(lastInserted, 0)
@@ -244,5 +248,6 @@ class VoiceKeyboard : InputMethodService() {
         /** En dessous : appui court (mains libres). */
         const val TAP_MS = 300L
         const val IDLE = "Maintenez 🎤 pour dicter · appui court : mains libres"
+        const val IDLE_SHORT = "maintenez 🎤 pour dicter"
     }
 }

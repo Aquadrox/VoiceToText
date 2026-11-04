@@ -4,6 +4,7 @@
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Instant;
 
 use serde::Serialize;
 use vtt_core::config::{LlmConfig, PromptKind};
@@ -86,9 +87,21 @@ pub fn start(models_dir: &Path, toml: &str) -> Result<(), String> {
         log::info!("réglages appliqués");
         return Ok(());
     }
-    let transcriber =
-        vtt_asr::WhisperTranscriber::load(&path, &config.asr.language, false, &config.dictionary)
-            .map_err(|e| e.to_string())?;
+    // Téléphone : processeur seul. Quatre threads (les cœurs rapides ; les
+    // cœurs économes ralentiraient l'ensemble), encodeur limité à la durée de
+    // la dictée.
+    let transcriber = vtt_asr::WhisperTranscriber::load_with(
+        &path,
+        &config.asr.language,
+        false,
+        &config.dictionary,
+        vtt_asr::WhisperOptions {
+            threads: Some(4),
+            short_context: true,
+            flash_attn: true,
+        },
+    )
+    .map_err(|e| e.to_string())?;
     let pipeline = Pipeline::new(Box::new(transcriber), cleaner(&config), Box::new(Collect))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
@@ -111,6 +124,8 @@ pub struct Dictation {
     pub raw: String,
     /// Nettoyage échoué (texte brut inséré) ou erreur.
     pub error: Option<String>,
+    /// Durée du traitement (transcription et nettoyage), en millisecondes.
+    pub ms: u64,
 }
 
 pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
@@ -125,6 +140,7 @@ pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
             text,
             raw,
             error: post_process_error,
+            ms: 0,
         },
         Ok(Outcome::Undone) => Dictation {
             kind: "undo",
@@ -154,7 +170,11 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>) -> Dictation {
         };
     };
     let target = Target { app, title: None };
-    outcome(engine.pipeline.run(&AudioClip { samples }, &target))
+    let started = Instant::now();
+    let mut result = outcome(engine.pipeline.run(&AudioClip { samples }, &target));
+    result.ms = started.elapsed().as_millis() as u64;
+    log::info!("dictée traitée en {} ms ({})", result.ms, result.kind);
+    result
 }
 
 #[cfg(test)]
@@ -179,7 +199,8 @@ mod tests {
                 kind: "text",
                 text: "Bonjour.".into(),
                 raw: "euh bonjour".into(),
-                error: None
+                error: None,
+                ms: 0
             }
         );
         assert_eq!(outcome(Ok(Outcome::Undone)).kind, "undo");

@@ -22,6 +22,30 @@ use whisper_rs::{
 
 /// whisper.cpp refuse les entrées de moins d'une seconde : on complète par du silence.
 const MIN_SAMPLES: usize = SAMPLE_RATE as usize * 11 / 10;
+/// Contexte audio complet de Whisper : 30 s (50 positions par seconde).
+const FULL_AUDIO_CTX: usize = 1500;
+/// Contexte réduit : jamais en dessous (plus court, la transcription se dégrade).
+const MIN_AUDIO_CTX: usize = 384;
+/// Marge ajoutée à la durée de la dictée (positions).
+const AUDIO_CTX_MARGIN: usize = 100;
+
+/// Réglages de calcul (le téléphone n'a pas les moyens du PC).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WhisperOptions {
+    /// Nombre de threads ; `None` : un par cœur, au plus 8.
+    pub threads: Option<usize>,
+    /// Encodeur limité à la durée de la dictée au lieu de 30 s : bien plus
+    /// rapide pour une dictée courte sur processeur.
+    pub short_context: bool,
+    /// Attention plus rapide (incompatible avec l'horodatage DTW, inutilisé).
+    pub flash_attn: bool,
+}
+
+/// Contexte audio pour `samples` échantillons (`None` : complet).
+fn audio_ctx(samples: usize) -> Option<usize> {
+    let ctx = samples * 50 / SAMPLE_RATE as usize + AUDIO_CTX_MARGIN;
+    (ctx < FULL_AUDIO_CTX).then_some(ctx.max(MIN_AUDIO_CTX))
+}
 
 pub struct WhisperTranscriber {
     model: PathBuf,
@@ -31,6 +55,7 @@ pub struct WhisperTranscriber {
     /// Modifiable à chaud depuis la fenêtre principale.
     initial_prompt: Mutex<Option<String>>,
     n_threads: i32,
+    options: WhisperOptions,
     // Un seul état réutilisé : en créer un par dictée réallouerait les tampons
     // GPU. `None` : modèle déchargé pour libérer la mémoire graphique (l'état
     // détient le contexte : le libérer libère tout).
@@ -46,6 +71,22 @@ impl WhisperTranscriber {
         use_gpu: bool,
         dictionary: &[String],
     ) -> Result<Self, Error> {
+        Self::load_with(
+            model,
+            language,
+            use_gpu,
+            dictionary,
+            WhisperOptions::default(),
+        )
+    }
+
+    pub fn load_with(
+        model: &Path,
+        language: &str,
+        use_gpu: bool,
+        dictionary: &[String],
+        options: WhisperOptions,
+    ) -> Result<Self, Error> {
         whisper_rs::install_logging_hooks();
         #[cfg(feature = "vulkan")]
         for device in whisper_rs::vulkan::list_devices() {
@@ -56,15 +97,15 @@ impl WhisperTranscriber {
                 device.vram.total / (1024 * 1024)
             );
         }
-        let n_threads = std::thread::available_parallelism()
-            .map(|n| n.get().min(8) as i32)
-            .unwrap_or(4);
+        let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let n_threads = options.threads.unwrap_or(8).min(cores).max(1) as i32;
         let transcriber = Self {
             model: model.to_owned(),
             use_gpu,
             language: language.to_owned(),
             initial_prompt: Mutex::new(vocabulary_prompt(dictionary)),
             n_threads,
+            options,
             state: Mutex::new(None),
         };
         transcriber.preload()?;
@@ -90,6 +131,7 @@ impl WhisperTranscriber {
             let started = Instant::now();
             let mut params = WhisperContextParameters::default();
             params.use_gpu(self.use_gpu);
+            params.flash_attn(self.options.flash_attn);
             let path = self.model.to_str().ok_or_else(|| {
                 Error::Asr(format!("chemin non UTF-8 : {}", self.model.display()))
             })?;
@@ -197,6 +239,11 @@ impl WhisperTranscriber {
             params.set_initial_prompt(prompt);
         }
 
+        if self.options.short_context
+            && let Some(ctx) = audio_ctx(clip.samples.len())
+        {
+            params.set_audio_ctx(ctx as i32);
+        }
         let mut samples = clip.samples.clone();
         if samples.len() < MIN_SAMPLES {
             samples.resize(MIN_SAMPLES, 0.0);
@@ -218,5 +265,20 @@ impl WhisperTranscriber {
             on_segment(&part, start, end);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_dictations_use_a_shorter_audio_context() {
+        // 3 s : 150 positions + marge, relevé au minimum.
+        assert_eq!(audio_ctx(3 * SAMPLE_RATE as usize), Some(MIN_AUDIO_CTX));
+        // 10 s : 500 + 100.
+        assert_eq!(audio_ctx(10 * SAMPLE_RATE as usize), Some(600));
+        // 28 s et plus : contexte complet.
+        assert_eq!(audio_ctx(28 * SAMPLE_RATE as usize), None);
     }
 }

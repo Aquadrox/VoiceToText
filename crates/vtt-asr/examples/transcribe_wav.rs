@@ -63,6 +63,21 @@ fn main() {
         "vosk" => {
             Box::new(VoskTranscriber::load(model.as_ref(), library.as_ref()).expect("chargement"))
         }
+        // VTT_PHONE=1 : réglages du téléphone (4 threads, contexte court).
+        _ if std::env::var_os("VTT_PHONE").is_some() => Box::new(
+            WhisperTranscriber::load_with(
+                model.as_ref(),
+                "fr",
+                false,
+                &[],
+                vtt_asr::WhisperOptions {
+                    threads: Some(4),
+                    short_context: true,
+                    flash_attn: true,
+                },
+            )
+            .expect("chargement"),
+        ),
         _ => {
             Box::new(WhisperTranscriber::load(model.as_ref(), "fr", true, &[]).expect("chargement"))
         }

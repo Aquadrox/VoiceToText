@@ -23,6 +23,11 @@ export CMAKE_GENERATOR=Ninja
 export CMAKE_ANDROID_NDK="$ndk"
 export CMAKE_ANDROID_ARCH_ABI="$abi"
 export CMAKE_SYSTEM_VERSION="$api"
+# Instructions des processeurs de téléphone depuis 2018 (dotprod, fp16) :
+# sans elles, ggml vise l'ARM de base et les modèles 8 bits sont plusieurs
+# fois plus lents.
+export GGML_NATIVE=OFF
+export GGML_CPU_ARM_ARCH="armv8.2-a+dotprod+fp16"
 
 out="$here/app/src/main/jniLibs"
 cd "$here/../.."
