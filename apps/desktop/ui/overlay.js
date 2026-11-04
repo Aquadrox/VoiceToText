@@ -23,6 +23,7 @@ let translation = null;
 let lastStatus = { state: "idle" };
 /** Début de la réunion enregistrée (horloge locale), sinon `null`. */
 let meetingStartedAt = null;
+let meetingLabel = "Réunion";
 /** Capture commentée en cours : début (horloge locale) et dessin. */
 let annotateStartedAt = null;
 let annotateDrawing = false;
@@ -53,7 +54,7 @@ function showIdle() {
     return;
   }
   pill.dataset.state = "meeting";
-  label.textContent = `Réunion ${elapsed(meetingStartedAt)}`;
+  label.textContent = `${meetingLabel} ${elapsed(meetingStartedAt)}`;
 }
 setInterval(() => pill.dataset.state === "meeting" && showIdle(), 1000);
 
@@ -95,6 +96,7 @@ window.__TAURI__.event.listen("translation", (event) => {
 // Réunion démarrée ou arrêtée.
 function setMeeting(state) {
   meetingStartedAt = state.recording ? Date.now() - state.elapsed_ms : null;
+  meetingLabel = state.conference ? "Conférence" : "Réunion";
   if (lastStatus.state !== "idle") return;
   if (state.consent) {
     showIdle();

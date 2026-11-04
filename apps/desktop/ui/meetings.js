@@ -17,6 +17,16 @@ let meetingsView = null;
 let selectedMeeting = null;
 let meetingSettingsFilled = false;
 let recordingStartedAt = null;
+/** Passage à mettre en évidence après un clic sur un résultat (ms). */
+let highlightAt = null;
+const KIND_LABELS = { reunion: "Réunion", conference: "Conférence", fichier: "Fichier" };
+
+/** Nom de la piste selon le type d'enregistrement (vide : une seule source). */
+function trackLabel(record, track) {
+  if (record.kind === "reunion") return track === "moi" ? "Moi" : "Eux";
+  if (record.kind === "conference" && record.mic && record.system) return track === "moi" ? "Micro" : "PC";
+  return "";
+}
 
 /** « 12:34 » ou « 1:02:03 ». */
 function clock(ms) {
@@ -43,7 +53,8 @@ async function showMeetings() {
   }
   const recording = meetingsView.recording;
   recordingStartedAt = recording ? Date.now() - meetingsView.elapsed_ms : null;
-  $("meeting-toggle").textContent = recording ? "Arrêter la réunion" : "Démarrer une réunion";
+  $("meeting-toggle").textContent = recording ? "Arrêter l'enregistrement" : "Démarrer une réunion";
+  $("conf-start").disabled = Boolean(recording);
   $("meeting-toggle").classList.toggle("danger", Boolean(recording));
   $("meeting-toggle").classList.toggle("primary", !recording);
   $("meeting-live").hidden = !recording;
@@ -66,8 +77,14 @@ function renderMeetingList() {
     name.textContent = meeting.title;
     const when = document.createElement("span");
     when.className = "when";
-    const status = meeting.status === "terminee" ? clock(meeting.duration_ms) : MEETING_STATUS[meeting.status];
-    when.textContent = `${meetingDateFormat.format(new Date(meeting.started_at_ms))} · ${status}`;
+    const status =
+      meeting.progress != null
+        ? `lecture ${meeting.progress} %`
+        : meeting.status === "terminee"
+          ? clock(meeting.duration_ms)
+          : MEETING_STATUS[meeting.status];
+    const kind = meeting.kind === "reunion" ? "" : `${KIND_LABELS[meeting.kind]} · `;
+    when.textContent = `${kind}${meetingDateFormat.format(new Date(meeting.started_at_ms))} · ${status}`;
     button.append(name, when);
     button.addEventListener("click", () => {
       selectedMeeting = meeting.id;
@@ -98,11 +115,20 @@ async function showMeetingDetail() {
   const { record } = detail;
   article.hidden = false;
   if (document.activeElement !== $("meeting-title")) $("meeting-title").value = record.title;
+  const sources =
+    record.kind === "fichier"
+      ? `fichier ${record.source ?? ""}`
+      : record.mic && record.system
+        ? "micro + son du PC"
+        : record.system
+          ? "son du PC seulement"
+          : "micro seulement";
   const meta = [
+    KIND_LABELS[record.kind],
     meetingDateFormat.format(new Date(record.started_at_ms)),
     `durée ${clock(record.duration_ms)}`,
-    MEETING_STATUS[record.status],
-    record.system ? "micro + son du PC" : "micro seulement",
+    record.progress != null ? `lecture du fichier ${record.progress} %` : MEETING_STATUS[record.status],
+    sources,
   ];
   if (record.failed_chunks) meta.push(`${record.failed_chunks} passage(s) non transcrit(s)`);
   if (record.echo_chunks) meta.push(`${record.echo_chunks} passage(s) d'écho écarté(s)`);
@@ -132,12 +158,13 @@ async function showMeetingDetail() {
   const turns = detail.turns.map((turn) => {
     const item = document.createElement("li");
     item.dataset.track = turn.track;
+    item.dataset.start = turn.start_ms;
     const time = document.createElement("span");
     time.className = "time";
     time.textContent = clock(turn.start_ms);
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = turn.track === "moi" ? "Moi" : "Eux";
+    who.textContent = trackLabel(record, turn.track);
     const text = document.createElement("span");
     text.className = "text";
     text.textContent = turn.text;
@@ -145,6 +172,15 @@ async function showMeetingDetail() {
     return item;
   });
   $("meeting-turns").replaceChildren(...turns);
+  if (highlightAt != null) {
+    // Réplique qui contient le passage trouvé : la dernière qui commence avant.
+    const target = turns.filter((t) => Number(t.dataset.start) <= highlightAt).pop() ?? turns[0];
+    highlightAt = null;
+    if (target) {
+      target.classList.add("highlight");
+      target.scrollIntoView({ block: "center" });
+    }
+  }
   $("meeting-turns-empty").hidden = turns.length > 0;
   $("meeting-turns-empty").textContent =
     record.status === "terminee" ? "Aucune parole détectée." : "La transcription s'affiche ici au fil de la réunion.";
@@ -250,6 +286,110 @@ async function meetingAction(button, action) {
     await showMeetings();
   }
 }
+
+$("conf-start").addEventListener("click", () =>
+  meetingAction($("conf-start"), async () => {
+    selectedMeeting = await invoke("start_conference", {
+      mic: $("conf-mic").checked,
+      system: $("conf-system").checked,
+      output: $("conf-output").value,
+    });
+    showMeetingResult("Conférence enregistrée : « Arrêter l'enregistrement » à la fin.");
+  }),
+);
+
+$("import-file").addEventListener("click", () =>
+  meetingAction($("import-file"), async () => {
+    const id = await invoke("import_recording", { output: $("conf-output").value });
+    if (!id) return;
+    selectedMeeting = id;
+    showMeetingResult("Fichier en cours de transcription (progression dans la liste).");
+  }),
+);
+
+/* ---------- Recherche ---------- */
+
+let searchTimer = null;
+$("meeting-search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 300);
+});
+
+async function runSearch() {
+  const query = $("meeting-search").value.trim();
+  if (query.length < 2) {
+    $("search-results").hidden = true;
+    $("search-empty").hidden = true;
+    return;
+  }
+  let results;
+  try {
+    results = await invoke("search_meetings", { query });
+  } catch (e) {
+    showMeetingResult(String(e), true);
+    return;
+  }
+  const items = results.map((result) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    const where = document.createElement("span");
+    where.className = "where";
+    where.textContent =
+      `${result.title} · ${meetingDateFormat.format(new Date(result.started_at_ms))} · ${clock(result.start_ms)}`;
+    const text = document.createElement("span");
+    for (const [part, marked] of result.parts) {
+      if (marked) {
+        const mark = document.createElement("mark");
+        mark.textContent = part;
+        text.append(mark);
+      } else {
+        text.append(part);
+      }
+    }
+    button.append(where, text);
+    button.addEventListener("click", async () => {
+      selectedMeeting = result.id;
+      highlightAt = result.start_ms;
+      renderMeetingList();
+      await showMeetingDetail();
+    });
+    item.append(button);
+    return item;
+  });
+  $("search-results").replaceChildren(...items);
+  $("search-results").hidden = items.length === 0;
+  $("search-empty").hidden = items.length > 0;
+}
+
+/* ---------- Questions au LLM ---------- */
+
+$("ask-send").addEventListener("click", async () => {
+  const button = $("ask-send");
+  const answer = $("ask-answer");
+  const question = $("ask-question").value.trim();
+  if (!question) return;
+  button.disabled = true;
+  answer.hidden = false;
+  answer.classList.remove("error");
+  answer.textContent = "Recherche des passages et réponse du LLM…";
+  try {
+    const result = await invoke("ask_meetings", {
+      question,
+      id: $("ask-scope").value === "one" ? selectedMeeting : null,
+    });
+    const cost = result.cost != null ? ` · ${formatCost(result.cost, result.currency)}` : "";
+    answer.textContent = `${result.text}\n\n(${result.sources} enregistrement(s) consulté(s)${cost})`;
+  } catch (e) {
+    answer.classList.add("error");
+    answer.textContent = String(e);
+  } finally {
+    button.disabled = false;
+  }
+});
+$("ask-question").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("ask-send").click();
+});
 
 $("meeting-toggle").addEventListener("click", () =>
   meetingAction($("meeting-toggle"), async () => {

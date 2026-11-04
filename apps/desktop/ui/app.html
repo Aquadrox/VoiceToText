@@ -89,10 +89,37 @@
         <!-- Réunions -->
         <section class="page" id="page-reunions" hidden>
           <div class="page-header">
-            <h1>Réunions</h1>
+            <h1>Réunions et conférences</h1>
             <span class="spacer"></span>
             <button id="meeting-toggle" class="primary">Démarrer une réunion</button>
           </div>
+          <details id="meeting-more" class="meeting-more">
+            <summary>Conférence ou fichier audio / vidéo…</summary>
+            <div class="grid even">
+              <fieldset>
+                <legend>Enregistrer une conférence</legend>
+                <label class="inline"><input id="conf-mic" type="checkbox" checked /> Micro (sur place)</label>
+                <label class="inline"><input id="conf-system" type="checkbox" /> Son du PC (en ligne)</label>
+                <button id="conf-start" type="button">Enregistrer la conférence</button>
+              </fieldset>
+              <fieldset>
+                <legend>Transcrire un fichier</legend>
+                <p class="muted small">MP3, M4A, MP4, MKV, WebM, WAV, FLAC, OGG… lu sur ce PC.</p>
+                <button id="import-file" type="button">Choisir un fichier…</button>
+              </fieldset>
+            </div>
+            <label for="conf-output">Ensuite</label>
+            <select id="conf-output">
+              <option value="les_deux">Transcription et compte rendu</option>
+              <option value="transcription">Transcription seule</option>
+              <option value="compte_rendu">Compte rendu seul (la transcription est effacée ensuite)</option>
+            </select>
+          </details>
+          <div class="search-bar">
+            <input id="meeting-search" type="search" placeholder="Rechercher dans toutes les transcriptions…" spellcheck="false" />
+          </div>
+          <ol id="search-results" class="search-results" hidden></ol>
+          <p id="search-empty" class="muted small" hidden>Aucun passage trouvé.</p>
           <div id="meeting-live" class="banner live" hidden>
             <span>
               <strong>● Enregistrement · <span id="meeting-elapsed">00:00</span></strong><br />
@@ -100,9 +127,9 @@
             </span>
           </div>
           <p class="muted small">
-            Le micro (« Moi ») et le son du PC (« Eux » : Teams, Zoom, Meet, Discord…) sont
-            transcrits sur ce PC pendant l'appel, avec le moteur choisi dans les réglages. Compte
-            rendu par le LLM à la fin. Raccourcis : <span id="meeting-shortcuts"></span>.
+            Réunion : le micro (« Moi ») et le son du PC (« Eux » : Teams, Zoom, Meet, Discord…)
+            sont transcrits sur ce PC pendant l'appel, avec le moteur choisi dans les réglages ;
+            compte rendu par le LLM à la fin. Raccourcis : <span id="meeting-shortcuts"></span>.
           </p>
           <div id="meeting-result" class="result" hidden></div>
 
@@ -126,6 +153,17 @@
                 <button id="meeting-audio-them" hidden>Audio « Eux » (.wav)</button>
                 <button id="meeting-retranscribe" hidden>Transcrire à nouveau</button>
                 <button id="meeting-delete" class="danger">Supprimer</button>
+              </div>
+              <div class="ask">
+                <div class="row">
+                  <input id="ask-question" type="text" placeholder="Poser une question (ex. qu'a-t-on décidé pour le budget ?)" spellcheck="false" />
+                  <select id="ask-scope" class="compact" aria-label="Portée de la question">
+                    <option value="one">Cet enregistrement</option>
+                    <option value="all">Tous</option>
+                  </select>
+                  <button id="ask-send">Demander</button>
+                </div>
+                <div id="ask-answer" class="result" hidden></div>
               </div>
               <div id="meeting-summary-block" hidden>
                 <h2>Compte rendu</h2>

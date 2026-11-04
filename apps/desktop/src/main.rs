@@ -5,6 +5,7 @@ mod annotate;
 mod app_settings;
 mod controller;
 mod costs;
+mod decode;
 mod export;
 mod feedback;
 mod history;
@@ -101,6 +102,10 @@ fn main() {
             meetings::offer_answer,
             meetings::start_meeting,
             meetings::stop_meeting,
+            meetings::start_conference,
+            meetings::import_recording,
+            meetings::search_meetings,
+            meetings::ask_meetings,
             meetings::rename_meeting,
             meetings::summarize_meeting,
             meetings::delete_meeting,
