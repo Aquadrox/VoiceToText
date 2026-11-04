@@ -1,11 +1,12 @@
 //! Historique des dictées : enregistrement après chaque dictée, lecture et
 //! effacement depuis la fenêtre principale.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::State;
-use vtt_core::config::Pricing;
+use vtt_core::config::{HistoryConfig, Pricing};
 use vtt_core::history::{Entry, History};
 use vtt_core::{AudioClip, Outcome, Target};
 
@@ -15,6 +16,25 @@ const SHOWN: usize = 500;
 /// Partagé entre le thread du pipeline (écriture) et la fenêtre (lecture).
 /// `None` si l'historique est désactivé dans config.toml.
 pub type HistoryStore = Arc<Mutex<Option<History>>>;
+
+/// Active, désactive ou change la taille de l'historique sans redémarrer.
+/// Désactiver ne supprime pas le fichier (comme au démarrage).
+pub fn reconfigure(store: &HistoryStore, file: &Path, old: &HistoryConfig, new: &HistoryConfig) {
+    if old == new {
+        return;
+    }
+    *store.lock().unwrap_or_else(|e| e.into_inner()) = new
+        .enabled
+        .then(|| History::open(file.to_path_buf(), new.max_entries));
+    log::info!(
+        "historique : {}",
+        if new.enabled {
+            "activé"
+        } else {
+            "désactivé"
+        }
+    );
+}
 
 pub fn record(
     store: &HistoryStore,

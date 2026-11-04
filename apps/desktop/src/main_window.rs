@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use vtt_core::usage::{Summary, Totals};
+use vtt_core::usage::{AppTotals, Summary, Totals};
 
 use crate::costs::{self, LedgerStore};
 use crate::settings::{self, SharedConfig};
@@ -59,10 +59,18 @@ pub struct DayView {
     totals: Totals,
 }
 
+/// Activité par application (nom de l'exécutable seulement).
+#[derive(Serialize)]
+pub struct AppsView {
+    month: Vec<AppTotals>,
+    total: Vec<AppTotals>,
+}
+
 #[derive(Serialize)]
 pub struct HomeView {
     summary: Summary,
     days: Vec<DayView>,
+    apps: AppsView,
     currency: String,
 }
 
@@ -74,6 +82,10 @@ pub fn home_view(ledger: State<'_, LedgerStore>, config: State<'_, SharedConfig>
             .into_iter()
             .map(|(day, totals)| DayView { day, totals })
             .collect(),
+        apps: {
+            let (month, total) = costs::apps(&ledger);
+            AppsView { month, total }
+        },
         currency: settings::read(&config).llm.pricing.currency.clone(),
     }
 }

@@ -909,11 +909,17 @@ fn record(
         raw_paste::remember(&recorders.last_raw, raw);
     }
     if let Some(usage) = usage {
-        costs::record(&recorders.ledger, usage, pricing);
+        costs::record(&recorders.ledger, target.app.as_deref(), usage, pricing);
     }
     if stats {
         let words = raw.split_whitespace().count() as u64;
-        costs::record_dictation(&recorders.ledger, words, job.clip.duration_ms(), *command);
+        costs::record_dictation(
+            &recorders.ledger,
+            target.app.as_deref(),
+            words,
+            job.clip.duration_ms(),
+            *command,
+        );
     }
     history::record(&recorders.history, &job.clip, target, outcome, pricing);
 }

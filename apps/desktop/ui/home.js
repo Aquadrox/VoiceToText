@@ -55,6 +55,9 @@ async function showHome() {
     `Aujourd'hui : ${integer.format(today.dictations)} dictée(s), ` +
     `${integer.format(today.words)} mots, ${formatCost(today.cost, view.currency)}.`;
   renderChart(view.days, view.currency);
+  lastApps = view.apps;
+  lastCurrency = view.currency;
+  renderApps(view.currency);
 }
 
 function renderChart(days, currency) {
@@ -110,6 +113,133 @@ function renderChart(days, currency) {
     return row;
   });
   $("home-table").tBodies[0].replaceChildren(...rows);
+}
+
+/* ---------- Par application ---------- */
+
+/** Applications affichées ; les suivantes sont regroupées dans « Autres ». */
+const APPS_SHOWN = 8;
+/** Noms lisibles des programmes courants (sinon : nom de l'exécutable). */
+const APP_LABELS = {
+  "chrome.exe": "Chrome",
+  "msedge.exe": "Edge",
+  "firefox.exe": "Firefox",
+  "brave.exe": "Brave",
+  "opera.exe": "Opera",
+  "code.exe": "VS Code",
+  "cursor.exe": "Cursor",
+  "slack.exe": "Slack",
+  "discord.exe": "Discord",
+  "teams.exe": "Teams",
+  "ms-teams.exe": "Teams",
+  "outlook.exe": "Outlook",
+  "olk.exe": "Outlook",
+  "thunderbird.exe": "Thunderbird",
+  "winword.exe": "Word",
+  "excel.exe": "Excel",
+  "powerpnt.exe": "PowerPoint",
+  "onenote.exe": "OneNote",
+  "notepad.exe": "Bloc-notes",
+  "notepad++.exe": "Notepad++",
+  "obsidian.exe": "Obsidian",
+  "notion.exe": "Notion",
+  "whatsapp.exe": "WhatsApp",
+  "telegram.exe": "Telegram",
+  "signal.exe": "Signal",
+  "windowsterminal.exe": "Terminal",
+  "explorer.exe": "Explorateur",
+  "claude.exe": "Claude",
+  "chatgpt.exe": "ChatGPT",
+};
+let lastApps = null;
+let appsPeriod = "month";
+
+function appCell(app) {
+  const cell = document.createElement("th");
+  cell.className = "app-name";
+  cell.title = app;
+  const label = APP_LABELS[app];
+  cell.textContent = label ?? app.replace(/\.exe$/, "");
+  if (label) {
+    const exe = document.createElement("small");
+    exe.textContent = app;
+    cell.append(exe);
+  }
+  return cell;
+}
+
+function textCell(text) {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  return cell;
+}
+
+function shareCell(words, total) {
+  const ratio = total > 0 ? words / total : 0;
+  const cell = document.createElement("td");
+  cell.className = "share";
+  const bar = document.createElement("div");
+  bar.className = "share-bar";
+  const track = document.createElement("span");
+  track.className = "track";
+  const fill = document.createElement("span");
+  fill.className = "fill";
+  fill.style.width = `${ratio * 100}%`;
+  track.append(fill);
+  const pct = document.createElement("span");
+  pct.className = "pct";
+  const digits = ratio < 0.1 ? 1 : 0;
+  pct.textContent = new Intl.NumberFormat("fr-FR", {
+    style: "percent",
+    maximumFractionDigits: digits,
+  }).format(ratio);
+  bar.append(track, pct);
+  cell.append(bar);
+  return cell;
+}
+
+function renderApps(currency) {
+  if (!lastApps) return;
+  const apps = lastApps[appsPeriod];
+  const shown = apps.slice(0, APPS_SHOWN);
+  const rest = apps.slice(APPS_SHOWN);
+  const totalWords = apps.reduce((sum, a) => sum + a.totals.words, 0);
+  if (rest.length) {
+    const others = { words: 0, dictations: 0, cost: 0 };
+    for (const { totals } of rest) {
+      others.words += totals.words;
+      others.dictations += totals.dictations;
+      others.cost += totals.cost;
+    }
+    shown.push({ app: null, count: rest.length, totals: others });
+  }
+  const rows = shown.map(({ app, count, totals }) => {
+    const row = document.createElement("tr");
+    const name = app ? appCell(app) : document.createElement("th");
+    if (!app) name.textContent = `Autres (${count})`;
+    row.append(
+      name,
+      textCell(integer.format(totals.words)),
+      shareCell(totals.words, totalWords),
+      textCell(integer.format(totals.dictations)),
+      textCell(formatCost(totals.cost, currency)),
+    );
+    return row;
+  });
+  $("home-apps").tBodies[0].replaceChildren(...rows);
+  $("home-apps").hidden = rows.length === 0;
+  $("home-apps-empty").hidden = rows.length > 0;
+}
+
+let lastCurrency = "USD";
+for (const button of document.querySelectorAll("[data-apps-period]")) {
+  button.addEventListener("click", () => {
+    appsPeriod = button.dataset.appsPeriod;
+    for (const other of document.querySelectorAll("[data-apps-period]")) {
+      other.setAttribute("aria-pressed", String(other === button));
+    }
+    renderApps(lastCurrency);
+  });
 }
 
 registerPage("accueil", { show: showHome });

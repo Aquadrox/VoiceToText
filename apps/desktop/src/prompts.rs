@@ -145,7 +145,7 @@ pub fn test_prompt(
     match result {
         Ok(cleaned) => {
             if let Some(usage) = &cleaned.usage {
-                costs::record(&ledger, usage, &llm.pricing);
+                costs::record(&ledger, None, usage, &llm.pricing);
             }
             test.cost = cleaned.usage.map(|u| llm.pricing.cost(&u));
             test.usage = cleaned.usage;

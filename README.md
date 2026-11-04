@@ -146,6 +146,8 @@ Icône → **Ouvrir VoiceToText** (ou **Historique…**, **Réglages…** pour a
 
 Mots dictés, temps gagné (comparé à une frappe à 40 mots/min), vitesse de parole, coût LLM du mois, et un graphique des mots dictés par jour sur 30 jours (détail au survol, tableau des valeurs dans « Voir les données »). Un bandeau signale les nouvelles versions.
 
+**Par application** : mots, part des mots, dictées et coût pour chaque programme où vous dictez (Slack, Chrome, VS Code…), ce mois-ci ou depuis le début. Seul le nom du programme est compté (`slack.exe`), jamais le titre de la fenêtre ; comptage à partir de la version 0.10.
+
 ### Historique
 
 Les 1 000 dernières dictées : date, durée, application de destination, **coût de chaque dictée** (jetons au survol), texte final, transcription brute (ou consigne pour une commande). Recherche, copie, effacement complet (deux clics). Badges : *commande*, *snippet*, *non nettoyé*, *traduit*, *secours*.
@@ -182,10 +184,17 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 - **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
+- **Exporter / importer les réglages** : voir ci-dessous.
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
-- **Clé API** (pour l'adresse saisie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
+- **Clé API** (pour l'adresse saisie), **Clés API enregistrées** (une par fournisseur : remplacer, supprimer ; les clés ne sont jamais affichées, ni en entier ni en partie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
 
 Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, micro, modèle Whisper, mémoire graphique, options de dictée et mises à jour. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent aussi immédiatement.
+
+#### Exporter / importer les réglages
+
+**Exporter…** enregistre dans un fichier `.toml` la configuration, les prompts, les profils LLM, le dictionnaire, les snippets et les styles : pour un autre PC ou une sauvegarde. **Les clés API ne sont jamais exportées** (elles restent dans le Gestionnaire d'identifiants de ce PC) ; par précaution, un paramètre avancé qui ressemble à un secret (`api_key`, `token`, `Authorization`…) est aussi retiré du fichier, et signalé.
+
+**Importer…** vérifie le fichier comme si chaque réglage avait été saisi à la main, garde les réglages actuels dans `config.avant-import.toml`, puis applique tout sans redémarrer. Sur un nouveau PC, saisissez ensuite la clé API.
 
 Modèles Whisper proposés :
 
@@ -263,7 +272,8 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Texte sélectionné (Command Mode) | Envoyé au fournisseur LLM avec la consigne |
 | Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`), jamais en clair sur le disque |
 | Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
-| Statistiques et coût | `usage.json` : compteurs uniquement, **aucun texte** |
+| Statistiques et coût | `usage.json` et `usage-apps.json` : compteurs uniquement (par application : le nom du programme), **aucun texte** |
+| Export des réglages | Fichier `.toml` où vous le choisissez ; **jamais de clé API** |
 | Journal | Durées, tailles, erreurs ; **jamais le texte dicté** |
 | Titre de la fenêtre active | Sert à choisir un style ; ni stocké, ni journalisé, ni envoyé |
 | Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
@@ -275,7 +285,8 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Configuration | `%APPDATA%\VoiceToText\config.toml` |
 | Modèles Whisper | `%LOCALAPPDATA%\VoiceToText\models\` |
 | Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
-| Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json` |
+| Statistiques et coût | `%LOCALAPPDATA%\VoiceToText\usage.json`, `usage-apps.json` |
+| Réglages remplacés par un import | `%APPDATA%\VoiceToText\config.avant-import.toml` |
 | Journal | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé au-delà de 3 Mo, les 100 dernières lignes sont gardées) |
 
 Menu de l'icône : **Modifier la configuration** (ouvre config.toml), **Ouvrir les journaux**, **Redémarrer**.

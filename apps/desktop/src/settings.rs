@@ -25,6 +25,8 @@ pub fn read(config: &SharedConfig) -> RwLockReadGuard<'_, Config> {
 /// Secret historique (DeepSeek) dans le Gestionnaire d'identifiants :
 /// `VoiceToText/llm-api-key`.
 const LEGACY_API_KEY_SECRET: &str = "llm-api-key";
+/// Fournisseur de la clé historique.
+const LEGACY_API_KEY_HOST: &str = "api.deepseek.com";
 
 /// Champs gérés par l'application : `extra_body` ne doit pas les remplacer.
 const RESERVED_FIELDS: &[&str] = &["model", "messages", "stream"];
@@ -34,17 +36,44 @@ const SAMPLE: &str =
 
 /// Une clé par fournisseur (`VoiceToText/llm-api-key/api.z.ai`…) : changer de
 /// fournisseur ne fait pas perdre la clé du précédent. DeepSeek garde le nom
-/// historique.
-fn secret_name(llm: &LlmConfig) -> String {
-    match llm.host() {
-        None | Some("api.deepseek.com") => LEGACY_API_KEY_SECRET.into(),
-        Some(host) => format!("{LEGACY_API_KEY_SECRET}/{host}"),
+/// historique. Adresse sans hôte valide : aucune clé (jamais celle d'un
+/// autre fournisseur).
+fn secret_name(llm: &LlmConfig) -> Option<String> {
+    llm.host().map(secret_for_host)
+}
+
+fn secret_for_host(host: &str) -> String {
+    if host == LEGACY_API_KEY_HOST {
+        LEGACY_API_KEY_SECRET.into()
+    } else {
+        format!("{LEGACY_API_KEY_SECRET}/{host}")
     }
+}
+
+/// Fournisseur d'un secret de clé API (`None` : autre secret).
+fn host_of_secret(name: &str) -> Option<&str> {
+    match name.strip_prefix(LEGACY_API_KEY_SECRET)? {
+        "" => Some(LEGACY_API_KEY_HOST),
+        rest => rest.strip_prefix('/').filter(|host| !host.is_empty()),
+    }
+}
+
+/// Fournisseurs ayant une clé enregistrée, triés. Seuls les noms des
+/// secrets sont lus, jamais les clés.
+fn hosts_with_key() -> Vec<String> {
+    let mut hosts: Vec<String> = vtt_platform::list_secrets(LEGACY_API_KEY_SECRET)
+        .iter()
+        .filter_map(|name| host_of_secret(name))
+        .map(str::to_owned)
+        .collect();
+    hosts.sort();
+    hosts.dedup();
+    hosts
 }
 
 pub fn api_key_provider(llm: &LlmConfig) -> ApiKeyProvider {
     let name = secret_name(llm);
-    Box::new(move || vtt_platform::load_secret(&name))
+    Box::new(move || name.as_deref().and_then(vtt_platform::load_secret))
 }
 
 /// Prompts choisis pour `llm` (`None` : prompt intégré).
@@ -98,7 +127,7 @@ pub fn build_cleaner(config: &Config) -> Option<Box<dyn PostProcessor>> {
 }
 
 /// Adresse normalisée, configuration valide, champs réservés protégés.
-fn check_llm(llm: &mut LlmConfig) -> Result<(), String> {
+pub fn check_llm(llm: &mut LlmConfig) -> Result<(), String> {
     llm.base_url = llm.normalized_base_url();
     llm.validate()?;
     if let Some(field) = RESERVED_FIELDS
@@ -170,7 +199,9 @@ pub fn key_status(base_url: String) -> KeyStatus {
     let llm = llm_for(&base_url);
     KeyStatus {
         host: llm.host().unwrap_or_default().to_owned(),
-        has_key: llm.host().is_some() && vtt_platform::load_secret(&secret_name(&llm)).is_some(),
+        has_key: secret_name(&llm)
+            .and_then(|name| vtt_platform::load_secret(&name))
+            .is_some(),
         optional: llm.is_local(),
         cleartext: llm.host().is_some() && !llm.may_send_key(),
     }
@@ -184,7 +215,7 @@ pub fn save_api_key(base_url: String, key: String) -> Result<(), String> {
     }
     let llm = llm_for(&base_url);
     let host = llm.host().ok_or("adresse de l'API invalide")?;
-    vtt_platform::store_secret(&secret_name(&llm), key)?;
+    vtt_platform::store_secret(&secret_for_host(host), key)?;
     log::info!("clé API enregistrée pour {host}");
     Ok(())
 }
@@ -192,8 +223,70 @@ pub fn save_api_key(base_url: String, key: String) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_api_key(base_url: String) -> Result<(), String> {
     let llm = llm_for(&base_url);
-    vtt_platform::delete_secret(&secret_name(&llm))?;
+    let Some(name) = secret_name(&llm) else {
+        return Ok(());
+    };
+    vtt_platform::delete_secret(&name)?;
     log::info!("clé API supprimée pour {}", llm.host().unwrap_or("?"));
+    Ok(())
+}
+
+/// Clé enregistrée pour un fournisseur. La clé elle-même n'est jamais
+/// renvoyée à l'interface, ni en entier ni en partie.
+#[derive(Serialize)]
+pub struct ApiKeyEntry {
+    host: String,
+    /// « Réglage actif » et noms des profils qui utilisent ce fournisseur.
+    used_by: Vec<String>,
+}
+
+#[tauri::command]
+pub fn api_keys(config: State<'_, SharedConfig>) -> Vec<ApiKeyEntry> {
+    let config = read(&config);
+    hosts_with_key()
+        .into_iter()
+        .map(|host| {
+            let active =
+                (config.llm.host() == Some(host.as_str())).then(|| "réglage actif".to_owned());
+            let profiles = config
+                .llm_profiles
+                .iter()
+                .filter(|p| p.llm.host() == Some(host.as_str()))
+                .map(|p| format!("profil « {} »", p.name));
+            ApiKeyEntry {
+                used_by: active.into_iter().chain(profiles).collect(),
+                host,
+            }
+        })
+        .collect()
+}
+
+/// Fournisseur de la liste des clés : seules les clés existantes peuvent
+/// être remplacées ou supprimées depuis cette liste.
+fn listed_host(host: &str) -> Result<String, String> {
+    hosts_with_key()
+        .into_iter()
+        .find(|h| h == host)
+        .ok_or_else(|| format!("aucune clé enregistrée pour {host}"))
+}
+
+#[tauri::command]
+pub fn replace_api_key(host: String, key: String) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("clé vide".into());
+    }
+    let host = listed_host(&host)?;
+    vtt_platform::store_secret(&secret_for_host(&host), key)?;
+    log::info!("clé API remplacée pour {host}");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn forget_api_key(host: String) -> Result<(), String> {
+    let host = listed_host(&host)?;
+    vtt_platform::delete_secret(&secret_for_host(&host))?;
+    log::info!("clé API supprimée pour {host}");
     Ok(())
 }
 
@@ -287,7 +380,7 @@ pub fn test_llm_settings(
     let key = key
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
-        .or_else(|| vtt_platform::load_secret(&secret_name(&llm)));
+        .or_else(|| secret_name(&llm).and_then(|name| vtt_platform::load_secret(&name)));
     let (dictionary, prompts) = {
         let config = read(&config);
         (config.dictionary.clone(), prompts_for(&config, &llm))
@@ -333,7 +426,7 @@ pub fn test_llm_settings(
     match result {
         Ok(cleaned) => {
             if let Some(usage) = &cleaned.usage {
-                costs::record(&ledger, usage, &llm.pricing);
+                costs::record(&ledger, None, usage, &llm.pricing);
             }
             diagnostic.cost = cleaned.usage.map(|u| llm.pricing.cost(&u));
             diagnostic.usage = cleaned.usage;
@@ -373,15 +466,33 @@ mod tests {
 
     #[test]
     fn deepseek_keeps_legacy_secret_others_get_their_own() {
-        assert_eq!(secret_name(&llm("https://api.deepseek.com")), "llm-api-key");
         assert_eq!(
-            secret_name(&llm("https://api.z.ai/api/paas/v4")),
-            "llm-api-key/api.z.ai"
+            secret_name(&llm("https://api.deepseek.com")).as_deref(),
+            Some("llm-api-key")
+        );
+        // Adresse ambiguë : aucune clé, surtout pas celle de DeepSeek.
+        assert_eq!(
+            secret_name(&llm("https://api.deepseek.com:x@evil.example/v1")),
+            None
         );
         assert_eq!(
-            secret_name(&llm("http://localhost:11434/v1")),
-            "llm-api-key/localhost"
+            secret_name(&llm("https://api.z.ai/api/paas/v4")).as_deref(),
+            Some("llm-api-key/api.z.ai")
         );
+        assert_eq!(
+            secret_name(&llm("http://localhost:11434/v1")).as_deref(),
+            Some("llm-api-key/localhost")
+        );
+    }
+
+    #[test]
+    fn secret_names_map_back_to_their_host() {
+        for host in ["api.deepseek.com", "api.z.ai", "localhost"] {
+            assert_eq!(host_of_secret(&secret_for_host(host)), Some(host));
+        }
+        assert_eq!(host_of_secret("llm-api-key/"), None);
+        assert_eq!(host_of_secret("llm-api-keys"), None);
+        assert_eq!(host_of_secret("autre"), None);
     }
 
     #[test]
