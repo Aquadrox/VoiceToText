@@ -20,7 +20,18 @@ async function showUpdateBanner() {
 $("update-install").addEventListener("click", async () => {
   $("update-install").disabled = true;
   $("update-text").textContent = "Téléchargement et vérification de la mise à jour…";
-  await invoke("install_update");
+  try {
+    await invoke("install_update");
+  } catch (e) {
+    $("update-text").textContent = String(e);
+    $("update-install").disabled = false;
+  }
+});
+
+window.__TAURI__.event.listen("update-progress", (event) => {
+  if ($("update-install").disabled && event.payload !== null && event.payload < 100) {
+    $("update-text").textContent = `Téléchargement de la mise à jour : ${event.payload} %`;
+  }
 });
 
 async function showHome() {

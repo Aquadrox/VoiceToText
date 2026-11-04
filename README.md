@@ -169,7 +169,7 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
 - **Clé API** (pour l'adresse saisie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
 
-Raccourcis, micro, modèle Whisper, options de dictée et mises à jour s'appliquent avec **Enregistrer et redémarrer** (quelques secondes). Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent immédiatement, sans redémarrer.
+Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, micro, modèle Whisper, mémoire graphique, options de dictée et mises à jour. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent aussi immédiatement.
 
 Modèles Whisper proposés :
 
@@ -181,7 +181,7 @@ Modèles Whisper proposés :
 | Large v3, 5 bits | 1,1 Go | Plus précis, plus lent |
 | Small, 8 bits | 264 Mo | PC sans carte graphique |
 
-Un nouveau modèle est téléchargé au redémarrage ; son empreinte SHA-256 est vérifiée.
+Un nouveau modèle est téléchargé dès **Appliquer** (progression dans la pastille), son empreinte SHA-256 est vérifiée, puis il remplace l'ancien. Les dictées continuent avec l'ancien modèle pendant le téléchargement.
 
 #### Libérer la mémoire graphique
 
@@ -232,7 +232,9 @@ VoiceToText vérifie les nouvelles versions une minute après le démarrage puis
 - une notification Windows l'annonce (une fois par version) ;
 - le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**.
 
-Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule. Menu de l'icône → **Rechercher une mise à jour** pour vérifier tout de suite.
+Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule.
+
+Pour vérifier tout de suite : **Réglages → Mises à jour → Vérifier les mises à jour**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
 
 Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer la 0.5 une fois à la main.
 
@@ -367,7 +369,7 @@ extra_body = {}
 | Mauvais micro | **Réglages → Micro**. |
 | Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
 | Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
-| Téléchargement du modèle échoué | Vérifier la connexion puis **Redémarrer** depuis le menu de l'icône (le téléchargement recommence). |
+| Téléchargement du modèle échoué | Vérifier la connexion puis cliquer **Appliquer** dans **Réglages** (le téléchargement recommence). |
 
 ## Développement
 

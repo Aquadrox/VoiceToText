@@ -11,7 +11,7 @@ use vtt_core::usage::{Summary, Usage};
 use vtt_core::{Config, PostProcessor, WithFallback};
 use vtt_llm::{ApiKeyProvider, LlmCleaner, Prompts};
 
-use crate::controller::{self, WorkerHandle};
+use crate::controller::ControllerState;
 use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
 
@@ -197,23 +197,15 @@ pub fn delete_api_key(base_url: String) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-pub struct Applied {
-    /// `false` : modèle encore en chargement, appliqué au prochain démarrage.
-    applied: bool,
-    /// Configuration enregistrée (adresse normalisée).
-    llm: LlmConfig,
-}
-
 /// Enregistre le fournisseur dans config.toml et l'applique tout de suite,
 /// sans redémarrer.
 #[tauri::command]
 pub fn apply_llm_settings(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
-    worker: State<'_, WorkerHandle>,
+    controller: State<'_, ControllerState>,
     mut llm: LlmConfig,
-) -> Result<Applied, String> {
+) -> Result<LlmConfig, String> {
     check_llm(&mut llm)?;
     let mut updated = load_for_update(&paths)?;
     updated.check_prompt_refs(&llm)?;
@@ -221,13 +213,14 @@ pub fn apply_llm_settings(
     updated.llm = llm.clone();
     paths.write_config(&updated)?;
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated.clone();
-    let applied = controller::reconfigure(&worker, &updated);
+    controller.apply(&updated);
     log::info!(
         "fournisseur LLM appliqué : {} via {}",
         llm.model,
         llm.base_url
     );
-    Ok(Applied { applied, llm })
+    // Adresse normalisée, pour l'affichage.
+    Ok(llm)
 }
 
 /// Remplace la liste des profils LLM enregistrés (le profil de secours en
@@ -236,7 +229,7 @@ pub fn apply_llm_settings(
 pub fn save_llm_profiles(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
-    worker: State<'_, WorkerHandle>,
+    controller: State<'_, ControllerState>,
     profiles: Vec<LlmProfile>,
 ) -> Result<Vec<LlmProfile>, String> {
     let profiles = config::clean_llm_profiles(&profiles)?;
@@ -248,7 +241,7 @@ pub fn save_llm_profiles(
     updated.llm_profiles = profiles.clone();
     paths.write_config(&updated)?;
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated.clone();
-    controller::reconfigure(&worker, &updated);
+    controller.apply(&updated);
     log::info!("{} profil(s) LLM enregistré(s)", profiles.len());
     Ok(profiles)
 }

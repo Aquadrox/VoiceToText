@@ -1,8 +1,5 @@
 //! Réglages généraux : raccourcis, micro, modèle Whisper, mises à jour,
-//! démarrage avec Windows.
-
-use std::thread;
-use std::time::Duration;
+//! démarrage avec Windows. Tout s'applique sans redémarrer.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -11,9 +8,13 @@ use vtt_core::config::{
     UpdatesConfig,
 };
 
+use crate::controller::ControllerState;
 use crate::model::{self, ModelChoice};
 use crate::paths::Paths;
 use crate::retry;
+use crate::settings::SharedConfig;
+use crate::shortcuts::Shortcuts;
+use crate::updates::{self, UpdatesState};
 
 #[derive(Serialize)]
 pub struct AppSettingsView {
@@ -50,19 +51,30 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
     })
 }
 
-/// Enregistre raccourcis, micro et modèle dans config.toml puis redémarre
-/// l'application (le hook clavier, le micro et le modèle sont pris au
-/// démarrage). Un nouveau modèle est téléchargé au redémarrage.
+#[derive(Serialize)]
+pub struct Applied {
+    /// Remarques à afficher : raccourci indisponible, modèle en téléchargement.
+    notes: Vec<String>,
+}
+
+/// Enregistre raccourcis, micro, modèle, sons… dans config.toml et les
+/// applique tout de suite : le raccourci de dictée et le micro à la fin de la
+/// dictée en cours, un nouveau modèle dès qu'il est téléchargé et chargé.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn save_app_settings(
     app: AppHandle,
     paths: State<'_, Paths>,
+    shared: State<'_, SharedConfig>,
+    controller: State<'_, ControllerState>,
+    shortcuts: State<'_, Shortcuts>,
+    update_checks: State<'_, UpdatesState>,
     hotkey: HotkeyConfig,
     audio: AudioConfig,
     asr: AsrConfig,
     updates: UpdatesConfig,
     dictation: DictationConfig,
-) -> Result<(), String> {
+) -> Result<Applied, String> {
     hotkey.validate()?;
     retry::validate_shortcut(&hotkey.paste_raw, "coller la version brute", "Alt+Shift+V")?;
     retry::validate_shortcut(&hotkey.retry, "réessayer", "Alt+Shift+R")?;
@@ -88,12 +100,19 @@ pub fn save_app_settings(
     config.updates = updates;
     config.dictation = dictation;
     paths.write_config(&config)?;
-    log::info!("réglages généraux enregistrés, redémarrage");
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(300));
-        app.restart();
-    });
-    Ok(())
+    *shared.write().unwrap_or_else(|e| e.into_inner()) = config.clone();
+    controller.apply(&config);
+    let mut notes = shortcuts.apply(&app, &config.hotkey);
+    updates::set_auto(&app, &update_checks, config.updates.check);
+    if model::local(&paths.models_dir, &config.asr.model).is_none() {
+        notes.push(
+            "Téléchargement du nouveau modèle (progression dans la pastille) : les dictées \
+             continuent avec l'ancien en attendant."
+                .into(),
+        );
+    }
+    log::info!("réglages généraux appliqués");
+    Ok(Applied { notes })
 }
 
 fn unload_choices(current: u32) -> Vec<u32> {

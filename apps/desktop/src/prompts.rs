@@ -10,7 +10,7 @@ use vtt_core::config::{self, PromptKind, PromptPreset};
 use vtt_core::usage::Usage;
 use vtt_llm::{DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, LlmCleaner, Prompts};
 
-use crate::controller::{self, WorkerHandle};
+use crate::controller::ControllerState;
 use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
 use crate::settings::{self, SharedConfig};
@@ -54,11 +54,11 @@ pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
 pub fn save_prompts(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
-    worker: State<'_, WorkerHandle>,
+    controller: State<'_, ControllerState>,
     prompts: Vec<PromptPreset>,
     cleanup_active: String,
     command_active: String,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
         return Err(format!(
@@ -70,10 +70,10 @@ pub fn save_prompts(
     updated.llm.command_prompt = command_active.trim().to_owned();
     updated.check_prompt_refs(&updated.llm)?;
     paths.write_config(&updated)?;
-    let applied = controller::reconfigure(&worker, &updated);
+    controller.apply(&updated);
     log::info!("{} prompt(s) enregistré(s)", updated.prompts.len());
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated;
-    Ok(applied)
+    Ok(())
 }
 
 #[derive(Serialize)]

@@ -14,6 +14,7 @@ mod prompts;
 mod raw_paste;
 mod retry;
 mod settings;
+mod shortcuts;
 mod status;
 mod tray;
 mod updates;
@@ -25,12 +26,13 @@ use tauri::{Manager, PhysicalPosition, WebviewWindow};
 use vtt_core::history::History;
 use vtt_core::usage::Ledger;
 
-use crate::controller::{Recorders, WorkerHandle};
+use crate::controller::{Controller, Recorders, WorkerHandle};
 use crate::costs::LedgerStore;
 use crate::history::HistoryStore;
 use crate::paths::Paths;
 use crate::raw_paste::LastRaw;
 use crate::settings::SharedConfig;
+use crate::shortcuts::Shortcuts;
 use crate::status::{Status, StatusReporter};
 use crate::updates::Updates;
 
@@ -74,6 +76,7 @@ fn main() {
             app_settings::save_app_settings,
             app_settings::set_autostart,
             updates::update_status,
+            updates::check_update,
             updates::install_update,
         ])
         .setup(move |app| {
@@ -103,19 +106,20 @@ fn main() {
                 Some(e) => reporter.set(Status::Error(e)),
                 None => reporter.set(Status::Loading("Démarrage…".into())),
             }
-            raw_paste::register(app, &config.hotkey.paste_raw, Arc::clone(&last_raw));
-            retry::register(app, &config.hotkey.retry, Arc::clone(&worker));
+            let shortcuts = Shortcuts::new(Arc::clone(&last_raw), Arc::clone(&worker));
+            shortcuts.apply(app.handle(), &config.hotkey);
+            app.manage(shortcuts);
             let recorders = Recorders {
                 history,
                 ledger,
                 last_raw,
             };
-            let updates = Updates::new(app.handle(), tray_items.update);
+            let updates = Updates::new(app.handle(), tray_items.update, config.updates.check);
             app.manage(Arc::clone(&updates));
-            if config.updates.check {
-                updates::spawn_checks(app.handle().clone(), updates);
-            }
-            controller::spawn(reporter, recorders, worker, config, paths);
+            updates::spawn_checks(app.handle().clone(), updates);
+            let controller = Controller::new(reporter, recorders, worker, paths);
+            controller.start(config);
+            app.manage(controller);
             Ok(())
         })
         .run(tauri::generate_context!())

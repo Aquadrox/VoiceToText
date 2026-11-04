@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tauri::App;
+use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use vtt_core::TextSink;
 use vtt_platform::ClipboardPaster;
@@ -29,11 +29,12 @@ fn take_copy(last: &LastRaw) -> Option<String> {
 }
 
 /// Enregistre le raccourci ; un raccourci vide le désactive. Un échec (déjà
-/// pris par une autre application, nom invalide) est journalisé, pas fatal.
-pub fn register(app: &App, shortcut: &str, last: LastRaw) {
+/// pris par une autre application, nom invalide) n'est pas fatal : il est
+/// journalisé et renvoyé pour les réglages.
+pub fn register(app: &AppHandle, shortcut: &str, last: LastRaw) -> Result<(), String> {
     let shortcut = shortcut.trim();
     if shortcut.is_empty() {
-        return;
+        return Ok(());
     }
     let registered = app
         .global_shortcut()
@@ -44,8 +45,16 @@ pub fn register(app: &App, shortcut: &str, last: LastRaw) {
             }
         });
     match registered {
-        Ok(()) => log::info!("coller la version brute : {shortcut}"),
-        Err(e) => log::warn!("raccourci « {shortcut} » indisponible : {e}"),
+        Ok(()) => {
+            log::info!("coller la version brute : {shortcut}");
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("raccourci « {shortcut} » indisponible : {e}");
+            Err(format!(
+                "raccourci « {shortcut} » indisponible (déjà pris par une autre application ?)"
+            ))
+        }
     }
 }
 

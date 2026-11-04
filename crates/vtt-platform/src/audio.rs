@@ -16,6 +16,8 @@ use vtt_core::{AudioClip, SAMPLE_RATE, audio};
 enum Command {
     Start(Sender<Result<(), String>>),
     Stop(Sender<AudioClip>),
+    /// Micro à utiliser à partir du prochain enregistrement.
+    SetDevice(Option<String>),
 }
 
 /// Pilote le thread audio ; clonable et utilisable depuis n'importe quel thread.
@@ -64,6 +66,11 @@ impl Recorder {
         }
         response.recv().unwrap_or_default()
     }
+
+    /// Change de micro ; pris en compte au prochain enregistrement.
+    pub fn set_device(&self, device: Option<String>) {
+        let _ = self.tx.send(Command::SetDevice(device));
+    }
 }
 
 struct Active {
@@ -81,7 +88,7 @@ pub fn input_devices() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn run(rx: Receiver<Command>, device: Option<String>, level: Arc<AtomicU32>) {
+fn run(rx: Receiver<Command>, mut device: Option<String>, level: Arc<AtomicU32>) {
     let mut active: Option<Active> = None;
     for command in rx {
         match command {
@@ -98,6 +105,7 @@ fn run(rx: Receiver<Command>, device: Option<String>, level: Arc<AtomicU32>) {
                 level.store(0f32.to_bits(), Ordering::Relaxed);
                 let _ = reply.send(clip);
             }
+            Command::SetDevice(name) => device = name,
         }
     }
 }
