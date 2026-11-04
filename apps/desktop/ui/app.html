@@ -201,6 +201,16 @@
                 <input id="asr-gpu" type="checkbox" />
                 Utiliser la carte graphique (beaucoup plus rapide)
               </label>
+              <label for="asr-unload">Libérer la mémoire graphique sans dictée depuis</label>
+              <select id="asr-unload"></select>
+              <label class="inline">
+                <input id="asr-fullscreen" type="checkbox" />
+                Libérer la mémoire graphique pendant les jeux et vidéos en plein écran
+              </label>
+              <p class="muted small">
+                Le modèle est rechargé dès le début de la dictée suivante, pendant que vous parlez
+                (une à deux secondes de plus sur cette dictée seulement).
+              </p>
             </section>
 
             <section>
@@ -271,6 +281,13 @@
                   <input id="timeout" type="number" min="0.5" max="60" step="0.5" required />
                 </div>
               </div>
+
+              <label for="fallback">Profil de secours</label>
+              <select id="fallback"></select>
+              <p class="muted small">
+                Essayé si ce fournisseur échoue (panne, délai dépassé, clé refusée), avant de
+                coller le texte brut. Ex. un Ollama du réseau local en secours de DeepSeek.
+              </p>
 
               <label>Tarif par million de jetons</label>
               <div class="grid four">

@@ -140,8 +140,8 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 ### Réglages
 
-- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », appui minimal, mains libres.
-- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique.
+- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », « réessayer », appui minimal, mains libres.
+- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), modèle Whisper, carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Mises à jour** : vérification automatique.
 - **Démarrage** : lancement à l'ouverture de session.
 - **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
@@ -161,6 +161,15 @@ Modèles Whisper proposés :
 
 Un nouveau modèle est téléchargé au redémarrage ; son empreinte SHA-256 est vérifiée.
 
+#### Libérer la mémoire graphique
+
+Le modèle Whisper occupe en permanence de la mémoire graphique (environ 1 à 1,5 Go avec le modèle recommandé). Pour la rendre aux jeux ou à d'autres logiciels :
+
+- **Libérer la mémoire graphique sans dictée depuis** 5, 15, 30 ou 60 minutes (par défaut : jamais) ;
+- **pendant les jeux et vidéos en plein écran** (une minute après la dernière dictée, pour ne pas recharger à chaque message dicté en jeu).
+
+Le modèle est rechargé **dès que vous commencez à dicter**, pendant que vous parlez : seule cette dictée prend une à deux secondes de plus. Le journal indique « modèle déchargé » et le temps de rechargement.
+
 ## Nettoyage du texte (LLM)
 
 Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitations (« euh », « du coup »), applique les auto-corrections (« mardi, non, mercredi » → « mercredi »), corrige ponctuation et accords, met les énumérations en liste. Le texte dicté est traité comme une donnée : une phrase dictée comme « écris-moi un poème » est réécrite, pas exécutée.
@@ -175,6 +184,8 @@ Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitatio
 4. **Appliquer** : actif dès la dictée suivante, sans redémarrer.
 
 **Profils** : « Enregistrer comme profil » garde la configuration sous un nom (« DeepSeek », « Ollama du NAS »…) ; la liste **Profil** permet ensuite de passer de l'un à l'autre (choisir, puis **Appliquer**). Le profil actif est marqué *(actif)*.
+
+**Profil de secours** : si le fournisseur échoue (panne, délai dépassé, clé refusée, réponse vide), le texte est envoyé au profil choisi dans **Profil de secours** avant de se replier sur le texte brut. Exemple : DeepSeek en principal, l'Ollama du réseau local en secours. Le Command Mode en profite aussi. L'historique marque ces dictées *secours : nom du profil* et leur coût suit le tarif du profil de secours. Le délai total peut atteindre la somme des deux délais.
 
 Adresses : l'application ajoute elle-même `/chat/completions` (s'il a été recopié, il est retiré). Pour **Ollama** ou **LM Studio**, l'adresse se termine par `/v1` : `http://localhost:11434/v1` sur ce PC, `http://192.168.1.20:11434/v1` sur une autre machine du réseau (Ollama lancé avec `OLLAMA_HOST=0.0.0.0`).
 
@@ -255,12 +266,15 @@ device = ""          # nom du micro ; vide = micro par défaut de Windows
 model = "ggml-large-v3-turbo-q8_0.bin"
 language = "fr"
 use_gpu = true
+unload_after_min = 0          # libérer la mémoire graphique après N min sans dicter (0 = jamais)
+unload_in_fullscreen = false  # la libérer pendant les jeux et vidéos en plein écran
 
 [llm]
 enabled = true
 base_url = "https://api.deepseek.com"
 model = "deepseek-flash"
 timeout_ms = 3000    # au-delà, le texte brut est inséré (30 s minimum pour le Command Mode)
+fallback_profile = "Ollama du NAS"   # profil essayé si celui-ci échoue ("" ou absent = aucun)
 
 # Tarif par million de jetons, pour le coût estimé.
 [llm.pricing]

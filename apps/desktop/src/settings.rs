@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::State;
 use vtt_core::config::{self, LlmConfig, LlmProfile, PromptKind};
 use vtt_core::usage::{Summary, Usage};
-use vtt_core::{Config, PostProcessor};
+use vtt_core::{Config, PostProcessor, WithFallback};
 use vtt_llm::{ApiKeyProvider, LlmCleaner, Prompts};
 
 use crate::controller::{self, WorkerHandle};
@@ -56,16 +56,45 @@ pub fn prompts_for(config: &Config, llm: &LlmConfig) -> Prompts {
     }
 }
 
-/// Nettoyage construit d'après la configuration (`None` : désactivé).
+fn cleaner_for(config: &Config, llm: &LlmConfig) -> Box<dyn PostProcessor> {
+    Box::new(LlmCleaner::new(
+        llm,
+        &config.dictionary,
+        &prompts_for(config, llm),
+        api_key_provider(llm),
+    ))
+}
+
+/// Nettoyage construit d'après la configuration (`None` : désactivé), doublé
+/// du profil de secours s'il y en a un.
 pub fn build_cleaner(config: &Config) -> Option<Box<dyn PostProcessor>> {
-    config.llm.enabled.then(|| {
-        Box::new(LlmCleaner::new(
-            &config.llm,
-            &config.dictionary,
-            &prompts_for(config, &config.llm),
-            api_key_provider(&config.llm),
-        )) as Box<dyn PostProcessor>
-    })
+    if !config.llm.enabled {
+        return None;
+    }
+    let primary = cleaner_for(config, &config.llm);
+    let fallback_name = config.llm.fallback_profile.trim();
+    if fallback_name.is_empty() {
+        return Some(primary);
+    }
+    match config.fallback_for(&config.llm) {
+        Some(profile) => {
+            log::info!(
+                "profil de secours : « {} » ({} via {})",
+                profile.name,
+                profile.llm.model,
+                profile.llm.base_url
+            );
+            Some(Box::new(WithFallback::new(
+                primary,
+                cleaner_for(config, &profile.llm),
+                profile.name.clone(),
+            )))
+        }
+        None => {
+            log::warn!("profil de secours « {fallback_name} » inutilisable : ignoré");
+            Some(primary)
+        }
+    }
 }
 
 /// Adresse normalisée, configuration valide, champs réservés protégés.
@@ -188,6 +217,7 @@ pub fn apply_llm_settings(
     check_llm(&mut llm)?;
     let mut updated = load_for_update(&paths)?;
     updated.check_prompt_refs(&llm)?;
+    updated.check_fallback_ref(&llm)?;
     updated.llm = llm.clone();
     paths.write_config(&updated)?;
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated.clone();
@@ -200,11 +230,13 @@ pub fn apply_llm_settings(
     Ok(Applied { applied, llm })
 }
 
-/// Remplace la liste des profils LLM enregistrés.
+/// Remplace la liste des profils LLM enregistrés (le profil de secours en
+/// fait partie : le nettoyage est reconstruit).
 #[tauri::command]
 pub fn save_llm_profiles(
     paths: State<'_, Paths>,
     config: State<'_, SharedConfig>,
+    worker: State<'_, WorkerHandle>,
     profiles: Vec<LlmProfile>,
 ) -> Result<Vec<LlmProfile>, String> {
     let profiles = config::clean_llm_profiles(&profiles)?;
@@ -215,10 +247,8 @@ pub fn save_llm_profiles(
     let mut updated = load_for_update(&paths)?;
     updated.llm_profiles = profiles.clone();
     paths.write_config(&updated)?;
-    config
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .llm_profiles = profiles.clone();
+    *config.write().unwrap_or_else(|e| e.into_inner()) = updated.clone();
+    controller::reconfigure(&worker, &updated);
     log::info!("{} profil(s) LLM enregistré(s)", profiles.len());
     Ok(profiles)
 }

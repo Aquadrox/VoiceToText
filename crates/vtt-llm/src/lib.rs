@@ -210,6 +210,7 @@ impl PostProcessor for LlmCleaner {
         Ok(Cleaned {
             text: accept(raw, &content)?,
             usage,
+            fallback: None,
         })
     }
 
@@ -219,6 +220,7 @@ impl PostProcessor for LlmCleaner {
         Ok(Cleaned {
             text: strip_wrappers(&content).to_owned(),
             usage,
+            fallback: None,
         })
     }
 }

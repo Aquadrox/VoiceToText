@@ -50,6 +50,11 @@ function fillGeneral(view) {
   );
   $("asr-model").value = view.asr.model;
   $("asr-gpu").checked = view.asr.use_gpu;
+  $("asr-unload").replaceChildren(
+    ...view.unload_choices.map((min) => option(String(min), min === 0 ? "Jamais" : `${min} min`)),
+  );
+  $("asr-unload").value = String(view.asr.unload_after_min);
+  $("asr-fullscreen").checked = view.asr.unload_in_fullscreen;
   $("updates-check").checked = view.updates.check;
 }
 
@@ -89,7 +94,12 @@ $("general-form").addEventListener("submit", async (event) => {
         hands_free: $("hk-handsfree").checked,
       },
       audio: { device: $("audio-device").value },
-      asr: { model: $("asr-model").value, use_gpu: $("asr-gpu").checked },
+      asr: {
+        model: $("asr-model").value,
+        use_gpu: $("asr-gpu").checked,
+        unload_after_min: Number($("asr-unload").value),
+        unload_in_fullscreen: $("asr-fullscreen").checked,
+      },
       updates: { check: $("updates-check").checked },
     });
     showGeneralResult("Enregistré. Redémarrage de VoiceToText…");

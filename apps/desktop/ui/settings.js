@@ -101,6 +101,7 @@ function fillProvider(llm) {
   $("price-output").value = llm.pricing.output_per_million;
   $("currency").value = llm.pricing.currency;
   $("extra").value = formatExtra(llm.extra_body);
+  renderFallback(llm.fallback_profile ?? "");
   const preset = PRESETS.find((p) => p.base_url === llm.base_url) ?? PRESETS.at(-1);
   $("preset").value = preset.id;
   $("preset-note").textContent = preset.note;
@@ -122,6 +123,18 @@ function renderProfiles() {
   select.replaceChildren(...options);
   select.value = active ? active.name : "";
   $("profile-delete").disabled = !select.value;
+  renderFallback();
+}
+
+/** Liste des profils de secours possibles ; garde `selected` (ou la valeur affichée). */
+function renderFallback(selected = $("fallback").value) {
+  const options = [option("", "Aucun (texte brut si ce fournisseur échoue)")];
+  for (const profile of profiles) options.push(option(profile.name, profile.name));
+  if (selected && !profiles.some((p) => p.name === selected)) {
+    options.push(option(selected, `${selected} (profil supprimé)`));
+  }
+  $("fallback").replaceChildren(...options);
+  $("fallback").value = selected;
 }
 
 /** Profil sans son nom : la forme d'une configuration LLM. */
@@ -247,6 +260,7 @@ function readProvider() {
     },
     extra_body: extra,
     ...formPrompts,
+    fallback_profile: $("fallback").value,
   };
 }
 

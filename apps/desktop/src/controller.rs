@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use vtt_asr::WhisperTranscriber;
-use vtt_core::config::{Pricing, Snippet, Style};
+use vtt_core::config::{AsrConfig, Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target};
 use vtt_platform::audio::Recorder;
@@ -47,6 +47,46 @@ pub enum Work {
     Reconfigure(Reconfiguration),
     /// Retraiter l'audio de la dernière dictée (« Réessayer »).
     Retry(Delivery),
+    /// Une dictée commence : recharger le modèle s'il a été libéré, pendant
+    /// que l'utilisateur parle.
+    Preload,
+}
+
+/// Fréquence de vérification de la libération du modèle.
+const UNLOAD_CHECK: Duration = Duration::from_secs(15);
+/// En plein écran, le modèle reste chargé une minute après une dictée, pour
+/// ne pas le recharger à chaque message dicté dans un jeu.
+const FULLSCREEN_GRACE: Duration = Duration::from_secs(60);
+
+/// Quand libérer la mémoire graphique occupée par Whisper.
+#[derive(Debug, Clone, Copy, Default)]
+struct UnloadPolicy {
+    /// Après ce délai sans dicter.
+    idle: Option<Duration>,
+    /// Pendant qu'une application est en plein écran.
+    fullscreen: bool,
+}
+
+impl UnloadPolicy {
+    fn from_config(asr: &AsrConfig) -> Self {
+        Self {
+            idle: (asr.unload_after_min > 0)
+                .then(|| Duration::from_secs(u64::from(asr.unload_after_min) * 60)),
+            fullscreen: asr.unload_in_fullscreen,
+        }
+    }
+
+    /// Raison de libérer le modèle maintenant, `idle` étant le temps écoulé
+    /// depuis la dernière dictée. `fullscreen` n'est appelé que si besoin.
+    fn reason(&self, idle: Duration, fullscreen: impl FnOnce() -> bool) -> Option<&'static str> {
+        if self.idle.is_some_and(|after| idle >= after) {
+            Some("aucune dictée récente")
+        } else if self.fullscreen && idle >= FULLSCREEN_GRACE && fullscreen() {
+            Some("application en plein écran")
+        } else {
+            None
+        }
+    }
 }
 
 pub struct Reconfiguration {
@@ -56,8 +96,39 @@ pub struct Reconfiguration {
     /// Nettoyage reconstruit (nouveau fournisseur ou dictionnaire ; `None` :
     /// désactivé).
     pub post_processor: Option<Box<dyn PostProcessor>>,
-    /// Tarif du fournisseur, pour le coût des prochaines dictées.
-    pub pricing: Pricing,
+    /// Tarifs des fournisseurs, pour le coût des prochaines dictées.
+    pub tariffs: Tariffs,
+}
+
+/// Tarif du fournisseur principal et de celui du profil de secours.
+#[derive(Debug, Clone)]
+pub struct Tariffs {
+    main: Pricing,
+    fallback: Option<Pricing>,
+}
+
+impl Tariffs {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            main: config.llm.pricing.clone(),
+            fallback: config
+                .fallback_for(&config.llm)
+                .map(|p| p.llm.pricing.clone()),
+        }
+    }
+
+    /// Tarif du fournisseur qui a répondu.
+    fn for_outcome(&self, outcome: &Outcome) -> &Pricing {
+        match (outcome, &self.fallback) {
+            (
+                Outcome::Inserted {
+                    fallback: Some(_), ..
+                },
+                Some(fallback),
+            ) => fallback,
+            _ => &self.main,
+        }
+    }
 }
 
 /// Applique `config` (dictionnaire, snippets, styles, fournisseur LLM) au
@@ -73,7 +144,7 @@ pub fn reconfigure(worker: &WorkerHandle, config: &Config) -> bool {
                 snippets: config.snippets.clone(),
                 styles: config.styles.clone(),
                 post_processor: settings::build_cleaner(config),
-                pricing: config.llm.pricing.clone(),
+                tariffs: Tariffs::from_config(config),
             }))
             .is_ok()
     })
@@ -146,7 +217,8 @@ fn run(
     let clips = spawn_worker(
         pipeline,
         recorders,
-        config.llm.pricing.clone(),
+        Tariffs::from_config(config),
+        UnloadPolicy::from_config(&config.asr),
         config.hotkey.retry.trim().to_owned(),
         Arc::clone(reporter),
         Arc::clone(&recording),
@@ -244,6 +316,7 @@ impl Controls<'_> {
         match action {
             Some(Action::Start) => match self.recorder.start() {
                 Ok(()) => {
+                    let _ = self.clips.send(Work::Preload);
                     self.target = vtt_platform::foreground_target();
                     self.command = command;
                     self.recording.store(true, Ordering::SeqCst);
@@ -293,7 +366,8 @@ impl Controls<'_> {
 fn spawn_worker(
     mut pipeline: Pipeline,
     recorders: Recorders,
-    mut pricing: Pricing,
+    mut tariffs: Tariffs,
+    unload: UnloadPolicy,
     retry_shortcut: String,
     reporter: Arc<StatusReporter>,
     recording: Arc<AtomicBool>,
@@ -303,9 +377,35 @@ fn spawn_worker(
         .name("pipeline".into())
         .spawn(move || {
             let mut last: Option<Job> = None;
-            for work in rx {
+            let mut last_activity = Instant::now();
+            loop {
+                let work = match rx.recv_timeout(UNLOAD_CHECK) {
+                    Ok(work) => work,
+                    Err(RecvTimeoutError::Timeout) => {
+                        if !recording.load(Ordering::SeqCst)
+                            && let Some(reason) = unload.reason(
+                                last_activity.elapsed(),
+                                vtt_platform::fullscreen_app_running,
+                            )
+                            && pipeline.unload_model()
+                        {
+                            log::info!("modèle déchargé ({reason}) : mémoire graphique libérée");
+                        }
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                };
+                if !matches!(work, Work::Reconfigure(_)) {
+                    last_activity = Instant::now();
+                }
                 let (job, delivery) = match work {
                     Work::Dictation(job) => (job, None),
+                    Work::Preload => {
+                        if let Err(e) = pipeline.preload_model() {
+                            reporter.set(Status::Error(e.to_string()));
+                        }
+                        continue;
+                    }
                     Work::Retry(delivery) => match &last {
                         Some(job) => {
                             if !recording.load(Ordering::SeqCst) {
@@ -327,7 +427,7 @@ fn spawn_worker(
                             &r.styles,
                             r.post_processor,
                         );
-                        pricing = r.pricing;
+                        tariffs = r.tariffs;
                         log::info!(
                             "configuration appliquée : {} mot(s), {} snippet(s), {} style(s)",
                             r.dictionary.len(),
@@ -353,7 +453,8 @@ fn spawn_worker(
                         // Une dictée réessayée n'est comptée qu'une fois dans
                         // les statistiques ; son coût, lui, est bien réel.
                         let stats = delivery.is_none();
-                        record(&recorders, &job, &target, &outcome, &pricing, stats);
+                        let pricing = tariffs.for_outcome(&outcome);
+                        record(&recorders, &job, &target, &outcome, pricing, stats);
                         if delivery.is_some() && outcome == Outcome::Skipped {
                             reporter.set(Status::Error(
                                 "la dernière dictée ne contenait aucune parole".into(),
@@ -474,4 +575,50 @@ fn run_command(
     }
     let selection = vtt_platform::copy_selection();
     pipeline.run_command(clip, target, selection.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIN: Duration = Duration::from_secs(60);
+
+    fn policy(idle_min: u32, fullscreen: bool) -> UnloadPolicy {
+        UnloadPolicy::from_config(&AsrConfig {
+            unload_after_min: idle_min,
+            unload_in_fullscreen: fullscreen,
+            ..AsrConfig::default()
+        })
+    }
+
+    #[test]
+    fn never_unloads_by_default() {
+        let p = UnloadPolicy::from_config(&AsrConfig::default());
+        assert_eq!(p.reason(MIN * 600, || true), None);
+    }
+
+    #[test]
+    fn unloads_after_idle_delay() {
+        let p = policy(15, false);
+        assert_eq!(p.reason(MIN * 14, || true), None);
+        assert!(p.reason(MIN * 15, || false).is_some());
+    }
+
+    #[test]
+    fn unloads_in_fullscreen_after_grace() {
+        let p = policy(0, true);
+        assert_eq!(p.reason(MIN * 5, || false), None, "pas de plein écran");
+        assert_eq!(
+            p.reason(Duration::from_secs(20), || true),
+            None,
+            "dictée récente"
+        );
+        assert!(p.reason(MIN * 2, || true).is_some());
+    }
+
+    #[test]
+    fn fullscreen_is_not_queried_when_disabled() {
+        let p = policy(0, false);
+        assert_eq!(p.reason(MIN * 5, || panic!("appel inutile")), None);
+    }
 }

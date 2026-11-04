@@ -48,14 +48,14 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Pages Dictionnaire, Snippets et Styles (modèles Messagerie / E-mail / Code, ordre de priorité) : enregistrées dans config.toml et appliquées à chaud, sans recharger le modèle
 - ✅ Réglages complets : raccourcis (dictée, Command Mode, version brute, appui minimal, mains libres), micro, modèle Whisper (5 modèles vérifiés par SHA-256, téléchargés au redémarrage), carte graphique, démarrage avec Windows (clé Run de l'utilisateur)
 
-## v0.5 — Distribution et mises à jour 🚧
+## v0.5 — Distribution et mises à jour ✅
 
 - ✅ Hébergement des installeurs : dépôt public depuis le 03/11/2026, les Releases GitHub sont téléchargeables sans compte (plus besoin du VPS)
 - ✅ Vérification 1 min après le démarrage puis toutes les 6 h (`updates.check`) : notification Windows (une fois par version), entrée « Installer la version… » dans le menu de l'icône, bandeau sur l'accueil
 - ✅ Installation sur clic uniquement, via le module de mise à jour de Tauri : paquets **signés** (clé privée générée par le propriétaire, uniquement dans les secrets GitHub ; clé publique dans tauri.conf.json), signature et version signée vérifiées avant installation (protection contre le retour forcé à une ancienne version)
 - ✅ CI : installeur signé et manifeste `latest.json` publiés à chaque tag ; les PR ne touchent jamais aux secrets
 - ✅ Manuel d'utilisation complet dans le README
-- ⬜ Validation sur le PC : passage 0.5.0 → 0.5.1 par la mise à jour automatique
+- ✅ Validé sur le PC : mise à jour automatique (passage 0.5.0 → 0.5.1)
 
 ## v0.6 — Personnalisation du LLM ✅
 
@@ -67,11 +67,11 @@ Application façon Wispr Flow, remplace la fenêtre de réglages provisoire :
 - ✅ Clé API rattachée à l'adresse saisie dans le formulaire
 - ✅ Prompts système éditables (page Prompts) : nettoyage et Command Mode, prompt intégré en référence, copies modifiables, test sur exemple, prompt actif par profil LLM, appliqués à chaud
 
-## v0.7 — Fiabilité 🚧
+## v0.7 — Fiabilité ✅
 
-- 🚧 Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
-- ⬜ Libérer la mémoire graphique : décharger Whisper après X minutes sans dicter ou pendant un jeu en plein écran, recharger pendant la dictée suivante
-- ⬜ Profil LLM de secours : si le fournisseur principal échoue, essai d'un second profil avant le repli sur le texte brut
+- ✅ Rien n'est perdu : l'audio de la dernière dictée reste en mémoire ; « Réessayer » par raccourci (Alt+Maj+R, collé au curseur) ou depuis le menu de l'icône (copié) ; collage refusé → texte laissé dans le presse-papier
+- ✅ Libérer la mémoire graphique : Whisper déchargé après 5 à 60 min sans dicter (`asr.unload_after_min`) ou pendant un jeu / une vidéo en plein écran (`asr.unload_in_fullscreen`, après une minute sans dicter), rechargé dès le début de la dictée suivante, pendant que l'utilisateur parle
+- ✅ Profil LLM de secours (`llm.fallback_profile`) : si le fournisseur principal échoue ou répond vide, un second profil est essayé (nettoyage et Command Mode) avant le repli sur le texte brut ; coût au tarif du secours, dictée marquée dans l'historique
 
 ## v0.8 — Confort de dictée ⬜
 
