@@ -10,8 +10,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
 use parakeet_rs::ort::environment::Environment;
-use parakeet_rs::{ExecutionConfig, ParakeetTDT, Transcriber as _};
-use vtt_core::{AudioClip, Error, SAMPLE_RATE, Transcriber};
+use parakeet_rs::{ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber as _};
+use vtt_core::{AudioClip, Error, SAMPLE_RATE, Transcriber, Word};
 
 /// ONNX Runtime ne se charge qu'une fois par processus.
 static RUNTIME: OnceLock<Result<Environment, String>> = OnceLock::new();
@@ -106,5 +106,28 @@ impl Transcriber for ParakeetTranscriber {
             .transcribe_samples(clip.samples.clone(), SAMPLE_RATE, 1, None)
             .map_err(|e| Error::Asr(e.to_string()))?;
         Ok(result.text.trim().to_owned())
+    }
+
+    fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
+        let mut slot = self.lock();
+        let model = self.ensure_loaded(&mut slot)?;
+        let result = model
+            .transcribe_samples(
+                clip.samples.clone(),
+                SAMPLE_RATE,
+                1,
+                Some(TimestampMode::Words),
+            )
+            .map_err(|e| Error::Asr(e.to_string()))?;
+        Ok(result
+            .tokens
+            .into_iter()
+            .filter(|t| !t.text.trim().is_empty())
+            .map(|t| Word {
+                text: t.text.trim().to_owned(),
+                start_ms: (t.start.max(0.0) * 1000.0) as u64,
+                end_ms: (t.end.max(0.0) * 1000.0) as u64,
+            })
+            .collect())
     }
 }

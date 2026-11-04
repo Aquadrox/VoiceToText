@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use vtt_core::config::{AsrConfig, HotkeyConfig, Pricing, Snippet, Style};
 use vtt_core::hotkey::{Action, PushToTalk};
-use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink};
+use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink, Word};
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
 
@@ -69,6 +69,8 @@ pub enum Work {
     ModelReady,
     /// Des blocs de réunion attendent dans `Recorders::meeting_jobs`.
     MeetingWake,
+    /// Mots horodatés d'un clip (capture commentée), renvoyés par `reply`.
+    Transcribe(AudioClip, Sender<Result<Vec<Word>, String>>),
 }
 
 /// Fréquence de vérification de la libération du modèle.
@@ -788,6 +790,12 @@ impl Worker {
                     continue;
                 }
                 Work::MeetingWake => continue,
+                Work::Transcribe(clip, reply) => {
+                    last_activity = Instant::now();
+                    let words = self.pipeline.transcribe_words(&clip);
+                    let _ = reply.send(words.map_err(|e| e.to_string()));
+                    continue;
+                }
             };
             // Réessayée par le raccourci : collée là où se trouve le
             // curseur maintenant (le style suit cette fenêtre).

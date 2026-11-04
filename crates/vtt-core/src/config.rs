@@ -22,6 +22,7 @@ pub struct Config {
     pub dictation: DictationConfig,
     pub translation: TranslationConfig,
     pub meetings: MeetingsConfig,
+    pub captures: CapturesConfig,
     /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
     pub dictionary: Vec<String>,
     /// Suggestions pour le dictionnaire écartées par l'utilisateur.
@@ -59,6 +60,9 @@ pub struct HotkeyConfig {
     /// Raccourci qui colle les répliques de la réunion en cours dites depuis
     /// la dernière copie, ex. "Alt+Shift+N". Vide : désactivé.
     pub meeting_copy: String,
+    /// Capture commentée : appui pour démarrer ou arrêter, maintien pour
+    /// dessiner à l'écran, ex. "Alt+Shift+A". Vide : désactivé.
+    pub annotate: String,
 }
 
 impl Default for HotkeyConfig {
@@ -73,6 +77,7 @@ impl Default for HotkeyConfig {
             translate: "Alt+Shift+T".into(),
             meeting: "Alt+Shift+M".into(),
             meeting_copy: "Alt+Shift+N".into(),
+            annotate: "Alt+Shift+A".into(),
         }
     }
 }
@@ -139,6 +144,7 @@ impl HotkeyConfig {
             ("mode traduction", self.translate.trim()),
             ("réunion", self.meeting.trim()),
             ("copier les nouvelles répliques", self.meeting_copy.trim()),
+            ("capture commentée", self.annotate.trim()),
         ];
         for (i, (name, shortcut)) in shortcuts.iter().enumerate() {
             if let Some((other, _)) = shortcuts[i + 1..]
@@ -274,6 +280,32 @@ impl Default for MeetingsConfig {
         }
     }
 }
+
+/// Capture commentée : parler et dessiner sur l'écran, coller images et texte.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CapturesConfig {
+    /// Modèle de texte rédigé par le LLM (« explication », « bug »,
+    /// « consigne ») ou « brut » (narration seule).
+    pub template: String,
+    /// Captures gardées sur le disque ce nombre de jours ; 0 : jamais (seule
+    /// la dernière reste en mémoire).
+    pub keep_days: u32,
+}
+
+impl Default for CapturesConfig {
+    fn default() -> Self {
+        Self {
+            template: "explication".into(),
+            keep_days: 0,
+        }
+    }
+}
+
+/// Modèle « narration seule » (sans LLM).
+pub const CAPTURE_RAW_TEMPLATE: &str = "brut";
+/// Durées de conservation des captures proposées (jours ; 0 : pas gardées).
+pub const CAPTURE_KEEP_DAYS: &[u32] = &[0, 1, 7, 30];
 
 /// Durées de conservation proposées (jours ; 0 : toujours).
 pub const MEETING_KEEP_DAYS: &[u32] = &[0, 7, 30, 90, 365];

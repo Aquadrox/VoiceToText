@@ -339,6 +339,10 @@
                   <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N (vide : désactivé)" spellcheck="false" />
                 </div>
                 <div>
+                  <label for="hk-annotate">Capture commentée (appui : démarrer / arrêter ; maintien : dessiner)</label>
+                  <input id="hk-annotate" type="text" placeholder="Alt+Shift+A (vide : désactivé)" spellcheck="false" />
+                </div>
+                <div>
                   <label for="hk-hold">Appui minimal (ms)</label>
                   <input id="hk-hold" type="number" min="50" max="1000" step="10" required />
                 </div>
@@ -401,6 +405,24 @@
                 Raccourci ci-dessus (Alt+Maj+T) ou menu de l'icône → <strong>Mode traduction</strong> :
                 les dictées suivantes sont nettoyées puis traduites par le LLM. La pastille affiche la
                 langue pendant la dictée. Le mode reste actif jusqu'à ce que vous le coupiez.
+              </p>
+            </section>
+
+            <section>
+              <h2>Capture commentée</h2>
+              <p class="muted small">
+                Raccourci ci-dessus (Alt+Maj+A) : parlez en montrant l'écran ; tenez le raccourci
+                pour dessiner avec la souris. Un nouvel appui arrête : images des moments clés
+                (traits, « ici », « là »…) et texte collés dans l'application active.
+              </p>
+              <label for="capture-template">Texte rédigé par le LLM</label>
+              <select id="capture-template"></select>
+              <label for="capture-keep">Garder les captures sur le disque</label>
+              <select id="capture-keep"></select>
+              <p class="muted small">
+                Non gardées : seule la dernière reste en mémoire (menu de l'icône → Coller la
+                dernière capture commentée). Les captures d'écran ne quittent jamais le PC ; seul
+                le texte de la narration est envoyé au LLM.
               </p>
             </section>
 

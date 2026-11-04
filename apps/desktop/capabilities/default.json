@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Pastille d'état, fenêtre principale et proposition d'enregistrer un appel.",
+  "description": "Pastille d'état, fenêtre principale, proposition d'enregistrer un appel et encre de la capture commentée.",
   "windows": [
     "overlay",
     "main",
-    "offer"
+    "offer",
+    "ink"
   ],
   "permissions": [
     "core:default"

@@ -5,8 +5,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use vtt_core::Config;
 use vtt_core::config::{
-    AsrConfig, AudioConfig, DictationConfig, HOTKEY_NAMES, HotkeyConfig, TRANSLATION_LANGUAGES,
-    TranslationConfig, UNLOAD_AFTER_CHOICES, UpdatesConfig,
+    AsrConfig, AudioConfig, CAPTURE_KEEP_DAYS, CAPTURE_RAW_TEMPLATE, CapturesConfig,
+    DictationConfig, HOTKEY_NAMES, HotkeyConfig, TRANSLATION_LANGUAGES, TranslationConfig,
+    UNLOAD_AFTER_CHOICES, UpdatesConfig,
 };
 
 use crate::controller::ControllerState;
@@ -26,6 +27,10 @@ pub struct AppSettingsView {
     updates: UpdatesConfig,
     dictation: DictationConfig,
     translation: TranslationConfig,
+    captures: CapturesConfig,
+    /// Modèles de texte de la capture commentée : (identifiant, libellé).
+    capture_templates: Vec<(&'static str, &'static str)>,
+    capture_keep_days: &'static [u32],
     languages: &'static [&'static str],
     keys: &'static [&'static str],
     unload_choices: Vec<u32>,
@@ -49,6 +54,13 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         updates: config.updates,
         dictation: config.dictation,
         translation: config.translation,
+        captures: config.captures,
+        capture_templates: vtt_llm::CAPTURE_TEMPLATES
+            .iter()
+            .map(|t| (t.id, t.label))
+            .chain([(CAPTURE_RAW_TEMPLATE, "Narration seule (sans LLM)")])
+            .collect(),
+        capture_keep_days: CAPTURE_KEEP_DAYS,
         languages: TRANSLATION_LANGUAGES,
         keys: HOTKEY_NAMES,
         microphones: vtt_platform::audio::input_devices(),
@@ -101,7 +113,21 @@ pub fn validate_shortcuts(hotkey: &HotkeyConfig) -> Result<(), String> {
         &hotkey.meeting_copy,
         "copier les nouvelles répliques",
         "Alt+Shift+N",
-    )
+    )?;
+    retry::validate_shortcut(&hotkey.annotate, "capture commentée", "Alt+Shift+A")
+}
+
+/// Modèle de texte connu.
+pub fn validate_captures(captures: &CapturesConfig) -> Result<(), String> {
+    let known = captures.template == CAPTURE_RAW_TEMPLATE
+        || vtt_llm::CAPTURE_TEMPLATES
+            .iter()
+            .any(|t| t.id == captures.template);
+    if known {
+        Ok(())
+    } else {
+        Err(format!("modèle de capture inconnu : {}", captures.template))
+    }
 }
 
 /// Modèle Whisper proposé dans les réglages (téléchargé au besoin).
@@ -130,10 +156,12 @@ pub fn save_app_settings(
     updates: UpdatesConfig,
     dictation: DictationConfig,
     translation: TranslationConfig,
+    captures: CapturesConfig,
 ) -> Result<Applied, String> {
     hotkey.validate()?;
     validate_shortcuts(&hotkey)?;
     translation.validate()?;
+    validate_captures(&captures)?;
     validate_model(&paths, &asr.model)?;
     let (mut config, error) = paths.load_config();
     if let Some(error) = error {
@@ -153,6 +181,7 @@ pub fn save_app_settings(
     config.translation = TranslationConfig {
         language: translation.language.trim().to_owned(),
     };
+    config.captures = captures;
     paths.write_config(&config)?;
     let notes = apply(&app, &paths, &config);
     log::info!("réglages généraux appliqués");

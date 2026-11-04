@@ -26,9 +26,9 @@ pub use secrets_windows::{
 mod windows;
 #[cfg(windows)]
 pub use windows::{
-    ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_target,
-    fullscreen_app_running, key_code, key_is_down, modifiers_down, play_sound, spawn_keyboard_hook,
-    suppress_menu_activation,
+    ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, exclude_from_capture,
+    foreground_target, fullscreen_app_running, key_code, key_is_down, modifiers_down, paste_image,
+    play_sound, screenshot, spawn_keyboard_hook, suppress_menu_activation,
 };
 
 #[cfg(not(windows))]
@@ -36,9 +36,10 @@ mod unsupported;
 #[cfg(not(windows))]
 pub use unsupported::{
     ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys, copy_selection,
-    copy_text, delete_secret, foreground_target, fullscreen_app_running, key_code, key_is_down,
-    list_secrets, load_secret, microphone_apps, modifiers_down, play_sound, protect, set_autostart,
-    spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
+    copy_text, delete_secret, exclude_from_capture, foreground_target, fullscreen_app_running,
+    key_code, key_is_down, list_secrets, load_secret, microphone_apps, modifiers_down, paste_image,
+    play_sound, protect, screenshot, set_autostart, spawn_keyboard_hook, store_secret,
+    suppress_menu_activation, unprotect,
 };
 
 use std::sync::OnceLock;

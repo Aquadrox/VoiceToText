@@ -5,6 +5,8 @@
 
 use std::time::Instant;
 
+use serde::Serialize;
+
 use crate::config::{Snippet, Style};
 use crate::usage::Usage;
 use crate::{audio, text};
@@ -72,8 +74,42 @@ pub enum Error {
     Sink(String),
 }
 
+/// Mot transcrit et son moment dans le clip.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Word {
+    pub text: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+/// Mots de `text` répartis régulièrement entre `start_ms` et `end_ms` (moteur
+/// sans horodatage par mot).
+pub fn spread_words(text: &str, start_ms: u64, end_ms: u64) -> Vec<Word> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let span = end_ms.saturating_sub(start_ms) as f64 / words.len() as f64;
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, word)| Word {
+            text: (*word).to_owned(),
+            start_ms: start_ms + (span * i as f64) as u64,
+            end_ms: start_ms + (span * (i + 1) as f64) as u64,
+        })
+        .collect()
+}
+
 pub trait Transcriber: Send + Sync {
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error>;
+
+    /// Mots horodatés (capture commentée : savoir quand « ici » a été dit).
+    /// Par défaut : le texte réparti sur la durée du clip.
+    fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
+        let text = self.transcribe(clip)?;
+        Ok(spread_words(&text, 0, clip.duration_ms()))
+    }
 
     /// Dictionnaire modifié dans l'interface : nouveaux mots à privilégier.
     fn set_vocabulary(&self, words: &[String]) {
@@ -341,6 +377,20 @@ impl Pipeline {
             return Ok(None);
         }
         Ok(Some((raw, asr_ms)))
+    }
+
+    /// Mots horodatés de tout le clip (capture commentée) ; vide pour un
+    /// silence.
+    pub fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
+        if audio::is_silent(&clip.samples, SAMPLE_RATE, SILENCE_RMS) {
+            return Ok(Vec::new());
+        }
+        let words = self.transcriber.transcribe_words(clip)?;
+        let text: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+        if text::strip_hallucinations(&text.join(" ")).is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(words)
     }
 
     /// Transcription seule, filtrée comme une dictée (réunions) ; `None` :

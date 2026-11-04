@@ -23,6 +23,9 @@ let translation = null;
 let lastStatus = { state: "idle" };
 /** Début de la réunion enregistrée (horloge locale), sinon `null`. */
 let meetingStartedAt = null;
+/** Capture commentée en cours : début (horloge locale) et dessin. */
+let annotateStartedAt = null;
+let annotateDrawing = false;
 
 function showLanguage() {
   const recording = ["listening", "handsfree"].includes(pill.dataset.state);
@@ -30,18 +33,27 @@ function showLanguage() {
   lang.textContent = translation ? `→ ${LANGUAGE_CODES[translation] ?? translation}` : "";
 }
 
-/** Au repos : rien, ou la réunion en cours d'enregistrement et sa durée. */
+function elapsed(startedAt) {
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  const h = Math.floor(seconds / 3600);
+  const m = String(Math.floor(seconds / 60) % 60).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
+}
+
+/** Au repos : rien, ou la capture commentée, ou la réunion en cours. */
 function showIdle() {
+  if (annotateStartedAt != null) {
+    pill.dataset.state = "meeting";
+    label.textContent = annotateDrawing ? "Dessin…" : `Capture ${elapsed(annotateStartedAt)}`;
+    return;
+  }
   if (meetingStartedAt == null) {
     pill.dataset.state = "idle";
     return;
   }
-  const seconds = Math.floor((Date.now() - meetingStartedAt) / 1000);
-  const h = Math.floor(seconds / 3600);
-  const m = String(Math.floor(seconds / 60) % 60).padStart(2, "0");
-  const s = String(seconds % 60).padStart(2, "0");
   pill.dataset.state = "meeting";
-  label.textContent = `Réunion ${h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`}`;
+  label.textContent = `Réunion ${elapsed(meetingStartedAt)}`;
 }
 setInterval(() => pill.dataset.state === "meeting" && showIdle(), 1000);
 
@@ -93,6 +105,25 @@ function setMeeting(state) {
   }
 }
 window.__TAURI__.event.listen("meeting", (event) => setMeeting(event.payload));
+
+// Capture commentée démarrée, dessin, arrêt.
+function setAnnotate(state) {
+  const starting = state.recording && annotateStartedAt == null;
+  annotateStartedAt = state.recording ? Date.now() - state.elapsed_ms : null;
+  annotateDrawing = state.drawing;
+  if (lastStatus.state !== "idle") return;
+  if (starting && state.shortcut) {
+    showIdle();
+    flash(`Tenir ${state.shortcut} : dessiner`, "info", 3000);
+  } else {
+    clearTimeout(errorTimer);
+    showIdle();
+  }
+}
+window.__TAURI__.event.listen("annotate", (event) => setAnnotate(event.payload));
+window.__TAURI__.event.listen("annotate-done", (event) => {
+  if (lastStatus.state === "idle") flash(`Capture collée (${event.payload} image(s))`, "info", 2500);
+});
 window.__TAURI__.event.listen("meeting-error", (event) => {
   if (lastStatus.state === "idle") flash(String(event.payload), "error", ERROR_VISIBLE_MS);
 });
@@ -109,6 +140,7 @@ window.__TAURI__.event.listen("level", (event) => {
 // Rattrape l'état émis avant le chargement de la page (téléchargement du modèle…).
 window.__TAURI__.core.invoke("current_status").then(render);
 window.__TAURI__.core.invoke("meeting_state").then(setMeeting);
+window.__TAURI__.core.invoke("annotate_state").then(setAnnotate);
 window.__TAURI__.core.invoke("translation_state").then((language) => {
   translation = language;
   showLanguage();
