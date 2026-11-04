@@ -1,0 +1,86 @@
+package io.github.aquadrox.voicetotext
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.io.File
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+/**
+ * Réglages (config.toml, le même format que sur PC), modèles et clés API.
+ * Les clés sont chiffrées par une clé du Keystore Android, qui ne quitte
+ * jamais le matériel sécurisé du téléphone ; elles ne sont jamais affichées.
+ */
+class Store(private val context: Context) {
+    private val prefs = context.getSharedPreferences("voicetotext", Context.MODE_PRIVATE)
+    private val configFile = File(context.filesDir, "config.toml")
+
+    val modelsDir: String
+        get() = File(context.filesDir, "models").apply { mkdirs() }.absolutePath
+
+    var config: String
+        get() = if (configFile.exists()) configFile.readText() else ""
+        set(value) {
+            configFile.writeText(value)
+            // Le clavier recharge ses réglages au prochain affichage.
+            prefs.edit().putLong("version", version + 1).apply()
+        }
+
+    /** Augmente à chaque changement de réglage ou de clé. */
+    val version: Long
+        get() = prefs.getLong("version", 0)
+
+    fun hasKey(host: String): Boolean = prefs.contains("key:$host")
+
+    fun key(host: String): String? {
+        val stored = prefs.getString("key:$host", null) ?: return null
+        return runCatching {
+            val bytes = Base64.decode(stored, Base64.NO_WRAP)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secret(), GCMParameterSpec(128, bytes, 0, IV_SIZE))
+            String(cipher.doFinal(bytes, IV_SIZE, bytes.size - IV_SIZE), Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    fun saveKey(host: String, key: String) {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secret())
+        val sealed = cipher.iv + cipher.doFinal(key.trim().toByteArray(Charsets.UTF_8))
+        prefs.edit()
+            .putString("key:$host", Base64.encodeToString(sealed, Base64.NO_WRAP))
+            .putLong("version", version + 1)
+            .apply()
+    }
+
+    fun deleteKey(host: String) {
+        prefs.edit().remove("key:$host").putLong("version", version + 1).apply()
+    }
+
+    private fun secret(): SecretKey {
+        val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+        (keyStore.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
+    private companion object {
+        const val KEYSTORE = "AndroidKeyStore"
+        const val ALIAS = "voicetotext-api-keys"
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val IV_SIZE = 12
+    }
+}

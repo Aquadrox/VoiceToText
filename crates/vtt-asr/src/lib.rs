@@ -1,10 +1,14 @@
 //! Transcription locale : whisper.cpp (Whisper), ONNX Runtime (Parakeet),
 //! Kaldi (Vosk).
 
+#[cfg(feature = "parakeet")]
 mod parakeet;
+#[cfg(feature = "vosk")]
 mod vosk;
 
+#[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetTranscriber;
+#[cfg(feature = "vosk")]
 pub use vosk::VoskTranscriber;
 
 use std::path::{Path, PathBuf};
