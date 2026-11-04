@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
@@ -235,8 +236,9 @@ class VoiceKeyboard : InputMethodService() {
             ""
         }
         val current = mode
+        val privacy = privacy(currentInputEditorInfo)
         worker.execute {
-            val result = JSONObject(Native.dictate(samples, app, current, selection))
+            val result = JSONObject(Native.dictate(samples, app, current, selection, privacy))
             main.post { apply(result, current) }
         }
     }
@@ -282,6 +284,30 @@ class VoiceKeyboard : InputMethodService() {
             currentInputConnection?.performEditorAction(action)
         } else {
             currentInputConnection?.commitText("\n", 1)
+        }
+    }
+
+    /**
+     * Champ de mot de passe : ni LLM ni historique. Champ « ne pas apprendre »
+     * (navigation privée, application sensible) : pas d'historique.
+     */
+    private fun privacy(editor: EditorInfo?): Int {
+        val info = editor ?: return Native.NORMAL
+        val type = info.inputType
+        val variation = type and InputType.TYPE_MASK_VARIATION
+        val password = when (type and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_TEXT -> variation in listOf(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            )
+            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+        return when {
+            password -> Native.PASSWORD
+            info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0 -> Native.NO_HISTORY
+            else -> Native.NORMAL
         }
     }
 

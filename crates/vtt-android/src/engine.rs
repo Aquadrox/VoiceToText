@@ -175,6 +175,17 @@ pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
     }
 }
 
+/// Discrétion demandée par le champ où l'on écrit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Privacy {
+    Normal,
+    /// Navigation privée, application sensible (« ne pas apprendre ») :
+    /// rien dans l'historique.
+    NoHistory,
+    /// Champ de mot de passe : transcription seule, sans LLM ni historique.
+    Password,
+}
+
 /// Ce que l'utilisateur dicte.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
@@ -232,7 +243,7 @@ fn entry(
 
 /// Dicte `samples` (16 kHz mono) ; `app` : application de destination
 /// (styles par application).
-pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode) -> Dictation {
+pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Privacy) -> Dictation {
     let mut engine = lock(&ENGINE);
     let Some(engine) = engine.as_mut() else {
         return Dictation {
@@ -247,6 +258,21 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode) -> Dictation 
     };
     let clip = AudioClip { samples };
     let started = Instant::now();
+    if privacy == Privacy::Password {
+        // Rien ne quitte le téléphone, rien n'est gardé.
+        let mut result = match engine.pipeline.transcribe_only(&clip) {
+            Ok(Some(text)) => Dictation {
+                kind: "text",
+                raw: text.clone(),
+                text,
+                ..Dictation::default()
+            },
+            Ok(None) => outcome(Ok(Outcome::Skipped)),
+            Err(e) => outcome(Err(e)),
+        };
+        result.ms = started.elapsed().as_millis() as u64;
+        return result;
+    }
     let raw = match &mode {
         Mode::Dictate => engine.pipeline.run(&clip, &target),
         Mode::Translate => {
@@ -260,7 +286,8 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode) -> Dictation 
                 .run_command(&clip, &target, selection.as_deref())
         }
     };
-    if let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
+    if privacy == Privacy::Normal
+        && let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
         && let Some(entry) = entry(outcome, &clip, app, &engine.pricing)
         && let Err(e) = history.append(&entry)
     {
@@ -302,7 +329,7 @@ mod tests {
         assert_eq!(outcome(Ok(Outcome::Skipped)).kind, "skip");
         assert_eq!(outcome(Err(Error::Asr("x".into()))).kind, "error");
         assert_eq!(
-            dictate(vec![0.0; 16_000], None, Mode::Dictate).kind,
+            dictate(vec![0.0; 16_000], None, Mode::Dictate, Privacy::Normal).kind,
             "error",
             "pas de moteur"
         );

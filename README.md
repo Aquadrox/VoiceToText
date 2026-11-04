@@ -57,6 +57,8 @@ Au clavier :
 - **maintenir ✨** : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
 - 🌐 revient au clavier habituel ; ⌫, espace et entrée pour les retouches.
 
+Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique.
+
 Les commandes vocales (« nouvelle ligne », « annule la dernière dictée »), les snippets et les styles par application fonctionnent comme sur PC. Dans l'application : **historique** des dictées (sur le téléphone seulement, désactivable ; toucher pour copier), **dictionnaire et snippets** modifiables.
 
 L'audio reste en mémoire le temps de la dictée, jamais sur le stockage du téléphone.

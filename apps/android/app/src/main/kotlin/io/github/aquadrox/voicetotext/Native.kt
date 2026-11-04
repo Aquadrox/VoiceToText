@@ -37,7 +37,7 @@ object Native {
      * Dicte (16 kHz mono) : `{"kind": "text|undo|skip|error", "text", "error", "ms"}`.
      * `mode` : [DICTATE], [TRANSLATE] ou [COMMAND] (consigne appliquée à `selection`).
      */
-    external fun dictate(samples: FloatArray, app: String, mode: Int, selection: String): String
+    external fun dictate(samples: FloatArray, app: String, mode: Int, selection: String, privacy: Int): String
 
     /** Dictées récentes : `{"ok": [...]}`. */
     external fun history(historyFile: String, limit: Int): String
@@ -53,4 +53,11 @@ object Native {
     const val DICTATE = 0
     const val TRANSLATE = 1
     const val COMMAND = 2
+
+    /** Champ ordinaire. */
+    const val NORMAL = 0
+    /** Navigation privée, appli sensible : rien dans l'historique. */
+    const val NO_HISTORY = 1
+    /** Mot de passe : transcription seule, ni LLM ni historique. */
+    const val PASSWORD = 2
 }

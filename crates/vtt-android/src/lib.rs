@@ -206,6 +206,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     app: JString<'a>,
     mode: jint,
     selection: JString<'a>,
+    privacy: jint,
 ) -> jstring {
     let length = env.get_array_length(&samples).unwrap_or(0).max(0) as usize;
     let mut buffer = vec![0f32; length];
@@ -222,7 +223,13 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
         2 => engine::Mode::Command(Some(text(&mut env, &selection)).filter(|s| !s.is_empty())),
         _ => engine::Mode::Dictate,
     };
-    let result = engine::dictate(buffer, app, mode);
+    // 1 : pas d'historique ; 2 : mot de passe (ni LLM ni historique).
+    let privacy = match privacy {
+        1 => engine::Privacy::NoHistory,
+        2 => engine::Privacy::Password,
+        _ => engine::Privacy::Normal,
+    };
+    let result = engine::dictate(buffer, app, mode, privacy);
     let json = serde_json::to_string(&result).unwrap_or_default();
     java(&mut env, &json)
 }
