@@ -44,7 +44,9 @@ Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → L
 
 Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Whisper) ; seul le texte part au LLM choisi, comme sur PC.
 
-1. Télécharger `VoiceToText_x.y.z_android.apk` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits.
+1. Télécharger depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits. Deux éditions, au choix (même application : on passe de l'une à l'autre en gardant ses réglages) :
+   - `VoiceToText_x.y.z_android.apk` : **clavier** seul, s'installe normalement ;
+   - `VoiceToText_x.y.z_android-bulle.apk` : clavier **et bulle**. Play Protect bloque l'installation de toute application hors Play Store qui contient un service d'accessibilité (« Appli bloquée pour protéger votre appareil ») : le couper le temps de l'installation (Play Store → icône du profil → Play Protect → ⚙ → décocher « Analyser les applis avec Play Protect »), installer, **puis le réactiver aussitôt** ; ou installer depuis un PC avec `adb install`.
 2. Ouvrir **VoiceToText** :
    1. **Autoriser le micro** ;
    2. choisir un **modèle** (Small 8 bits recommandé, 264 Mo ; Base pour un petit téléphone ; Large v3 Turbo pour le plus précis) et le **télécharger** (vérifié à l'arrivée) ;
@@ -57,7 +59,7 @@ Au clavier :
 - **maintenir ✨** : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
 - 🌐 revient au clavier habituel ; ⌫, espace et entrée pour les retouches.
 
-Avec la **bulle** (sans changer de clavier) : une bulle 🎤 apparaît quand un clavier est ouvert sur un champ de texte.
+Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bulle 🎤 apparaît quand un clavier est ouvert sur un champ de texte.
 - **toucher** : dicter ; toucher encore : le texte s'insère au curseur ;
 - **maintenir** : consigne appliquée au texte sélectionné (comme ✨) ;
 - **glisser** : déplacer (la position est gardée) ;
