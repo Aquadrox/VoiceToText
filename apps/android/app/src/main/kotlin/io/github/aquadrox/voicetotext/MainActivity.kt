@@ -118,6 +118,7 @@ class MainActivity : Activity() {
             store.bubblePaste = it
         }
         option("Traduire les dictées (comme 🌍 au clavier)", store.translate) { store.translate = it }
+        option("Garder les dictées de la bulle dans l'historique", store.bubbleHistory) { store.bubbleHistory = it }
         note("Taille de la bulle")
         addView(RadioGroup(this@MainActivity).apply {
             orientation = RadioGroup.HORIZONTAL
@@ -135,7 +136,7 @@ class MainActivity : Activity() {
             store.bubbleY = -1
             say("✓ La bulle reprendra sa place à sa prochaine apparition.")
         }
-        note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : coupez l'historique si besoin.")
+        note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : ses dictées ne vont donc dans l'historique que si vous l'activez ci-dessus.")
 
         section("Nettoyage du texte (LLM)")
         llmEnabled = Switch(this@MainActivity).apply { text = "Nettoyer et ponctuer avec un LLM" }.also { addView(it) }

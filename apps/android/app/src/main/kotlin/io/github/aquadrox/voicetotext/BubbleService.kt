@@ -110,7 +110,7 @@ class BubbleService : AccessibilityService() {
 
     private fun field(): AccessibilityNodeInfo? {
         val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        if (!node.isEditable || node.isPassword) return null
+        if (!writable(node)) return null
         if (store.bubbleWithKeyboard && windows.none { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }) return null
         // Le clavier VoiceToText a déjà son micro.
         val keyboard = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD).orEmpty()
@@ -119,6 +119,10 @@ class BubbleService : AccessibilityService() {
         }
         return node
     }
+
+    /** Champ de texte qui n'est pas un mot de passe (drapeau ou type de saisie). */
+    private fun writable(node: AccessibilityNodeInfo) =
+        node.isEditable && !node.isPassword && !Native.isPassword(node.inputType)
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
@@ -246,7 +250,7 @@ class BubbleService : AccessibilityService() {
             say("Autorisez le micro dans l'application VoiceToText")
             return
         }
-        target = field() ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable && !it.isPassword }
+        target = field() ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { writable(it) }
         if (target == null) {
             say("Touchez d'abord un champ de texte")
             return
@@ -277,8 +281,10 @@ class BubbleService : AccessibilityService() {
         val app = node?.packageName?.toString().orEmpty()
         val selection = if (mode == Native.COMMAND && node != null) selected(node) else ""
         val current = mode
-        // Pas de bulle sur les mots de passe : un champ ordinaire.
-        Dictation.run(samples, app, current, selection, Native.NORMAL) { result ->
+        // Pas de bulle sur les mots de passe. La navigation privée est
+        // invisible d'ici : historique seulement si l'utilisateur l'a voulu.
+        val privacy = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
+        Dictation.run(samples, app, current, selection, privacy) { result ->
             state = IDLE
             val ok = apply(result, current)
             paint(done = ok)
@@ -289,9 +295,14 @@ class BubbleService : AccessibilityService() {
 
     /** Insère le résultat ; vrai si du texte a été écrit. */
     private fun apply(result: JSONObject, kind: Int): Boolean {
-        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable && !it.isPassword }
-            ?: target?.takeIf { it.refresh() && !it.isPassword }
+        // Le champ de départ, sinon le champ actif de la même fenêtre : jamais
+        // un autre champ ouvert entre-temps (autre application, mot de passe).
+        val origin = target
         target = null
+        val node = origin?.takeIf { it.refresh() && writable(it) }
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf {
+                origin != null && writable(it) && it.windowId == origin.windowId && it.packageName == origin.packageName
+            }
         when (result.optString("kind")) {
             "text" -> {
                 if (node == null) {

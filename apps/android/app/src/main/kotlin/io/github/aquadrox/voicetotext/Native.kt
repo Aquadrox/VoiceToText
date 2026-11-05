@@ -1,5 +1,7 @@
 package io.github.aquadrox.voicetotext
 
+import android.text.InputType
+
 /**
  * Moteur Rust (crates/vtt-android) : transcription Whisper sur le téléphone,
  * pipeline commun avec le PC, nettoyage LLM. Échanges en JSON ou config.toml.
@@ -60,4 +62,18 @@ object Native {
     const val NO_HISTORY = 1
     /** Mot de passe : transcription seule, ni LLM ni historique. */
     const val PASSWORD = 2
+
+    /** Type de saisie d'un mot de passe (texte, web, visible ou code chiffré). */
+    fun isPassword(inputType: Int): Boolean {
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        return when (inputType and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_TEXT -> variation in listOf(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            )
+            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
 }

@@ -47,6 +47,14 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("bubble_paste", false)
         set(value) = prefs.edit().putBoolean("bubble_paste", value).apply()
 
+    /**
+     * Bulle : dictées gardées dans l'historique. Coupé par défaut, car la
+     * bulle ne voit pas la navigation privée (le clavier, si).
+     */
+    var bubbleHistory: Boolean
+        get() = prefs.getBoolean("bubble_history", false)
+        set(value) = prefs.edit().putBoolean("bubble_history", value).apply()
+
     /** Position de la bulle à l'écran (-1 : place par défaut). */
     var bubbleX: Int
         get() = prefs.getInt("bubble_x", -1)
