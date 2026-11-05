@@ -17,8 +17,11 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 ureq = "3"
-# Whisper seulement : Parakeet et Vosk restent sur PC.
-vtt-asr = { path = "../vtt-asr", default-features = false }
+# Modèle Vosk : archive zip.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# Whisper, Parakeet (ONNX Runtime) et Vosk : bibliothèques natives des deux
+# derniers fournies dans l'APK (apps/android/build-native.sh).
+vtt-asr = { path = "../vtt-asr", default-features = false, features = ["parakeet", "vosk"] }
 vtt-core = { path = "../vtt-core" }
 vtt-llm = { path = "../vtt-llm" }
 

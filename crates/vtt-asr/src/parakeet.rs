@@ -46,8 +46,11 @@ impl ParakeetTranscriber {
     /// `dir` : dossier du modèle (encoder, decoder_joint, vocab.txt) ;
     /// `runtime` : bibliothèque ONNX Runtime. Préchauffe le modèle.
     pub fn load(dir: &Path, runtime: &Path) -> Result<Self, Error> {
+        // Téléphone : les quatre cœurs rapides ; les cœurs économes
+        // ralentiraient l'ensemble.
+        let most = if cfg!(target_os = "android") { 4 } else { 8 };
         let threads = std::thread::available_parallelism()
-            .map(|n| n.get().min(8))
+            .map(|n| n.get().min(most))
             .unwrap_or(4);
         let config = ExecutionConfig::new()
             .with_intra_threads(threads)
