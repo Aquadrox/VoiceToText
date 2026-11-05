@@ -79,6 +79,7 @@ class BubbleService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         manager = getSystemService(WindowManager::class.java)
+        if (!store.bubbleConsent) say("Ouvrez VoiceToText et acceptez l'avertissement de la bulle pour l'utiliser")
         update()
     }
 
@@ -102,10 +103,13 @@ class BubbleService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** Bulle affichée seulement sur un champ de texte ordinaire. */
+    /**
+     * Bulle affichée seulement sur un champ de texte ordinaire, et une fois
+     * l'avertissement accepté dans l'application.
+     */
     private fun update() {
         if (!::manager.isInitialized || state != IDLE) return
-        if (field() == null) hide() else show()
+        if (!store.bubbleConsent || field() == null) hide() else show()
     }
 
     private fun field(): AccessibilityNodeInfo? {

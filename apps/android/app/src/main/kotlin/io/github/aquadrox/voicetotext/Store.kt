@@ -55,6 +55,14 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("bubble_history", true)
         set(value) = prefs.edit().putBoolean("bubble_history", value).apply()
 
+    /**
+     * Bulle : l'utilisateur a lu et accepté l'avertissement sur le service
+     * d'accessibilité (exigé par Google Play). Sans lui, la bulle reste muette.
+     */
+    var bubbleConsent: Boolean
+        get() = prefs.getBoolean("bubble_consent", false)
+        set(value) = prefs.edit().putBoolean("bubble_consent", value).apply()
+
     /** Position de la bulle à l'écran (-1 : place par défaut). */
     var bubbleX: Int
         get() = prefs.getInt("bubble_x", -1)

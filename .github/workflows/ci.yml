@@ -208,16 +208,20 @@ jobs:
           export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/voicetotext.jks"
           trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
-          ./gradlew --no-daemon assembleRelease
+          # AAB (Google Play) : édition « bulle », signée par la même clé.
+          ./gradlew --no-daemon assembleRelease bundleBulleRelease
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           cp app/build/outputs/apk/clavier/release/app-clavier-release.apk "dist/VoiceToText_${version}_android.apk"
           cp app/build/outputs/apk/bulle/release/app-bulle-release.apk "dist/VoiceToText_${version}_android-bulle.apk"
+          cp app/build/outputs/bundle/bulleRelease/app-bulle-release.aab "dist/VoiceToText_${version}_play.aab"
       - uses: actions/upload-artifact@v7
         if: steps.changes.outputs.android == 'true'
         with:
           name: VoiceToText-android
-          path: apps/android/dist/*.apk
+          path: |
+            apps/android/dist/*.apk
+            apps/android/dist/*.aab
           if-no-files-found: error
 
   release:
@@ -262,4 +266,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig *.apk *.aab latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+  # Google Play : l'AAB part sur la piste choisie (variables PLAY_TRACK,
+  # PLAY_STATUS du dépôt), une fois la release GitHub publiée ; un échec ici
+  # ne la bloque pas. Sauté tant que le secret PLAY_SERVICE_ACCOUNT_JSON
+  # n'existe pas (la toute première version s'envoie à la main).
+  play:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: VoiceToText-android
+      - name: Envoi sur Google Play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_TRACK: ${{ vars.PLAY_TRACK }}
+          PLAY_STATUS: ${{ vars.PLAY_STATUS }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::notice::secret PLAY_SERVICE_ACCOUNT_JSON absent : pas d'envoi sur Google Play"
+            exit 0
+          fi
+          .github/scripts/play-upload.sh VoiceToText_*_play.aab "$GITHUB_REF_NAME"

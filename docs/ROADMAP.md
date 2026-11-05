@@ -182,6 +182,16 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
 - ✅ Essai sur le Xiaomi 17T Pro : Parakeet le plus rapide et le plus fiable → modèle conseillé et proposé par défaut (v0.18.1)
 
+## v0.19 — Android : Google Play 🚧
+
+- ✅ Avertissement d'accessibilité dans l'application (accepter / refuser, retirable) avant toute activation de la bulle, comme l'exige Google Play
+- ✅ Politique de confidentialité (`docs/PRIVACY.md`), liée depuis l'application
+- ✅ AAB signé (édition « bulle ») produit à chaque tag et joint à la release
+- ✅ Envoi automatique sur Google Play à chaque tag (`.github/scripts/play-upload.sh`, piste et statut en variables du dépôt), sauté tant que le secret n'existe pas
+- ✅ Fiche, formulaires et vidéo de démonstration préparés (`docs/PLAY_STORE.md`), icône et bannière (`apps/android/play/`)
+- ⬜ Compte développeur, test fermé (12 testeurs, 14 jours), première version envoyée à la main
+- ⬜ Accès à la production
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
