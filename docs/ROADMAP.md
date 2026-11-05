@@ -174,13 +174,13 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Essai sur le Xiaomi 17T Pro
 - ✅ Deux APK par release : « clavier » (s'installe partout) et « bulle » (Play Protect bloque hors Play Store toute appli avec service d'accessibilité : à couper le temps de l'installation)
 
-## v0.18 — Android : modèles du PC 🚧
+## v0.18 — Android : modèles du PC ✅
 
 - ✅ Parakeet TDT v3 (ONNX Runtime) et Vosk Small français sur le téléphone, en plus des trois Whisper
 - ✅ Bibliothèques natives officielles (ONNX Runtime 1.31.1, Vosk 0.3.75) tirées de leurs paquets Maven, empreintes vérifiées, livrées dans l'APK (Android n'exécute que le code livré avec l'application)
 - ✅ Réglages du PC avec Parakeet ou Vosk importés tels quels
 - ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
-- ⬜ Essai sur le Xiaomi 17T Pro (vitesse et mémoire de Parakeet)
+- ✅ Essai sur le Xiaomi 17T Pro : Parakeet le plus rapide et le plus fiable → modèle conseillé et proposé par défaut (v0.18.1)
 
 ## Outillage ✅
 

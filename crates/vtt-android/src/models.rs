@@ -72,38 +72,8 @@ macro_rules! parakeet_url {
 /// Tailles et empreintes relevées sur Hugging Face et alphacephei.com.
 pub const MODELS: &[KnownModel] = &[
     KnownModel {
-        id: "ggml-small-q8_0.bin",
-        label: "Whisper Small, 8 bits (recommandé : rapide et précis)",
-        engine: Engine::Whisper,
-        source: Source::File(Remote {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin",
-            size: 264_464_607,
-            sha256: "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
-        }),
-    },
-    KnownModel {
-        id: "ggml-base-q8_0.bin",
-        label: "Whisper Base, 8 bits (très léger, moins précis)",
-        engine: Engine::Whisper,
-        source: Source::File(Remote {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin",
-            size: 81_768_585,
-            sha256: "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
-        }),
-    },
-    KnownModel {
-        id: "ggml-large-v3-turbo-q5_0.bin",
-        label: "Whisper Large v3 Turbo, 5 bits (le plus précis, plus lent)",
-        engine: Engine::Whisper,
-        source: Source::File(Remote {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-            size: 574_041_195,
-            sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
-        }),
-    },
-    KnownModel {
         id: "parakeet-tdt-0.6b-v3-int8",
-        label: "Parakeet TDT v3, 8 bits (rapide et ponctué ; demande de la mémoire)",
+        label: "Parakeet TDT v3, 8 bits (recommandé : le plus rapide et le plus fiable, ponctué ; ~1 Go de mémoire)",
         engine: Engine::Parakeet,
         source: Source::Files(&[
             (
@@ -133,6 +103,36 @@ pub const MODELS: &[KnownModel] = &[
         ]),
     },
     KnownModel {
+        id: "ggml-small-q8_0.bin",
+        label: "Whisper Small, 8 bits (rapide et précis, plus léger que Parakeet)",
+        engine: Engine::Whisper,
+        source: Source::File(Remote {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin",
+            size: 264_464_607,
+            sha256: "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
+        }),
+    },
+    KnownModel {
+        id: "ggml-base-q8_0.bin",
+        label: "Whisper Base, 8 bits (très léger, moins précis)",
+        engine: Engine::Whisper,
+        source: Source::File(Remote {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin",
+            size: 81_768_585,
+            sha256: "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
+        }),
+    },
+    KnownModel {
+        id: "ggml-large-v3-turbo-q5_0.bin",
+        label: "Whisper Large v3 Turbo, 5 bits (le plus précis, plus lent)",
+        engine: Engine::Whisper,
+        source: Source::File(Remote {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+            size: 574_041_195,
+            sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+        }),
+    },
+    KnownModel {
         id: "vosk-model-small-fr-0.22",
         label: "Vosk Small, français (ultra léger et instantané ; sans ponctuation, que le LLM rajoute)",
         engine: Engine::Vosk,
@@ -147,8 +147,9 @@ pub const MODELS: &[KnownModel] = &[
     },
 ];
 
-/// Modèle par défaut sur le téléphone.
-pub const DEFAULT_MODEL: &str = "ggml-small-q8_0.bin";
+/// Modèle par défaut sur le téléphone : Parakeet, le plus rapide et le
+/// plus fiable aux essais.
+pub const DEFAULT_MODEL: &str = "parakeet-tdt-0.6b-v3-int8";
 
 pub fn known(id: &str) -> Option<&'static KnownModel> {
     MODELS.iter().find(|m| m.id == id)
@@ -365,9 +366,10 @@ mod tests {
     #[test]
     fn only_complete_known_models_are_local() {
         let dir = temp("models");
-        assert_eq!(local(&dir, DEFAULT_MODEL), None);
-        fs::write(dir.join(DEFAULT_MODEL), b"partiel").unwrap();
-        assert_eq!(local(&dir, DEFAULT_MODEL), None, "taille incorrecte");
+        let whisper = "ggml-small-q8_0.bin";
+        assert_eq!(local(&dir, whisper), None);
+        fs::write(dir.join(whisper), b"partiel").unwrap();
+        assert_eq!(local(&dir, whisper), None, "taille incorrecte");
         assert_eq!(local(&dir, "perso.bin"), None, "hors catalogue");
         assert!(known(DEFAULT_MODEL).is_some());
         assert!(catalog(&dir).iter().all(|m| !m.downloaded));
@@ -406,7 +408,11 @@ mod tests {
 
     #[test]
     fn engines_match_the_catalog() {
-        assert_eq!(known(DEFAULT_MODEL).unwrap().engine, Engine::Whisper);
+        assert_eq!(known(DEFAULT_MODEL).unwrap().engine, Engine::Parakeet);
+        assert_eq!(
+            known("ggml-small-q8_0.bin").unwrap().engine,
+            Engine::Whisper
+        );
         assert_eq!(
             known("parakeet-tdt-0.6b-v3-int8").unwrap().engine,
             Engine::Parakeet
