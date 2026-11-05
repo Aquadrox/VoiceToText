@@ -9,8 +9,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
+import java.math.MathContext
 import java.text.DateFormat
+import java.text.NumberFormat
+import java.util.Currency
 import java.util.Date
+import java.util.Locale
 
 /** Dictées récentes (sur le téléphone seulement) : toucher pour copier. */
 class HistoryActivity : Activity() {
@@ -33,12 +37,27 @@ class HistoryActivity : Activity() {
 
     private fun load() {
         list.removeAllViews()
+        // Pourquoi l'historique peut rester vide : dit clairement.
+        val settings = JSONObject(Native.settings(store.config, store.modelsDir)).optJSONObject("ok")
+        if (settings?.optBoolean("history") == false) {
+            list.note("⚠ Historique coupé dans les réglages (« Garder les dictées sur le téléphone ») : rien n'est gardé.")
+        } else if (BuildConfig.BUBBLE && !store.bubbleHistory) {
+            list.note("Les dictées de la bulle ne sont pas gardées (réglage de la bulle).")
+        }
         val reply = JSONObject(Native.history(store.historyFile, SHOWN))
         val entries = reply.optJSONArray("ok")
         if (entries == null || entries.length() == 0) {
             list.note(reply.optString("error").ifEmpty { "Aucune dictée pour l'instant." })
             return
         }
+        val total = (0 until entries.length()).map { entries.getJSONObject(it) }
+            .filter { it.has("cost") && !it.isNull("cost") }
+            .groupBy { it.optString("currency", "USD") }
+            .map { (currency, items) -> cost(items.sumOf { it.getDouble("cost") }, currency) }
+        list.note(
+            "${entries.length()} dictée(s)" +
+                if (total.isEmpty()) " · sans coût LLM" else " · coût LLM estimé : ${total.joinToString(" + ")}",
+        )
         val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
         for (i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
@@ -46,6 +65,9 @@ class HistoryActivity : Activity() {
             val meta = buildList {
                 add(format.format(Date(entry.getLong("at_ms"))))
                 entry.optString("app").takeIf { it.isNotEmpty() && it != "null" }?.let { add(it) }
+                if (entry.has("cost") && !entry.isNull("cost")) {
+                    add(cost(entry.getDouble("cost"), entry.optString("currency", "USD")))
+                }
                 if (entry.optBoolean("command")) add("consigne")
                 entry.optString("translated").takeIf { it.isNotEmpty() && it != "null" }?.let { add("traduit : $it") }
                 if (entry.optBoolean("cleanup_failed")) add("non nettoyé")
@@ -60,6 +82,19 @@ class HistoryActivity : Activity() {
                 }
             })
         }
+    }
+
+    /** Comme sur PC : chiffres significatifs pour les montants minuscules. */
+    private fun cost(value: Double, currency: String): String {
+        val tiny = value > 0 && value < 0.01
+        val shown = if (tiny) value.toBigDecimal().round(MathContext(2)).toDouble() else value
+        return runCatching {
+            NumberFormat.getCurrencyInstance(Locale.FRANCE).apply {
+                this.currency = Currency.getInstance(currency)
+                maximumFractionDigits = if (tiny) 8 else 2
+                minimumFractionDigits = 2
+            }.format(shown)
+        }.getOrElse { "%.4f %s".format(shown, currency) }
     }
 
     /** Effacement en deux appuis. */

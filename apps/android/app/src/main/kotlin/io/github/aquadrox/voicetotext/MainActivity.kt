@@ -199,7 +199,7 @@ class MainActivity : Activity() {
             store.bubbleY = -1
             say("✓ La bulle reprendra sa place à sa prochaine apparition.")
         }
-        note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : ses dictées ne vont donc dans l'historique que si vous l'activez ci-dessus.")
+        note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : décochez « Garder les dictées de la bulle » pour qu'aucune n'aille dans l'historique.")
     }
 
     private fun LinearLayout.title(text: String, size: Float) = TextView(this@MainActivity).apply {

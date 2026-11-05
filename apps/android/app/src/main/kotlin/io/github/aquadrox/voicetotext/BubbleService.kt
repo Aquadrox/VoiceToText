@@ -282,7 +282,7 @@ class BubbleService : AccessibilityService() {
         val selection = if (mode == Native.COMMAND && node != null) selected(node) else ""
         val current = mode
         // Pas de bulle sur les mots de passe. La navigation privée est
-        // invisible d'ici : historique seulement si l'utilisateur l'a voulu.
+        // invisible d'ici : historique de la bulle coupable à part.
         val privacy = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
         Dictation.run(samples, app, current, selection, privacy) { result ->
             state = IDLE

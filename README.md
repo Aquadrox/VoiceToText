@@ -72,7 +72,7 @@ Activation, une seule fois : Android range la bulle dans les services d'**access
 
 Les boutons de l'application ouvrent directement ces écrans. Le service regarde seulement si le champ actif accepte du texte ; il n'en lit le contenu qu'au moment de la dictée (pour écrire au curseur ou appliquer une consigne à la sélection) et n'enregistre rien. Dans les champs Android ordinaires, le texte est écrit directement ; ailleurs (pages web, éditeurs riches), il est collé, ce qui **remplace le presse-papier** (Android interdit de le relire pour le remettre).
 
-Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique. La bulle, elle, ne s'affiche jamais sur un mot de passe, mais ne voit pas la navigation privée : ses dictées ne vont dans l'historique que si on l'active dans ses réglages.
+Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique. La bulle, elle, ne s'affiche jamais sur un mot de passe, mais ne voit pas la navigation privée : un réglage permet de garder ses dictées hors de l'historique.
 
 Les commandes vocales (« nouvelle ligne », « annule la dernière dictée »), les snippets et les styles par application fonctionnent comme sur PC. Dans l'application : **historique** des dictées (sur le téléphone seulement, désactivable ; toucher pour copier), **dictionnaire et snippets** modifiables.
 
