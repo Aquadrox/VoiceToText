@@ -39,6 +39,24 @@ android {
         }
     }
 
+    // Deux éditions, même identifiant et même signature (on passe de l'une à
+    // l'autre en gardant ses réglages) : « clavier » s'installe partout ;
+    // « bulle » ajoute le service d'accessibilité, que Play Protect bloque
+    // à l'installation hors Play Store tant qu'on ne le coupe pas.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("clavier") {
+            dimension = "edition"
+            buildConfigField("boolean", "BUBBLE", "false")
+        }
+        create("bulle") {
+            dimension = "edition"
+            buildConfigField("boolean", "BUBBLE", "true")
+        }
+    }
+
+    buildFeatures { buildConfig = true }
+
     buildTypes {
         release {
             isMinifyEnabled = false

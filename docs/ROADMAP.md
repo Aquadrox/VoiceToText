@@ -162,16 +162,17 @@ Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 - ✅ Command Mode (maintenir ✨ : consigne appliquée au texte sélectionné)
 - ⬜ Moteur Parakeet sur le téléphone (ONNX Runtime Android)
 
-## v0.17 — Android : bulle de dictée 🚧
+## v0.17 — Android : bulle de dictée ✅
 
 Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le champ actif.
 
-- ✅ Bulle 🎤 affichée quand un clavier est ouvert sur un champ de texte (ou dès qu'un champ est actif, au choix) ; jamais sur un mot de passe ; historique coupé par défaut (la navigation privée est invisible d'un service d'accessibilité) ; masquée quand le clavier VoiceToText est déjà ouvert
+- ✅ Bulle 🎤 affichée quand un clavier est ouvert sur un champ de texte (ou dès qu'un champ est actif, au choix) ; jamais sur un mot de passe ; historique de la bulle coupable à part (la navigation privée est invisible d'un service d'accessibilité) ; masquée quand le clavier VoiceToText est déjà ouvert
 - ✅ Toucher : dicter / insérer ; maintenir : consigne sur la sélection ; glisser : déplacer (position gardée) ; taille au choix
 - ✅ Écriture au curseur dans les champs Android ordinaires, collage ailleurs (pages web, éditeurs riches) ou partout au choix
 - ✅ Moteur partagé avec le clavier (modèle chargé une seule fois) ; traduction, commandes vocales, snippets, historique identiques
 - ✅ Guide d'activation dans l'application (paramètres restreints, accessibilité, batterie Xiaomi)
-- ⬜ Essai sur le Xiaomi 17T Pro (micro autorisé depuis un service d'accessibilité ?)
+- ✅ Essai sur le Xiaomi 17T Pro
+- ✅ Deux APK par release : « clavier » (s'installe partout) et « bulle » (Play Protect bloque hors Play Store toute appli avec service d'accessibilité : à couper le temps de l'installation)
 
 ## Outillage ✅
 
@@ -190,3 +191,4 @@ Accélérer la CI sans baisser la garde :
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, Linux, nettoyage local, réunions sur le téléphone. Pas de macOS (pas de Mac pour tester).
+- Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).

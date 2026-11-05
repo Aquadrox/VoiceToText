@@ -188,7 +188,8 @@ jobs:
         run: |
           ./gradlew --no-daemon assembleDebug
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/VoiceToText-test.apk
+          cp app/build/outputs/apk/clavier/debug/app-clavier-debug.apk dist/VoiceToText-test.apk
+          cp app/build/outputs/apk/bulle/debug/app-bulle-debug.apk dist/VoiceToText-test-bulle.apk
       # Release : APK signé. Les secrets ne sont lus qu'ici (tags), jamais
       # dans les PR ; le fichier de clé n'existe que le temps de la signature.
       - name: APK signé (release)
@@ -205,12 +206,13 @@ jobs:
             exit 1
           fi
           export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/voicetotext.jks"
+          trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
           ./gradlew --no-daemon assembleRelease
-          rm -f "$ANDROID_KEYSTORE_FILE"
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/VoiceToText_${version}_android.apk"
+          cp app/build/outputs/apk/clavier/release/app-clavier-release.apk "dist/VoiceToText_${version}_android.apk"
+          cp app/build/outputs/apk/bulle/release/app-bulle-release.apk "dist/VoiceToText_${version}_android-bulle.apk"
       - uses: actions/upload-artifact@v7
         if: steps.changes.outputs.android == 'true'
         with:
