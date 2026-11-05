@@ -42,7 +42,9 @@ Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → L
 
 ### Sur Android
 
-Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Whisper) ; seul le texte part au LLM choisi, comme sur PC.
+Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Parakeet, Whisper ou Vosk) ; seul le texte part au LLM choisi, comme sur PC. [Politique de confidentialité](docs/PRIVACY.md).
+
+Google Play : en préparation ([marche à suivre](docs/PLAY_STORE.md)). Installée depuis Play, la bulle ne demande plus de couper Play Protect.
 
 1. Télécharger depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits. Deux éditions, au choix (même application : on passe de l'une à l'autre en gardant ses réglages) :
    - `VoiceToText_x.y.z_android.apk` : **clavier** seul, s'installe normalement ;
@@ -70,7 +72,7 @@ Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bull
 
 Activation, une seule fois : Android range la bulle dans les services d'**accessibilité** (seul moyen de savoir quel champ est actif et d'y écrire ; aucune autorisation « par-dessus les autres applis » n'est nécessaire).
 1. Android 13 et plus : **Infos de l'application → ⋮ → « Autoriser les paramètres restreints »** (exigé pour une application installée hors Play Store) ;
-2. **Accessibilité → Applications installées → « VoiceToText : bulle de dictée »** → activer ;
+2. dans l'application, **lire et accepter l'avertissement** de la bulle (ce qu'elle voit, ce qui quitte le téléphone), puis **Accessibilité → Applications installées → « VoiceToText : bulle de dictée »** → activer ;
 3. Xiaomi, Samsung… : autoriser le **démarrage automatique** et mettre la batterie sur **« Pas de restriction »**, sinon le téléphone coupe la bulle.
 
 Les boutons de l'application ouvrent directement ces écrans. Le service regarde seulement si le champ actif accepte du texte ; il n'en lit le contenu qu'au moment de la dictée (pour écrire au curseur ou appliquer une consigne à la sélection) et n'enregistre rien. Dans les champs Android ordinaires, le texte est écrit directement ; ailleurs (pages web, éditeurs riches), il est collé, ce qui **remplace le presse-papier** (Android interdit de le relire pour le remettre).

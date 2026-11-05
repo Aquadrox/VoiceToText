@@ -2,6 +2,7 @@ package io.github.aquadrox.voicetotext
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -147,6 +148,12 @@ class MainActivity : Activity() {
             say("Clé supprimée.")
         }
 
+        section("Confidentialité")
+        note("La voix est transcrite sur le téléphone et n'est jamais enregistrée ; seul le texte part au LLM que vous avez choisi. Ni compte, ni publicité, ni statistiques.")
+        button("Politique de confidentialité") {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL)))
+        }
+
         section("Réglages du PC")
         note("Sur PC : Réglages → Exporter… puis copiez le fichier sur le téléphone. Dictionnaire, snippets, styles et fournisseur LLM sont repris ; les clés API ne sont jamais exportées.")
         button("Importer un fichier de réglages…") {
@@ -169,12 +176,15 @@ class MainActivity : Activity() {
     /** Édition « bulle » : activation et réglages de la bulle. */
     private fun LinearLayout.bubbleOptions() {
         note("Gardez votre clavier habituel : une bulle 🎤 apparaît quand vous écrivez. Toucher : dicter, toucher encore : insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer. Clavier ou bulle, ou les deux : au choix.")
-        note("Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.")
+        note("Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Lire et accepter l'avertissement (bouton 2), puis Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.")
         button("1. Ouvrir les infos de l'application") {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
-        button("2. Ouvrir l'accessibilité") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        button("2. Lire l'avertissement et ouvrir l'accessibilité") { disclose() }
+        button("Retirer mon accord (la bulle ne s'affiche plus)") {
+            store.bubbleConsent = false
+            refreshStatus()
+            say("Accord retiré : la bulle ne s'affiche plus. Désactivez aussi le service dans Accessibilité.")
         }
         option("Seulement quand le clavier est ouvert", store.bubbleWithKeyboard) { store.bubbleWithKeyboard = it }
         option("Insérer en collant (si le texte n'apparaît pas dans une application ; remplace le presse-papier)", store.bubblePaste) {
@@ -200,6 +210,27 @@ class MainActivity : Activity() {
             say("✓ La bulle reprendra sa place à sa prochaine apparition.")
         }
         note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : décochez « Garder les dictées de la bulle » pour qu'aucune n'aille dans l'historique.")
+    }
+
+    /**
+     * Avertissement avant le service d'accessibilité (règle de Google Play) :
+     * ce que la bulle voit, ce qui quitte le téléphone ; rien sans accord.
+     */
+    private fun disclose() {
+        AlertDialog.Builder(this)
+            .setTitle("Bulle de dictée : service d'accessibilité")
+            .setMessage(BUBBLE_DISCLOSURE)
+            .setPositiveButton("Accepter") { _, _ ->
+                store.bubbleConsent = true
+                refreshStatus()
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton("Refuser") { _, _ ->
+                store.bubbleConsent = false
+                refreshStatus()
+                say("Bulle non activée. Le clavier VoiceToText reste disponible.")
+            }
+            .show()
     }
 
     private fun LinearLayout.title(text: String, size: Float) = TextView(this@MainActivity).apply {
@@ -291,7 +322,11 @@ class MainActivity : Activity() {
         val bubble = ComponentName(this, BubbleService::class.java)
         val active = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
-        bubbleStatus.text = if (active) "✓ Bulle activée" else "Bulle pas encore activée"
+        bubbleStatus.text = when {
+            active && store.bubbleConsent -> "✓ Bulle activée"
+            active -> "Bulle activée, mais en attente de votre accord (bouton 2)"
+            else -> "Bulle pas encore activée"
+        }
     }
 
     private fun selectedModel(): String =
@@ -383,5 +418,20 @@ class MainActivity : Activity() {
 
     private companion object {
         const val IMPORT = 2
+        const val PRIVACY_URL = "https://github.com/Aquadrox/VoiceToText/blob/main/docs/PRIVACY.md"
+
+        /** Texte de l'avertissement d'accessibilité (repris dans docs/PLAY_STORE.md). */
+        const val BUBBLE_DISCLOSURE =
+            "Pour afficher la bulle et écrire le texte dicté dans vos autres applications, VoiceToText utilise " +
+                "le service d'accessibilité d'Android.\n\n" +
+                "Ce que la bulle voit :\n" +
+                "• si le champ de texte actif accepte du texte, et s'il s'agit d'un mot de passe (jamais de bulle " +
+                "sur un mot de passe) ;\n" +
+                "• pendant une dictée seulement : le texte du champ et la sélection, pour écrire au bon endroit.\n\n" +
+                "Ce qui quitte le téléphone :\n" +
+                "• rien de ce que voit la bulle, sauf le texte que vous sélectionnez pour une consigne (appui long), " +
+                "envoyé avec la consigne au fournisseur LLM que vous avez choisi.\n\n" +
+                "Rien n'est enregistré ni transmis ailleurs, aucune statistique n'est collectée. Vous pouvez retirer " +
+                "votre accord et désactiver la bulle à tout moment."
     }
 }
