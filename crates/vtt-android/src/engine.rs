@@ -1,4 +1,5 @@
-//! Moteur de dictée du téléphone : Whisper + pipeline commun (snippets,
+//! Moteur de dictée du téléphone : Whisper, Parakeet ou Vosk + pipeline
+//! commun (snippets,
 //! commandes vocales, nettoyage LLM, traduction, Command Mode). Le texte est
 //! rendu à l'application, qui l'insère dans le champ en cours (clavier
 //! Android) ; l'historique reste sur le téléphone.
@@ -10,7 +11,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use vtt_core::config::{LlmConfig, Pricing, PromptKind};
 use vtt_core::history::{Entry, History};
-use vtt_core::{AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink};
+use vtt_core::{
+    AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink, Transcriber,
+};
 use vtt_llm::{LlmCleaner, Prompts};
 
 use crate::{models, settings};
@@ -72,6 +75,42 @@ fn cleaner(config: &Config) -> Option<Box<dyn PostProcessor>> {
     )))
 }
 
+/// Charge le modèle avec son moteur. ONNX Runtime (Parakeet) et libvosk
+/// sont dans l'APK : trouvés par leur nom.
+fn load(path: &Path, config: &Config) -> Result<Box<dyn Transcriber>, String> {
+    let engine = models::known(&config.asr.model)
+        .map(|m| m.engine)
+        .ok_or_else(|| format!("modèle inconnu : {}", config.asr.model))?;
+    let transcriber: Box<dyn Transcriber> = match engine {
+        // Processeur seul. Quatre threads (les cœurs rapides ; les cœurs
+        // économes ralentiraient l'ensemble), encodeur limité à la durée de
+        // la dictée.
+        models::Engine::Whisper => Box::new(
+            vtt_asr::WhisperTranscriber::load_with(
+                path,
+                &config.asr.language,
+                false,
+                &config.dictionary,
+                vtt_asr::WhisperOptions {
+                    threads: Some(4),
+                    short_context: true,
+                    flash_attn: true,
+                },
+            )
+            .map_err(|e| e.to_string())?,
+        ),
+        models::Engine::Parakeet => Box::new(
+            vtt_asr::ParakeetTranscriber::load(path, Path::new("libonnxruntime.so"))
+                .map_err(|e| e.to_string())?,
+        ),
+        models::Engine::Vosk => Box::new(
+            vtt_asr::VoskTranscriber::load(path, Path::new("libvosk.so"))
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    Ok(transcriber)
+}
+
 /// (Re)démarre le moteur avec ces réglages ; le modèle n'est rechargé que
 /// s'il a changé. `history_file` : historique des dictées sur le téléphone.
 pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), String> {
@@ -101,22 +140,11 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         log::info!("réglages appliqués");
         return Ok(());
     }
-    // Téléphone : processeur seul. Quatre threads (les cœurs rapides ; les
-    // cœurs économes ralentiraient l'ensemble), encodeur limité à la durée de
-    // la dictée.
-    let transcriber = vtt_asr::WhisperTranscriber::load_with(
-        &path,
-        &config.asr.language,
-        false,
-        &config.dictionary,
-        vtt_asr::WhisperOptions {
-            threads: Some(4),
-            short_context: true,
-            flash_attn: true,
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    let pipeline = Pipeline::new(Box::new(transcriber), cleaner(&config), Box::new(Collect))
+    // Ancien modèle libéré avant de charger le nouveau : jamais deux en
+    // mémoire à la fois.
+    *engine = None;
+    let transcriber = load(&path, &config)?;
+    let pipeline = Pipeline::new(transcriber, cleaner(&config), Box::new(Collect))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
         .with_voice_commands(config.dictation.voice_commands);

@@ -49,7 +49,10 @@ Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : o
    - `VoiceToText_x.y.z_android-bulle.apk` : clavier **et bulle**. Play Protect bloque l'installation de toute application hors Play Store qui contient un service d'accessibilité (« Appli bloquée pour protéger votre appareil ») : le couper le temps de l'installation (Play Store → icône du profil → Play Protect → ⚙ → décocher « Analyser les applis avec Play Protect »), installer, **puis le réactiver aussitôt** ; ou installer depuis un PC avec `adb install`.
 2. Ouvrir **VoiceToText** :
    1. **Autoriser le micro** ;
-   2. choisir un **modèle** (Small 8 bits recommandé, 264 Mo ; Base pour un petit téléphone ; Large v3 Turbo pour le plus précis) et le **télécharger** (vérifié à l'arrivée) ;
+   2. choisir un **modèle** et le **télécharger** (vérifié à l'arrivée) :
+      - **Whisper Small** 8 bits (recommandé, 264 Mo) ; **Base** pour un petit téléphone (82 Mo) ; **Large v3 Turbo** pour le plus précis (574 Mo) ;
+      - **Parakeet TDT v3** 8 bits (670 Mo) : rapide et ponctué, comme sur PC ; demande environ 1 Go de mémoire vive ;
+      - **Vosk Small** français (42 Mo) : ultra léger et instantané, sans ponctuation (le LLM la rajoute) ;
    3. **Activer le clavier VoiceToText**, puis **Choisir le clavier** ; et/ou activer la **bulle** (ci-dessous).
 3. **Nettoyage du texte** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées).
 

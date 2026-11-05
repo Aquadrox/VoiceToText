@@ -199,12 +199,18 @@ mod tests {
     fn pc_settings_are_imported_and_adapted() {
         let mut pc = Config::default();
         pc.dictionary.push("Aquadrox".into());
-        pc.asr.model = "parakeet-tdt-0.6b-v3-int8".into();
+        pc.asr.model = "ggml-large-v3-turbo-q8_0.bin".into();
         let imported = import(&pc.to_toml().unwrap()).unwrap();
         assert_eq!(imported.notes.len(), 1, "modèle de PC remplacé");
         let (config, _) = parse(&imported.toml).unwrap();
         assert_eq!(config.dictionary, ["Aquadrox"]);
         assert_eq!(config.asr.model, models::DEFAULT_MODEL);
+        // Parakeet et Vosk existent aussi sur le téléphone : gardés.
+        pc.asr.model = "parakeet-tdt-0.6b-v3-int8".into();
+        let imported = import(&pc.to_toml().unwrap()).unwrap();
+        assert!(imported.notes.is_empty());
+        let (config, _) = parse(&imported.toml).unwrap();
+        assert_eq!(config.asr.model, "parakeet-tdt-0.6b-v3-int8");
         assert!(import("pas du toml = =").is_err());
     }
 

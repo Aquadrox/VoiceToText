@@ -154,13 +154,13 @@ Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 - ✅ CI : APK de test sur les PR (identifiant `.test`, installable à côté de la version publiée), APK signé dans chaque release ; une PR Android seule ne relance pas le PC, et inversement
 - ✅ Essais sur un vrai téléphone (Xiaomi 17T Pro) ; vitesse corrigée (whisper.cpp compilé pour ARMv8.2 + dotprod, encodeur limité à la durée de la dictée, 4 threads)
 
-## v0.16 — Android : confort 🚧
+## v0.16 — Android : confort ✅
 
 - ✅ Historique des dictées sur le téléphone (désactivable, toucher pour copier, effacement en deux appuis)
 - ✅ Dictionnaire et snippets modifiables sur le téléphone
 - ✅ Mode traduction (🌍 au clavier, langue au choix)
 - ✅ Command Mode (maintenir ✨ : consigne appliquée au texte sélectionné)
-- ⬜ Moteur Parakeet sur le téléphone (ONNX Runtime Android)
+- ✅ Moteur Parakeet sur le téléphone (ONNX Runtime Android) : fait en v0.18
 
 ## v0.17 — Android : bulle de dictée ✅
 
@@ -173,6 +173,14 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Guide d'activation dans l'application (paramètres restreints, accessibilité, batterie Xiaomi)
 - ✅ Essai sur le Xiaomi 17T Pro
 - ✅ Deux APK par release : « clavier » (s'installe partout) et « bulle » (Play Protect bloque hors Play Store toute appli avec service d'accessibilité : à couper le temps de l'installation)
+
+## v0.18 — Android : modèles du PC 🚧
+
+- ✅ Parakeet TDT v3 (ONNX Runtime) et Vosk Small français sur le téléphone, en plus des trois Whisper
+- ✅ Bibliothèques natives officielles (ONNX Runtime 1.31.1, Vosk 0.3.75) tirées de leurs paquets Maven, empreintes vérifiées, livrées dans l'APK (Android n'exécute que le code livré avec l'application)
+- ✅ Réglages du PC avec Parakeet ou Vosk importés tels quels
+- ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
+- ⬜ Essai sur le Xiaomi 17T Pro (vitesse et mémoire de Parakeet)
 
 ## Outillage ✅
 

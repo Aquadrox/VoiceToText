@@ -10,7 +10,7 @@ license.workspace = true
 default = ["parakeet", "vosk"]
 # Accélération GPU via Vulkan (pilote NVIDIA/AMD/Intel, rien à embarquer).
 vulkan = ["whisper-rs/vulkan"]
-# Moteurs supplémentaires (PC) ; le téléphone n'embarque que Whisper.
+# Moteurs supplémentaires, sur PC comme sur le téléphone.
 parakeet = ["dep:parakeet-rs"]
 vosk = ["dep:libloading", "dep:serde_json"]
 

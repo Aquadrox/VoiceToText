@@ -3,3 +3,5 @@ build/
 local.properties
 # Bibliothèques natives produites par build-native.sh.
 app/src/main/jniLibs/
+# Paquets Maven téléchargés par build-native.sh.
+.cache/
