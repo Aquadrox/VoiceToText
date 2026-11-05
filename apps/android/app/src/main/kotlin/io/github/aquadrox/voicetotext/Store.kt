@@ -27,10 +27,42 @@ class Store(private val context: Context) {
     val historyFile: String
         get() = File(context.filesDir, "history.jsonl").absolutePath
 
-    /** Mode traduction du clavier (gardé d'une ouverture à l'autre). */
+    /** Mode traduction du clavier et de la bulle (gardé d'une ouverture à l'autre). */
     var translate: Boolean
         get() = prefs.getBoolean("translate", false)
         set(value) = prefs.edit().putBoolean("translate", value).apply()
+
+    /** Bulle : affichée seulement quand un clavier est ouvert. */
+    var bubbleWithKeyboard: Boolean
+        get() = prefs.getBoolean("bubble_with_keyboard", true)
+        set(value) = prefs.edit().putBoolean("bubble_with_keyboard", value).apply()
+
+    /** Bulle : 0 petite, 1 moyenne, 2 grande. */
+    var bubbleSize: Int
+        get() = prefs.getInt("bubble_size", 1).coerceIn(0, 2)
+        set(value) = prefs.edit().putInt("bubble_size", value).apply()
+
+    /** Bulle : insérer en collant (presse-papier) plutôt qu'en écrivant dans le champ. */
+    var bubblePaste: Boolean
+        get() = prefs.getBoolean("bubble_paste", false)
+        set(value) = prefs.edit().putBoolean("bubble_paste", value).apply()
+
+    /**
+     * Bulle : dictées gardées dans l'historique. Coupé par défaut, car la
+     * bulle ne voit pas la navigation privée (le clavier, si).
+     */
+    var bubbleHistory: Boolean
+        get() = prefs.getBoolean("bubble_history", false)
+        set(value) = prefs.edit().putBoolean("bubble_history", value).apply()
+
+    /** Position de la bulle à l'écran (-1 : place par défaut). */
+    var bubbleX: Int
+        get() = prefs.getInt("bubble_x", -1)
+        set(value) = prefs.edit().putInt("bubble_x", value).apply()
+
+    var bubbleY: Int
+        get() = prefs.getInt("bubble_y", -1)
+        set(value) = prefs.edit().putInt("bubble_y", value).apply()
 
     var config: String
         get() = if (configFile.exists()) configFile.readText() else ""

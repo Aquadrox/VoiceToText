@@ -42,13 +42,13 @@ Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → L
 
 ### Sur Android
 
-Un **clavier de dictée** : on le choisit comme n'importe quel clavier, on maintient le micro, on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Whisper) ; seul le texte part au LLM choisi, comme sur PC.
+Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : on parle, et le texte nettoyé s'insère là où l'on écrit (WhatsApp, Gmail, notes…). La voix est transcrite **sur le téléphone** (Whisper) ; seul le texte part au LLM choisi, comme sur PC.
 
 1. Télécharger `VoiceToText_x.y.z_android.apk` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits.
 2. Ouvrir **VoiceToText** :
    1. **Autoriser le micro** ;
    2. choisir un **modèle** (Small 8 bits recommandé, 264 Mo ; Base pour un petit téléphone ; Large v3 Turbo pour le plus précis) et le **télécharger** (vérifié à l'arrivée) ;
-   3. **Activer le clavier VoiceToText**, puis **Choisir le clavier**.
+   3. **Activer le clavier VoiceToText**, puis **Choisir le clavier** ; et/ou activer la **bulle** (ci-dessous).
 3. **Nettoyage du texte** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées).
 
 Au clavier :
@@ -57,7 +57,20 @@ Au clavier :
 - **maintenir ✨** : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
 - 🌐 revient au clavier habituel ; ⌫, espace et entrée pour les retouches.
 
-Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique.
+Avec la **bulle** (sans changer de clavier) : une bulle 🎤 apparaît quand un clavier est ouvert sur un champ de texte.
+- **toucher** : dicter ; toucher encore : le texte s'insère au curseur ;
+- **maintenir** : consigne appliquée au texte sélectionné (comme ✨) ;
+- **glisser** : déplacer (la position est gardée) ;
+- réglages : taille, affichage même clavier fermé, traduction, insertion en collant, historique (coupé par défaut).
+
+Activation, une seule fois : Android range la bulle dans les services d'**accessibilité** (seul moyen de savoir quel champ est actif et d'y écrire ; aucune autorisation « par-dessus les autres applis » n'est nécessaire).
+1. Android 13 et plus : **Infos de l'application → ⋮ → « Autoriser les paramètres restreints »** (exigé pour une application installée hors Play Store) ;
+2. **Accessibilité → Applications installées → « VoiceToText : bulle de dictée »** → activer ;
+3. Xiaomi, Samsung… : autoriser le **démarrage automatique** et mettre la batterie sur **« Pas de restriction »**, sinon le téléphone coupe la bulle.
+
+Les boutons de l'application ouvrent directement ces écrans. Le service regarde seulement si le champ actif accepte du texte ; il n'en lit le contenu qu'au moment de la dictée (pour écrire au curseur ou appliquer une consigne à la sélection) et n'enregistre rien. Dans les champs Android ordinaires, le texte est écrit directement ; ailleurs (pages web, éditeurs riches), il est collé, ce qui **remplace le presse-papier** (Android interdit de le relire pour le remettre).
+
+Champ de **mot de passe** : seule la transcription locale est utilisée, sans LLM ni historique. Champ marqué « ne pas apprendre » (navigation privée, application sensible) : rien dans l'historique. La bulle, elle, ne s'affiche jamais sur un mot de passe, mais ne voit pas la navigation privée : ses dictées ne vont dans l'historique que si on l'active dans ses réglages.
 
 Les commandes vocales (« nouvelle ligne », « annule la dernière dictée »), les snippets et les styles par application fonctionnent comme sur PC. Dans l'application : **historique** des dictées (sur le téléphone seulement, désactivable ; toucher pour copier), **dictionnaire et snippets** modifiables.
 
@@ -534,7 +547,7 @@ extra_body = {}
 
 ## Développement
 
-Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier), `apps/desktop` (application PC), et pour Android `vtt-android` (moteur appelé en JNI) et `apps/android` (clavier et réglages en Kotlin). Les installeurs et l'APK sont produits par la CI GitHub Actions ; une PR qui ne touche que le PC ne recompile pas Android, et inversement.
+Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier), `apps/desktop` (application PC), et pour Android `vtt-android` (moteur appelé en JNI) et `apps/android` (clavier, bulle et réglages en Kotlin). Les installeurs et l'APK sont produits par la CI GitHub Actions ; une PR qui ne touche que le PC ne recompile pas Android, et inversement.
 
 Android (SDK avec `ndk;29.0.14206865` et `cmake;3.31.6`, cible Rust `aarch64-linux-android`, `cargo-ndk`) :
 

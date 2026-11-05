@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="keyboard_name">VoiceToText (dictée)</string>
+    <string name="bubble_name">VoiceToText : bulle de dictée</string>
+    <string name="bubble_description">Affiche une bulle de dictée quand vous écrivez dans un champ de texte, avec votre clavier habituel. Le service regarde seulement si le champ actif accepte du texte ; il n\'en lit le contenu qu\'au moment de la dictée, pour y écrire le texte, n\'enregistre rien et ne s\'affiche jamais sur un champ de mot de passe.</string>
 </resources>

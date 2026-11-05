@@ -21,6 +21,14 @@ class Recorder {
     var level = 0f
         private set
 
+    /**
+     * Son le plus fort de la dernière prise : 0 si le micro n'a rendu que du
+     * silence (Android coupe le micro d'une appli qu'il juge en arrière-plan).
+     */
+    @Volatile
+    var loudest = 0f
+        private set
+
     /** La permission micro doit avoir été accordée (vérifiée par l'appelant). */
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
@@ -38,6 +46,7 @@ class Recorder {
             return false
         }
         synchronized(lock) { count = 0 }
+        loudest = 0f
         audio.startRecording()
         record = audio
         reader = thread(name = "micro") {
@@ -53,6 +62,7 @@ class Recorder {
                 }
                 for (i in 0 until n) peak = maxOf(peak, kotlin.math.abs(buffer[i].toInt()))
                 level = peak / 32768f
+                if (level > loudest) loudest = level
             }
         }
         return true

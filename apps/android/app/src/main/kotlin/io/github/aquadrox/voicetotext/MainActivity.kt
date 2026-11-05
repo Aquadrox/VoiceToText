@@ -2,6 +2,7 @@ package io.github.aquadrox.voicetotext
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -38,6 +39,7 @@ class MainActivity : Activity() {
 
     private lateinit var micStatus: TextView
     private lateinit var keyboardStatus: TextView
+    private lateinit var bubbleStatus: TextView
     private lateinit var models: RadioGroup
     private lateinit var download: Button
     private lateinit var progress: ProgressBar
@@ -74,7 +76,7 @@ class MainActivity : Activity() {
         setPadding(dp(20), dp(24), dp(20), dp(32))
 
         title("VoiceToText", 26f)
-        note("Clavier de dictée : parlez, le texte nettoyé s'insère là où vous écrivez. La voix est transcrite sur le téléphone.")
+        note("Dictée au clavier ou avec une bulle flottante : parlez, le texte nettoyé s'insère là où vous écrivez. La voix est transcrite sur le téléphone.")
         message = note("").apply { visibility = View.GONE }
 
         section("1. Micro")
@@ -100,6 +102,41 @@ class MainActivity : Activity() {
             getSystemService(InputMethodManager::class.java).showInputMethodPicker()
         }
         note("Maintenez 🎤 pour dicter, relâchez pour insérer ; appui court : mains libres. 🌐 revient à votre clavier habituel.")
+
+        section("4. Bulle (sans changer de clavier)")
+        note("Gardez votre clavier habituel : une bulle 🎤 apparaît quand vous écrivez. Toucher : dicter, toucher encore : insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer. Clavier ou bulle, ou les deux : au choix.")
+        bubbleStatus = note("")
+        note("Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.")
+        button("1. Ouvrir les infos de l'application") {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+        button("2. Ouvrir l'accessibilité") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        option("Seulement quand le clavier est ouvert", store.bubbleWithKeyboard) { store.bubbleWithKeyboard = it }
+        option("Insérer en collant (si le texte n'apparaît pas dans une application ; remplace le presse-papier)", store.bubblePaste) {
+            store.bubblePaste = it
+        }
+        option("Traduire les dictées (comme 🌍 au clavier)", store.translate) { store.translate = it }
+        option("Garder les dictées de la bulle dans l'historique", store.bubbleHistory) { store.bubbleHistory = it }
+        note("Taille de la bulle")
+        addView(RadioGroup(this@MainActivity).apply {
+            orientation = RadioGroup.HORIZONTAL
+            listOf("Petite", "Moyenne", "Grande").forEachIndexed { size, label ->
+                addView(RadioButton(this@MainActivity).apply {
+                    id = View.generateViewId()
+                    text = label
+                    isChecked = size == store.bubbleSize
+                    setOnCheckedChangeListener { _, checked -> if (checked) store.bubbleSize = size }
+                })
+            }
+        })
+        button("Remettre la bulle à sa place") {
+            store.bubbleX = -1
+            store.bubbleY = -1
+            say("✓ La bulle reprendra sa place à sa prochaine apparition.")
+        }
+        note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : ses dictées ne vont donc dans l'historique que si vous l'activez ci-dessus.")
 
         section("Nettoyage du texte (LLM)")
         llmEnabled = Switch(this@MainActivity).apply { text = "Nettoyer et ponctuer avec un LLM" }.also { addView(it) }
@@ -151,7 +188,7 @@ class MainActivity : Activity() {
 
         section("Essayer")
         addView(EditText(this@MainActivity).apply {
-            hint = "Touchez ici, choisissez le clavier VoiceToText et dictez"
+            hint = "Touchez ici et dictez avec le clavier VoiceToText ou la bulle"
             minLines = 3
         })
     }
@@ -176,6 +213,14 @@ class MainActivity : Activity() {
         this.text = text
         setOnClickListener { action() }
     }.also { addView(it) }
+
+    /** Interrupteur enregistré dès qu'on le touche. */
+    private fun LinearLayout.option(text: String, checked: Boolean, change: (Boolean) -> Unit) =
+        Switch(this@MainActivity).apply {
+            this.text = text
+            isChecked = checked
+            setOnCheckedChangeListener { _, value -> change(value) }
+        }.also { addView(it) }
 
     private fun LinearLayout.field(hint: String) = EditText(this@MainActivity).apply {
         this.hint = hint
@@ -230,6 +275,10 @@ class MainActivity : Activity() {
         val enabled = getSystemService(InputMethodManager::class.java).enabledInputMethodList
             .any { it.packageName == packageName }
         keyboardStatus.text = if (enabled) "✓ Clavier activé" else "Clavier pas encore activé"
+        val bubble = ComponentName(this, BubbleService::class.java)
+        val active = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
+        bubbleStatus.text = if (active) "✓ Bulle activée" else "Bulle pas encore activée"
     }
 
     private fun selectedModel(): String =
