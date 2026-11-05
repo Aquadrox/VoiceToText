@@ -162,6 +162,17 @@ Transcrire de longs enregistrements, puis retrouver ce qui a été dit.
 - ✅ Command Mode (maintenir ✨ : consigne appliquée au texte sélectionné)
 - ⬜ Moteur Parakeet sur le téléphone (ONNX Runtime Android)
 
+## v0.17 — Android : bulle de dictée 🚧
+
+Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le champ actif.
+
+- ✅ Bulle 🎤 affichée quand un clavier est ouvert sur un champ de texte (ou dès qu'un champ est actif, au choix) ; jamais sur un mot de passe ; masquée quand le clavier VoiceToText est déjà ouvert
+- ✅ Toucher : dicter / insérer ; maintenir : consigne sur la sélection ; glisser : déplacer (position gardée) ; taille au choix
+- ✅ Écriture au curseur dans les champs Android ordinaires, collage ailleurs (pages web, éditeurs riches) ou partout au choix
+- ✅ Moteur partagé avec le clavier (modèle chargé une seule fois) ; traduction, commandes vocales, snippets, historique identiques
+- ✅ Guide d'activation dans l'application (paramètres restreints, accessibilité, batterie Xiaomi)
+- ⬜ Essai sur le Xiaomi 17T Pro (micro autorisé depuis un service d'accessibilité ?)
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

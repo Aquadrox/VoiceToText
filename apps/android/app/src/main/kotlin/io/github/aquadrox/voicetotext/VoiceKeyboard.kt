@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
@@ -20,7 +18,6 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
-import java.util.concurrent.Executors
 
 /**
  * Clavier vocal : maintenir 🎤 pour dicter (relâcher pour insérer), ou un
@@ -31,24 +28,18 @@ import java.util.concurrent.Executors
 class VoiceKeyboard : InputMethodService() {
     private val store by lazy { Store(this) }
     private val recorder = Recorder()
-    private val worker = Executors.newSingleThreadExecutor()
-    private val main = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
     private lateinit var mic: Button
     private lateinit var command: Button
     private lateinit var translate: Button
 
-    /** Version des réglages chargée dans le moteur (-1 : pas encore). */
-    private var loaded = -1L
-    private var ready = false
     private var pressedAt = 0L
     private var handsFree = false
     /** Mode de la dictée en cours (Native.DICTATE, TRANSLATE, COMMAND). */
     private var mode = Native.DICTATE
     /** Longueur de la dernière insertion (commande « annule la dernière dictée »). */
     private var lastInserted = 0
-    private var language = "anglais"
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
@@ -88,7 +79,7 @@ class VoiceKeyboard : InputMethodService() {
             setOnClickListener {
                 store.translate = !store.translate
                 showTranslate()
-                show(if (store.translate) "Traduction → $language" else "Traduction coupée")
+                show(if (store.translate) "Traduction → ${Dictation.language}" else "Traduction coupée")
             }
         }
         val keyHeight = (56 * dp).toInt()
@@ -129,8 +120,8 @@ class VoiceKeyboard : InputMethodService() {
             return
         }
         // Réglages ou clé modifiés depuis le dernier affichage : moteur mis à jour.
-        if (store.version != loaded) loadEngine()
-        else if (ready) show(IDLE)
+        if (Dictation.stale(store)) loadEngine()
+        else show(IDLE)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -145,25 +136,9 @@ class VoiceKeyboard : InputMethodService() {
     }
 
     private fun loadEngine() {
-        val version = store.version
-        val config = store.config
-        ready = false
         show("Chargement du modèle…")
-        worker.execute {
-            val settings = JSONObject(Native.settings(config, store.modelsDir)).optJSONObject("ok")
-            val host = settings?.optJSONObject("llm")?.optString("host").orEmpty()
-            Native.setApiKey(store.key(host).orEmpty())
-            val error = JSONObject(Native.start(store.modelsDir, store.historyFile, config)).optString("error")
-            main.post {
-                language = settings?.optString("translation")?.ifEmpty { null } ?: language
-                if (error.isEmpty()) {
-                    loaded = version
-                    ready = true
-                    show(IDLE)
-                } else {
-                    show("$error (ouvrez l'application VoiceToText)")
-                }
-            }
+        Dictation.prepare(store) { error ->
+            show(if (error == null) IDLE else "$error (ouvrez l'application VoiceToText)")
         }
     }
 
@@ -206,7 +181,7 @@ class VoiceKeyboard : InputMethodService() {
             show("Autorisez le micro dans l'application VoiceToText")
             return
         }
-        if (!ready) {
+        if (!Dictation.ready) {
             show("Modèle pas encore prêt")
             return
         }
@@ -218,7 +193,7 @@ class VoiceKeyboard : InputMethodService() {
         show(
             when (mode) {
                 Native.COMMAND -> "Consigne… (appliquée au texte sélectionné)"
-                Native.TRANSLATE -> "Écoute… → $language"
+                Native.TRANSLATE -> "Écoute… → ${Dictation.language}"
                 else -> "Écoute…"
             },
         )
@@ -237,10 +212,7 @@ class VoiceKeyboard : InputMethodService() {
         }
         val current = mode
         val privacy = privacy(currentInputEditorInfo)
-        worker.execute {
-            val result = JSONObject(Native.dictate(samples, app, current, selection, privacy))
-            main.post { apply(result, current) }
-        }
+        Dictation.run(samples, app, current, selection, privacy) { apply(it, current) }
     }
 
     private fun apply(result: JSONObject, kind: Int) {
@@ -258,12 +230,8 @@ class VoiceKeyboard : InputMethodService() {
                 }
                 connection?.commitText(spaced, 1)
                 lastInserted = spaced.length
-                val error = result.optString("error")
-                val seconds = "%.1f".format(result.optLong("ms") / 1000.0).replace('.', ',')
-                show(
-                    if (error.isEmpty() || error == "null") "✓ $seconds s · $IDLE_SHORT"
-                    else "Texte brut inséré : $error",
-                )
+                val summary = Dictation.summary(result)
+                show(if (summary.startsWith("✓")) "$summary · $IDLE_SHORT" else summary)
             }
             "undo" -> {
                 if (lastInserted > 0) connection?.deleteSurroundingText(lastInserted, 0)
@@ -320,7 +288,6 @@ class VoiceKeyboard : InputMethodService() {
 
     override fun onDestroy() {
         if (recorder.recording) recorder.stop()
-        worker.shutdown()
         super.onDestroy()
     }
 
