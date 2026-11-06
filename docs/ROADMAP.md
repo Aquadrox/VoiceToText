@@ -184,7 +184,7 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 
 ## v0.19 — Qui parle ? (diarisation) 🚧
 
-Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de pytranscribe (WhisperX + pyannote, en Python) et réécrite en Rust, sans Python ni PyTorch.
+Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de Xavier Beheydt (MIT ; WhisperX + pyannote, en Python), réécrite en Rust, sans Python ni PyTorch : crédité dans le README (section Licence) et dans le code.
 
 - ✅ Essai (prototype testé sous Linux, pas encore dans l'application) :
   - méthode pyannote 3 : segmentation `segmentation-3.0` (jusqu'à 3 voix par fenêtre de 10 s, chevauchements compris), une empreinte vocale par voix et par fenêtre, regroupement hiérarchique (lien moyen, distance cosinus), reconstruction des tours de parole ; nombre de locuteurs déduit ou imposé
@@ -196,6 +196,7 @@ Distinguer les participants dans la piste « Eux » des réunions et dans les co
   - limites : seuil calé sur peu d'exemples (deux voix proches se confondent à 0,6) ; essais sur de vraies réunions en français à faire ; pas de diarisation en direct (à la fin de la réunion seulement)
 - ⬜ Modèles téléchargés à la demande (SHA-256 vérifié, révision Hugging Face figée), comme Parakeet
 - ⬜ Après la réunion (audio conservé ou encore en mémoire) et pour les conférences et fichiers importés : répliques « Eux » découpées par intervenant (mots horodatés de Whisper / Parakeet) ; réglage pour l'activer ou non
+- ⬜ Crédits affichés dans l'application (page À propos ou Réglages) : pytranscribe, pyannote, WeSpeaker (CC BY 4.0 : attribution obligatoire), sherpa-onnx
 - ⬜ Page Réunions : « Intervenant 1, 2… » ; renommer un intervenant (temps de parole et première phrase pour le reconnaître) ; noms repris dans le compte rendu, la recherche et l'export Markdown
 - ⬜ Nombre d'intervenants imposé pour une réunion (plus fiable que le seuil quand on le connaît)
 - ⬜ Essai sur le PC avec de vraies réunions Teams / Meet en français, réglage du seuil

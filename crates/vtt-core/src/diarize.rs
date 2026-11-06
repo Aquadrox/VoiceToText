@@ -16,6 +16,14 @@
 //! Les modèles eux-mêmes (ONNX Runtime) sont dans `vtt-asr` : ici, ils ne
 //! sont vus qu'à travers le trait [`Models`], ce qui permet de tester tout
 //! l'algorithme sans eux.
+//!
+//! Crédits : idée reprise de pytranscribe (Xavier Beheydt, MIT,
+//! <https://github.com/XavierBeheydt/pytranscribe>), qui enchaîne WhisperX
+//! et pyannote en Python ; méthode et modèle de segmentation de
+//! pyannote.audio (Hervé Bredin, CNRS, MIT) ; empreintes WeSpeaker
+//! (CC BY 4.0) ; conversions ONNX et implémentation de référence de
+//! sherpa-onnx (k2-fsa, Apache 2.0). Aucune ligne de code n'est copiée :
+//! tout est réécrit ici.
 
 use crate::pipeline::{Error, SAMPLE_RATE, Word};
 
