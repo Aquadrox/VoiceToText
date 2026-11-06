@@ -113,10 +113,7 @@ impl Models for Diarizer {
                 "segmentation : sortie {shape:?} inattendue"
             )));
         }
-        Ok(scores
-            .chunks_exact(CLASSES)
-            .map(|row| row.try_into().expect("ligne de CLASSES valeurs"))
-            .collect())
+        Ok(scores.as_chunks::<CLASSES>().0.to_vec())
     }
 
     fn embed(&mut self, samples: &[f32]) -> Result<Vec<f32>, Error> {
