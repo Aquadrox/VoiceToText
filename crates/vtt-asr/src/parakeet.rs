@@ -16,7 +16,7 @@ use vtt_core::{AudioClip, Error, SAMPLE_RATE, Transcriber, Word};
 /// ONNX Runtime ne se charge qu'une fois par processus.
 static RUNTIME: OnceLock<Result<Environment, String>> = OnceLock::new();
 
-fn environment(runtime: &Path) -> Result<Environment, Error> {
+pub(crate) fn environment(runtime: &Path) -> Result<Environment, Error> {
     RUNTIME
         .get_or_init(|| {
             let started = Instant::now();

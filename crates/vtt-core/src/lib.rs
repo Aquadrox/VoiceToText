@@ -9,6 +9,8 @@ pub mod annotation;
 pub mod audio;
 pub mod calls;
 pub mod config;
+pub mod diarize;
+pub mod fbank;
 pub mod history;
 pub mod hotkey;
 pub mod meeting;

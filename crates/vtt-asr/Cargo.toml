@@ -1,6 +1,6 @@
 [package]
 name = "vtt-asr"
-description = "Transcription locale : whisper.cpp, Parakeet (ONNX Runtime), Vosk"
+description = "Transcription locale : whisper.cpp, Parakeet (ONNX Runtime), Vosk ; diarisation (ONNX Runtime)"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -31,3 +31,7 @@ hound = "3"
 [[example]]
 name = "transcribe_wav"
 required-features = ["parakeet", "vosk"]
+
+[[example]]
+name = "diarize_wav"
+required-features = ["parakeet"]

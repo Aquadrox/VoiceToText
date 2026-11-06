@@ -182,6 +182,24 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
 - ✅ Essai sur le Xiaomi 17T Pro : Parakeet le plus rapide et le plus fiable → modèle conseillé et proposé par défaut (v0.18.1)
 
+## v0.19 — Qui parle ? (diarisation) 🚧
+
+Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de pytranscribe (WhisperX + pyannote, en Python) et réécrite en Rust, sans Python ni PyTorch.
+
+- ✅ Essai (prototype testé sous Linux, pas encore dans l'application) :
+  - méthode pyannote 3 : segmentation `segmentation-3.0` (jusqu'à 3 voix par fenêtre de 10 s, chevauchements compris), une empreinte vocale par voix et par fenêtre, regroupement hiérarchique (lien moyen, distance cosinus), reconstruction des tours de parole ; nombre de locuteurs déduit ou imposé
+  - modèles ONNX via le même ONNX Runtime que Parakeet, donc aucune nouvelle dépendance : segmentation pyannote 3.0 (MIT, 6 Mo) et empreinte WeSpeaker ResNet34-LM (CC BY 4.0, 26 Mo, citation à faire dans l'application), au format sherpa-onnx sur Hugging Face, sans compte ni jeton
+  - algorithme et fbank (filtres mel façon Kaldi) dans `vtt-core` (`diarize`, `fbank`), testés avec de faux modèles ; fbank identiques à `kaldi-native-fbank` (écart < 10⁻⁴) ; modèles dans `vtt-asr` (`Diarizer`) ; essai : `cargo run --release -p vtt-asr --example diarize_wav`
+  - mesuré sur 4 enregistrements de test (2 et 4 voix, anglais et chinois) : frontières identiques à sherpa-onnx (à 0,05 s près), bons locuteurs avec le seuil 0,55, même résultat avec un second modèle (3D-Speaker CAM++) ; 10 min à 4 voix : numéros stables du début à la fin
+  - empreintes calculées comme à l'entraînement de WeSpeaker (fenêtre de Hamming, moyenne retirée) : les voix sont bien mieux séparées qu'avec les réglages de sherpa-onnx (écart entre « même voix » et « voix différentes » de 0,63 contre 0,39)
+  - vitesse (serveur à 4 cœurs, processeur seul) : 22 fois le temps réel, soit environ 3 min pour une heure ; mémoire bornée (au-delà d'une heure, les fenêtres s'espacent)
+  - limites : seuil calé sur peu d'exemples (deux voix proches se confondent à 0,6) ; essais sur de vraies réunions en français à faire ; pas de diarisation en direct (à la fin de la réunion seulement)
+- ⬜ Modèles téléchargés à la demande (SHA-256 vérifié, révision Hugging Face figée), comme Parakeet
+- ⬜ Après la réunion (audio conservé ou encore en mémoire) et pour les conférences et fichiers importés : répliques « Eux » découpées par intervenant (mots horodatés de Whisper / Parakeet) ; réglage pour l'activer ou non
+- ⬜ Page Réunions : « Intervenant 1, 2… » ; renommer un intervenant (temps de parole et première phrase pour le reconnaître) ; noms repris dans le compte rendu, la recherche et l'export Markdown
+- ⬜ Nombre d'intervenants imposé pour une réunion (plus fiable que le seuil quand on le connaît)
+- ⬜ Essai sur le PC avec de vraies réunions Teams / Meet en français, réglage du seuil
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
