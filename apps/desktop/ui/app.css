@@ -12,6 +12,8 @@
   --warning-fg: #78350f;
   --nav-bg: #eeeef4;
   --chart: #4f46e5;
+  --changed: #d97706;
+  --changed-bg: #fff7ed;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,6 +31,8 @@
     --warning-fg: #fde68a;
     --nav-bg: #131318;
     --chart: #6d72f0;
+    --changed: #f59e0b;
+    --changed-bg: #2d2412;
   }
 }
 
@@ -49,7 +53,7 @@ body {
   height: 100vh;
 }
 
-nav {
+nav.main-nav {
   flex: none;
   width: 190px;
   padding: 20px 12px;
@@ -57,14 +61,15 @@ nav {
   border-right: 1px solid var(--border);
 }
 
-nav .brand {
+nav.main-nav .brand {
   margin: 0 10px 20px;
   font-weight: 700;
   font-size: 16px;
 }
 
-nav a {
-  display: block;
+nav.main-nav a {
+  display: flex;
+  align-items: center;
   margin-bottom: 2px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -72,11 +77,11 @@ nav a {
   text-decoration: none;
 }
 
-nav a:hover {
+nav.main-nav a:hover {
   background: var(--card);
 }
 
-nav a[aria-current="page"] {
+nav.main-nav a[aria-current="page"] {
   background: var(--card);
   color: var(--accent);
   font-weight: 600;
@@ -602,14 +607,6 @@ ol.entries li {
   color: var(--danger);
 }
 
-#general-form > .row {
-  margin-bottom: 16px;
-}
-
-#general-result {
-  margin-bottom: 16px;
-}
-
 .banner {
   display: flex;
   align-items: center;
@@ -777,16 +774,11 @@ ol.entries li {
   overflow-wrap: anywhere;
 }
 
-.meeting-settings {
-  margin-top: 16px;
-}
-
 .meeting-more {
   margin: 8px 0;
 }
 
-.meeting-more fieldset,
-.meeting-settings fieldset {
+.meeting-more fieldset {
   margin: 8px 0;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -969,4 +961,439 @@ select.compact {
   display: block;
   margin-top: 4px;
   font-weight: normal;
+}
+
+/* ---------- Réglages en sections ---------- */
+
+.page.settings-page {
+  max-width: 1080px;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+}
+
+.settings-nav h1 {
+  margin: 0 10px 14px;
+}
+
+.settings-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.settings-nav a:hover {
+  background: var(--card);
+}
+
+.settings-nav a[aria-current="true"] {
+  background: var(--card);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.settings-nav .icon {
+  width: 1.4em;
+  text-align: center;
+}
+
+/* Point « modifications non appliquées » (menu des réglages et menu principal). */
+.dot {
+  display: none;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--changed);
+}
+
+.dirty > .dot,
+.dot.on {
+  display: inline-block;
+}
+
+.panel {
+  padding: 0 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel-head {
+  position: sticky;
+  top: -24px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 0 -20px 4px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  background: var(--card);
+}
+
+.panel-head > div:first-child {
+  flex: 1;
+}
+
+.panel-head h2 {
+  margin: 0 0 2px;
+  font-size: 17px;
+}
+
+.panel-head p {
+  margin: 0;
+}
+
+.apply-state {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.apply-state .state-label {
+  color: var(--ok);
+  font-size: 12px;
+}
+
+.apply-state.dirty .state-label {
+  color: var(--changed);
+  font-weight: 600;
+}
+
+.apply-state button[hidden] {
+  display: none;
+}
+
+.apply-state button.apply:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.group {
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.group:last-of-type {
+  border-bottom: 0;
+}
+
+.group h3 {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+details.group > summary {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0 18px;
+}
+
+.fields.four {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+/* Champ : barre orange à gauche tant qu'il n'est pas appliqué. */
+.field {
+  margin-left: -13px;
+  padding: 0 0 2px 10px;
+  border-left: 3px solid transparent;
+  border-radius: 2px;
+}
+
+.field.changed {
+  border-left-color: var(--changed);
+}
+
+.field.changed > label:first-child::after {
+  content: " · modifié";
+  color: var(--changed);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.field > label:first-child {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Option (case à cocher en interrupteur) et choix (bouton radio) : titre + explication. */
+label.option,
+label.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+label.option > span,
+label.choice > span {
+  display: flex;
+  flex-direction: column;
+}
+
+label.option small,
+label.choice small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+label.option.changed strong::after,
+label.choice.changed strong::after {
+  content: " · modifié";
+  color: var(--changed);
+  font-size: 11px;
+}
+
+label.option input[type="checkbox"] {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 10px;
+  background: var(--border);
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+label.option input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.15s;
+}
+
+label.option input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+
+label.option input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+}
+
+label.option input[type="checkbox"]:focus-visible,
+label.choice input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+label.option input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+label.choice input[type="radio"] {
+  margin-top: 3px;
+}
+
+.group.field.changed {
+  border-left-color: var(--changed);
+}
+
+.group .row button.danger {
+  margin-left: 0;
+}
+
+.panel-result {
+  margin-top: 4px;
+}
+
+.page p a {
+  color: var(--accent);
+}
+
+/* ---------- Zone de test ---------- */
+
+.test-dock {
+  position: sticky;
+  bottom: -24px;
+  z-index: 3;
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--card);
+  box-shadow: 0 -6px 18px rgb(0 0 0 / 8%);
+}
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 16px;
+}
+
+
+.dock-head button {
+  flex: none;
+  padding: 3px 10px;
+}
+
+.test-state {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  padding: 1px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.test-state[data-state="listening"],
+.test-state[data-state="handsfree"],
+.test-state[data-state="command"] {
+  background: var(--danger);
+  color: var(--card);
+}
+
+.test-state[data-state="processing"],
+.test-state[data-state="loading"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.test-state[data-state="error"] {
+  color: var(--danger);
+}
+
+.test-config {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-body {
+  padding: 0 16px 12px;
+}
+
+.dock-body > .hint {
+  margin-top: 6px;
+}
+
+.dock-body[hidden] {
+  display: none;
+}
+
+#test-input {
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+
+.test-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  margin: 8px 0 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.test-steps li + li::before {
+  content: "→";
+  margin: 0 8px;
+  color: var(--muted);
+}
+
+.test-steps li.ok {
+  color: var(--ok);
+}
+
+.test-steps li.warn {
+  color: var(--changed);
+}
+
+.test-steps li.fail {
+  color: var(--danger);
+}
+
+.test-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.test-text {
+  max-height: 66px;
+  margin: 2px 0 0;
+  padding: 6px 10px;
+  overflow-y: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .settings-nav h1 {
+    width: 100%;
+  }
+
+  .test-compare {
+    grid-template-columns: 1fr;
+  }
 }

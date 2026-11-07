@@ -149,7 +149,7 @@ $("profile").addEventListener("change", () => {
   if (!profile) return;
   fillProvider(stripName(profile));
   $("profile-name").value = profile.name;
-  showProviderResult(`Profil « ${profile.name} » chargé : « Appliquer » pour l'activer.`);
+  showProviderResult(`Profil « ${profile.name} » chargé dans le formulaire : « Appliquer » (en haut) pour l'activer.`);
 });
 
 async function saveProfiles(next, message) {
@@ -272,23 +272,23 @@ function showProviderResult(text, isError = false) {
   result.classList.toggle("error", isError);
 }
 
-$("provider-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const button = $("save-provider");
-  button.disabled = true;
-  try {
+SettingsUI.define("nettoyage", {
+  apply: async () => {
     const llm = await invoke("apply_llm_settings", { llm: readProvider() });
     activeLlm = llm;
     currency = llm.pricing.currency;
     fillProvider(llm);
     renderProfiles();
     loadApiKeys();
-    showProviderResult("✓ Appliqué : utilisé dès la prochaine dictée.");
-  } catch (e) {
-    showProviderResult(String(e), true);
-  } finally {
-    button.disabled = false;
-  }
+    $("provider-result").hidden = true;
+    window.dispatchEvent(new Event("settings-applied"));
+    return "✓ Appliqué : utilisé dès la prochaine dictée. Essayez dans la zone de test ci-dessous.";
+  },
+  revert: () => {
+    if (!activeLlm) return;
+    fillProvider(activeLlm);
+    renderProfiles();
+  },
 });
 
 /* ---------- Test avec diagnostic ---------- */
@@ -334,7 +334,8 @@ function renderDiagnostic(d) {
       button.title = "Utiliser ce modèle";
       button.addEventListener("click", () => {
         $("model").value = name;
-        showProviderResult(`Modèle « ${name} » choisi : retestez puis « Appliquer ».`);
+        showProviderResult(`Modèle « ${name} » choisi : retestez puis « Appliquer » (en haut).`);
+        SettingsUI.refresh("nettoyage");
       });
       models.append(button);
     }
@@ -427,7 +428,10 @@ $("save").addEventListener("click", () =>
 );
 
 $("key").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("save").click();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    $("save").click();
+  }
 });
 
 $("delete").addEventListener("click", () =>
@@ -553,19 +557,22 @@ async function loadApiKeys() {
   }
 }
 
-// Même test que « Tester ces réglages » (résultat sous le formulaire).
-$("test").addEventListener("click", () => runTest($("test")));
-
 // Le formulaire n'est rempli qu'une fois : revenir sur la page ne doit pas
 // écraser une saisie en cours.
 let providerFilled = false;
 registerPage("reglages", {
   show: () =>
     Promise.all([
+      SettingsUI.show(currentSection()),
       showGeneral(),
+      loadMeetingSettings(),
       loadApiKeys(),
       refresh().then((view) => {
-        if (!providerFilled) fillProvider(view.llm);
+        if (!providerFilled) {
+          fillProvider(view.llm);
+          SettingsUI.markClean("nettoyage");
+          window.dispatchEvent(new Event("settings-applied"));
+        }
         providerFilled = true;
         renderProfiles();
       }),

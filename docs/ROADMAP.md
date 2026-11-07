@@ -184,6 +184,16 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Bulle qui disparaissait (service « Ne fonctionne pas » dans l'accessibilité) : une erreur du moteur (panique Rust, exception Kotlin) ou du micro tuait tout le processus, et Android ne relançait pas le service. Erreurs désormais rattrapées et affichées ; bulle remise si Android retire sa fenêtre ; l'application signale une bulle activée mais arrêtée, avec la raison du dernier arrêt donnée par Android (v0.18.2)
 - À vérifier sur le téléphone : si la bulle s'arrête encore, la raison affichée (mémoire insuffisante, arrêtée par le système…) dira s'il faut libérer le modèle écran éteint
 
+## v0.19 — Réglages clairs ✅
+
+La page Réglages, devenue un long formulaire, est découpée en sections, avec une zone pour essayer chaque changement.
+
+- ✅ Menu des réglages par section : Raccourcis, Reconnaissance locale, Dictée et traduction, Nettoyage par LLM, Clés API et coût, Réunions (réglages déplacés depuis la page Réunions), Capture commentée, Application ; dernière section ouverte retenue ; ancre `#reglages/section`
+- ✅ Appliquer section par section, sans redémarrer : champ modifié marqué (barre orange, « modifié »), « N modifications non appliquées » dans l'en-tête, point dans le menu ; **Appliquer** (ou Ctrl+S) n'envoie que la section affichée, les autres gardent leurs saisies en attente ; **Annuler** remet les réglages appliqués
+- ✅ Options en interrupteurs avec titre et explication, champs regroupés par thème
+- ✅ Zone de test en bas des réglages : dicter dans le champ ; pour chaque dictée (ici ou ailleurs) : ce que le moteur local a entendu, le texte inséré, temps de transcription et modèle, temps du nettoyage, jetons, coût, secours, erreur ; état en direct (écoute, transcription, téléchargement du modèle) et résumé des réglages actifs. Événement `dictation` envoyé à la fenêtre principale seulement, rien d'enregistré
+- À vérifier sur le PC : rendu Windows (WebView2), dictée dans le champ de test, changement de modèle suivi dans la zone de test
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
