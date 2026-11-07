@@ -3,6 +3,7 @@
 //! Les appels sont bloquants : le pipeline tourne sur un thread de travail
 //! dédié, jamais sur le thread du hook clavier ou de l'interface.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -259,6 +260,9 @@ pub struct Pipeline {
     styles: Vec<Style>,
     /// Commandes vocales (mise en page, annulation) reconnues.
     voice_commands: bool,
+    /// Durée de la dernière transcription (zone de test des réglages) ; 0 si
+    /// le clip a été écarté avant l'ASR.
+    last_asr_ms: AtomicU64,
 }
 
 impl Pipeline {
@@ -274,7 +278,14 @@ impl Pipeline {
             snippets: Vec::new(),
             styles: Vec::new(),
             voice_commands: false,
+            last_asr_ms: AtomicU64::new(0),
         }
+    }
+
+    /// Durée de la transcription de la dernière dictée, en millisecondes
+    /// (0 : clip trop court ou silencieux, ASR non appelé).
+    pub fn last_asr_ms(&self) -> u64 {
+        self.last_asr_ms.load(Ordering::Relaxed)
     }
 
     pub fn with_voice_commands(mut self, enabled: bool) -> Self {
@@ -356,6 +367,7 @@ impl Pipeline {
     /// Transcription filtrée et durée de l'ASR ; `None` si le clip est trop
     /// court, silencieux ou ne contient qu'une hallucination.
     fn transcribe(&self, clip: &AudioClip) -> Result<Option<(String, u128)>, Error> {
+        self.last_asr_ms.store(0, Ordering::Relaxed);
         if clip.duration_ms() < MIN_CLIP_MS {
             log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
             return Ok(None);
@@ -368,6 +380,8 @@ impl Pipeline {
         let started = Instant::now();
         let transcribed = self.transcriber.transcribe(clip)?;
         let asr_ms = started.elapsed().as_millis();
+        self.last_asr_ms
+            .store(u64::try_from(asr_ms).unwrap_or(u64::MAX), Ordering::Relaxed);
         let raw = text::strip_hallucinations(&transcribed);
         if raw.is_empty() {
             log::info!(
@@ -691,6 +705,25 @@ mod tests {
         let sink = Recorder::default();
         let p = Pipeline::new(Box::new(FixedAsr(asr)), post, Box::new(sink.clone()));
         (p, sink)
+    }
+
+    struct SlowAsr;
+    impl Transcriber for SlowAsr {
+        fn transcribe(&self, _: &AudioClip) -> Result<String, Error> {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            Ok("bonjour".to_owned())
+        }
+    }
+
+    #[test]
+    fn asr_duration_is_kept_for_the_test_zone() {
+        let sink = Recorder::default();
+        let p = Pipeline::new(Box::new(SlowAsr), None, Box::new(sink));
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert!(p.last_asr_ms() >= 20, "{} ms", p.last_asr_ms());
+        // Clip écarté avant l'ASR : aucune durée de la dictée précédente.
+        p.run(&clip_ms(200), &no_target()).unwrap();
+        assert_eq!(p.last_asr_ms(), 0);
     }
 
     #[test]

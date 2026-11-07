@@ -33,6 +33,22 @@ fn java(env: &mut JNIEnv, value: &str) -> jstring {
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// Exécute `f` en rattrapant ses paniques : une panique qui sortirait d'une
+/// fonction JNI arrêterait tout le processus (clavier, application et
+/// service de la bulle, qu'Android marque alors « Ne fonctionne pas »). Elle
+/// devient une erreur `{"error": "…"}` (même forme que [`reply`]), affichée
+/// à l'utilisateur. Équivalent d'un `try/catch` autour de tout l'appel.
+fn protect(f: impl FnOnce() -> String) -> String {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|panic| {
+        let message = panic
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_owned())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "cause inconnue".to_owned());
+        reply::<()>(Err(format!("erreur interne du moteur : {message}")))
+    })
+}
+
 /// `{"ok": …}` ou `{"error": "…"}`.
 fn reply<T: Serialize>(result: Result<T, String>) -> String {
     let value = match result {
@@ -53,6 +69,9 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_init(
             .with_max_level(log::LevelFilter::Info)
             .with_tag("VoiceToText"),
     );
+    // Message et emplacement des paniques dans le journal Android (logcat) :
+    // sans ce crochet, ils partiraient sur la sortie d'erreur, invisible.
+    std::panic::set_hook(Box::new(|info| log::error!("panique : {info}")));
 }
 
 #[unsafe(no_mangle)]
@@ -65,9 +84,11 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_settings<'a>(
     let toml = text(&mut env, &toml);
     let dir = PathBuf::from(text(&mut env, &models_dir));
     let json =
-        reply(settings::view(&toml, &dir).and_then(|v| {
-            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| e.to_string())
-        }));
+        protect(|| {
+            reply(settings::view(&toml, &dir).and_then(|v| {
+                serde_json::from_str::<serde_json::Value>(&v).map_err(|e| e.to_string())
+            }))
+        });
     java(&mut env, &json)
 }
 
@@ -80,11 +101,13 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_updateSettings
 ) -> jstring {
     let toml = text(&mut env, &toml);
     let update = text(&mut env, &update);
-    let json = reply(
-        serde_json::from_str::<settings::Update>(&update)
-            .map_err(|e| e.to_string())
-            .and_then(|u| settings::update(&toml, &u)),
-    );
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<settings::Update>(&update)
+                .map_err(|e| e.to_string())
+                .and_then(|u| settings::update(&toml, &u)),
+        )
+    });
     java(&mut env, &json)
 }
 
@@ -95,7 +118,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_importSettings
     file: JString<'a>,
 ) -> jstring {
     let file = text(&mut env, &file);
-    let json = reply(settings::import(&file));
+    let json = protect(|| reply(settings::import(&file)));
     java(&mut env, &json)
 }
 
@@ -108,7 +131,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_download<'a>(
 ) -> jstring {
     let dir = PathBuf::from(text(&mut env, &models_dir));
     let id = text(&mut env, &id);
-    let json = reply(models::download(&dir, &id).map(|_| ()));
+    let json = protect(|| reply(models::download(&dir, &id).map(|_| ())));
     java(&mut env, &json)
 }
 
@@ -129,7 +152,10 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_setApiKey<'a>(
     key: JString<'a>,
 ) {
     let key = text(&mut env, &key);
-    engine::set_api_key(Some(key));
+    protect(|| {
+        engine::set_api_key(Some(key));
+        String::new()
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -143,7 +169,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_start<'a>(
     let dir = PathBuf::from(text(&mut env, &models_dir));
     let history = PathBuf::from(text(&mut env, &history_file));
     let toml = text(&mut env, &toml);
-    let json = reply(engine::start(&dir, &history, &toml));
+    let json = protect(|| reply(engine::start(&dir, &history, &toml)));
     java(&mut env, &json)
 }
 
@@ -155,7 +181,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_history<'a>(
     limit: jint,
 ) -> jstring {
     let file = PathBuf::from(text(&mut env, &history_file));
-    let json = reply(engine::history(&file, limit.max(0) as usize));
+    let json = protect(|| reply(engine::history(&file, limit.max(0) as usize)));
     java(&mut env, &json)
 }
 
@@ -166,7 +192,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_clearHistory<'
     history_file: JString<'a>,
 ) -> jstring {
     let file = PathBuf::from(text(&mut env, &history_file));
-    let json = reply(engine::clear_history(&file));
+    let json = protect(|| reply(engine::clear_history(&file)));
     java(&mut env, &json)
 }
 
@@ -177,7 +203,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_vocabulary<'a>
     toml: JString<'a>,
 ) -> jstring {
     let toml = text(&mut env, &toml);
-    let json = reply(settings::vocabulary(&toml));
+    let json = protect(|| reply(settings::vocabulary(&toml)));
     java(&mut env, &json)
 }
 
@@ -190,11 +216,13 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_saveVocabulary
 ) -> jstring {
     let toml = text(&mut env, &toml);
     let vocabulary = text(&mut env, &vocabulary);
-    let json = reply(
-        serde_json::from_str::<settings::Vocabulary>(&vocabulary)
-            .map_err(|e| e.to_string())
-            .and_then(|v| settings::save_vocabulary(&toml, &v)),
-    );
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<settings::Vocabulary>(&vocabulary)
+                .map_err(|e| e.to_string())
+                .and_then(|v| settings::save_vocabulary(&toml, &v)),
+        )
+    });
     java(&mut env, &json)
 }
 
@@ -229,7 +257,33 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
         2 => engine::Privacy::Password,
         _ => engine::Privacy::Normal,
     };
-    let result = engine::dictate(buffer, app, mode, privacy);
-    let json = serde_json::to_string(&result).unwrap_or_default();
+    // Erreur rattrapée : `{"error": …}` sans `kind`, affichée comme une
+    // dictée en erreur.
+    let json = protect(|| {
+        let result = engine::dictate(buffer, app, mode, privacy);
+        serde_json::to_string(&result).unwrap_or_default()
+    });
     java(&mut env, &json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protect_returns_the_result_when_nothing_panics() {
+        assert_eq!(protect(|| reply(Ok(1))), r#"{"ok":1}"#);
+    }
+
+    #[test]
+    fn protect_turns_a_panic_into_an_error() {
+        let json: serde_json::Value =
+            serde_json::from_str(&protect(|| panic!("index hors limites"))).unwrap();
+        assert_eq!(
+            json["error"],
+            "erreur interne du moteur : index hors limites"
+        );
+        let owned = protect(|| panic!("{} échantillons", 3));
+        assert!(owned.contains("3 échantillons"), "{owned}");
+    }
 }

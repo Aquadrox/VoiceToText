@@ -59,12 +59,20 @@ impl StatusReporter {
         }
         let _ = self.tray_item.set_text(status.tray_label());
         let _ = self.app.emit_to("overlay", "status", &status);
+        // Zone de test des réglages (fenêtre principale, si ouverte).
+        let _ = self.app.emit_to("main", "status", &status);
         *self.current.lock().unwrap_or_else(|e| e.into_inner()) = status;
     }
 
     /// Niveau du micro (0 à 1) pour la pastille, pendant l'enregistrement.
     pub fn level(&self, level: f32) {
         let _ = self.app.emit_to("overlay", "level", level);
+    }
+
+    /// Résultat d'une dictée, pour la zone de test des réglages. Envoyé
+    /// seulement à la fenêtre principale (rien n'est écrit sur le disque).
+    pub fn dictation(&self, report: &impl Serialize) {
+        let _ = self.app.emit_to("main", "dictation", report);
     }
 
     /// Notification Windows (jamais le texte dicté : elle reste affichée

@@ -7,7 +7,7 @@
   </head>
   <body>
     <div class="layout">
-      <nav aria-label="Navigation principale">
+      <nav class="main-nav" aria-label="Navigation principale">
         <div class="brand">VoiceToText</div>
         <a href="#accueil">Accueil</a>
         <a href="#historique">Historique</a>
@@ -16,7 +16,7 @@
         <a href="#snippets">Snippets</a>
         <a href="#styles">Styles</a>
         <a href="#prompts">Prompts</a>
-        <a href="#reglages">Réglages</a>
+        <a href="#reglages">Réglages<span class="dot" id="nav-settings-dot" title="Modifications non appliquées"></span></a>
       </nav>
 
       <main>
@@ -180,67 +180,10 @@
             </article>
           </div>
 
-          <details class="meeting-settings">
-            <summary>Réglages des réunions</summary>
-            <form id="meeting-settings-form">
-              <fieldset>
-                <legend>Audio de la réunion</legend>
-                <label class="inline">
-                  <input type="radio" name="meeting-audio" value="memoire" />
-                  En mémoire seulement : rien sur le disque ; ce qui n'est pas encore transcrit est
-                  perdu si VoiceToText s'arrête
-                </label>
-                <label class="inline">
-                  <input type="radio" name="meeting-audio" value="temporaire" />
-                  Fichier chiffré par Windows pendant la réunion (reprise après une coupure),
-                  supprimé une fois la transcription terminée (recommandé)
-                </label>
-                <label class="inline">
-                  <input type="radio" name="meeting-audio" value="conserve" />
-                  Conservé, chiffré : export en WAV, nouvelle transcription possible
-                </label>
-              </fieldset>
-              <label class="inline">
-                <input id="meeting-system" type="checkbox" />
-                Capter le son du PC (les autres participants), en plus du micro
-              </label>
-              <label class="inline">
-                <input id="meeting-echo" type="checkbox" />
-                Écarter l'écho (appel sur haut-parleurs : le micro réentend les autres)
-              </label>
-              <fieldset>
-                <legend>Détection d'appel</legend>
-                <label class="inline">
-                  <input id="meeting-detect" type="checkbox" />
-                  Proposer d'enregistrer quand un appel commence (programme qui utilise le micro ;
-                  seul son nom est lu)
-                </label>
-                <table id="meeting-providers" class="providers">
-                  <thead>
-                    <tr><th>Service</th><th>Quand un appel est détecté</th></tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-                <p class="muted small">
-                  Navigateurs : proposé après 20 s de micro (pas pour un message vocal). Sans
-                  réponse, la proposition se referme au bout de 20 s sans rien enregistrer.
-                </p>
-              </fieldset>
-              <label class="inline">
-                <input id="meeting-auto-summary" type="checkbox" />
-                Rédiger le compte rendu automatiquement à la fin (LLM choisi dans les réglages ;
-                prompt modifiable dans la page Prompts)
-              </label>
-              <label for="meeting-language">Langue du compte rendu</label>
-              <select id="meeting-language"></select>
-              <label for="meeting-keep">Conserver les réunions</label>
-              <select id="meeting-keep"></select>
-              <div class="row">
-                <button type="submit" class="primary">Appliquer</button>
-              </div>
-              <div id="meeting-settings-result" class="result" hidden></div>
-            </form>
-          </details>
+          <p class="muted small">
+            <a href="#reglages/reunions">Réglages des réunions</a> (audio, son du PC, détection
+            d'appel, compte rendu automatique, conservation) : dans Réglages → Réunions.
+          </p>
         </section>
 
         <!-- Historique -->
@@ -342,340 +285,581 @@
         </section>
 
         <!-- Réglages -->
-        <section class="page" id="page-reglages" hidden>
-          <h1>Réglages</h1>
+        <section class="page settings-page" id="page-reglages" hidden>
+          <div class="settings-layout">
+            <nav class="settings-nav" aria-label="Sections des réglages">
+              <h1>Réglages</h1>
+              <a href="#reglages/raccourcis" data-panel-link="raccourcis"><span class="icon" aria-hidden="true">⌨</span>Raccourcis<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/reconnaissance" data-panel-link="reconnaissance"><span class="icon" aria-hidden="true">🎙</span>Reconnaissance locale<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/dictee" data-panel-link="dictee"><span class="icon" aria-hidden="true">✎</span>Dictée et traduction<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/nettoyage" data-panel-link="nettoyage"><span class="icon" aria-hidden="true">✨</span>Nettoyage par LLM<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/cles" data-panel-link="cles"><span class="icon" aria-hidden="true">🔑</span>Clés API et coût<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/reunions" data-panel-link="reunions"><span class="icon" aria-hidden="true">👥</span>Réunions<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/capture" data-panel-link="capture"><span class="icon" aria-hidden="true">🖍</span>Capture commentée<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/application" data-panel-link="application"><span class="icon" aria-hidden="true">⚙</span>Application<span class="dot" title="Modifications non appliquées"></span></a>
+            </nav>
 
-          <form id="general-form">
-            <section>
-              <h2>Raccourcis</h2>
-              <div class="grid even">
-                <div>
-                  <label for="hk-key">Dictée (maintenir)</label>
-                  <select id="hk-key"></select>
+            <div class="settings-panels">
+              <!-- Raccourcis -->
+              <form class="panel" data-panel="raccourcis" data-kind="general" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Raccourcis</h2>
+                    <p class="muted small">Touches de la dictée et raccourcis globaux, actifs dans toutes les applications.</p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group">
+                  <h3>Dictée</h3>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="hk-key">Touche de dictée (maintenir)</label>
+                      <select id="hk-key"></select>
+                    </div>
+                    <div class="field">
+                      <label for="hk-command">Command Mode (avec la touche de dictée)</label>
+                      <select id="hk-command"></select>
+                      <p class="hint">Consigne dictée appliquée au texte sélectionné.</p>
+                    </div>
+                    <div class="field">
+                      <label for="hk-hold">Appui minimal (ms)</label>
+                      <input id="hk-hold" type="number" min="50" max="1000" step="10" required />
+                      <p class="hint">Un appui plus court est ignoré (AltGr sert aussi à taper @, €…).</p>
+                    </div>
+                  </div>
+                  <label class="option field">
+                    <input id="hk-handsfree" type="checkbox" />
+                    <span><strong>Mains libres</strong><small>Deux appuis courts : dictée sans tenir la touche. Nouvel appui pour terminer, Échap pour annuler.</small></span>
+                  </label>
                 </div>
-                <div>
-                  <label for="hk-command">Command Mode (avec la touche de dictée)</label>
-                  <select id="hk-command"></select>
+
+                <div class="group">
+                  <h3>Raccourcis globaux</h3>
+                  <p class="hint">Format : <code>Alt+Shift+V</code>, <code>Ctrl+Alt+F9</code>… Laisser vide pour désactiver.</p>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="hk-paste">Coller la version brute</label>
+                      <input id="hk-paste" type="text" placeholder="Alt+Shift+V" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="hk-retry">Réessayer la dernière dictée</label>
+                      <input id="hk-retry" type="text" placeholder="Alt+Shift+R" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="hk-translate">Mode traduction (activer / couper)</label>
+                      <input id="hk-translate" type="text" placeholder="Alt+Shift+T" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="hk-meeting">Réunion (démarrer / arrêter)</label>
+                      <input id="hk-meeting" type="text" placeholder="Alt+Shift+M" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="hk-meeting-copy">Coller les nouvelles répliques</label>
+                      <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="hk-annotate">Capture commentée</label>
+                      <input id="hk-annotate" type="text" placeholder="Alt+Shift+A" spellcheck="false" />
+                      <p class="hint">Appui : démarrer / arrêter ; maintien : dessiner.</p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label for="hk-paste">Coller la version brute</label>
-                  <input id="hk-paste" type="text" placeholder="Alt+Shift+V (vide : désactivé)" spellcheck="false" />
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Reconnaissance locale -->
+              <form class="panel" data-panel="reconnaissance" data-kind="general" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Reconnaissance locale</h2>
+                    <p class="muted small">Micro et moteur de transcription : tout se passe sur ce PC, l'audio ne le quitte jamais.</p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group">
+                  <h3>Micro</h3>
+                  <div class="field">
+                    <label for="audio-device">Micro utilisé</label>
+                    <select id="audio-device"></select>
+                  </div>
                 </div>
-                <div>
-                  <label for="hk-retry">Réessayer la dernière dictée</label>
-                  <input id="hk-retry" type="text" placeholder="Alt+Shift+R (vide : désactivé)" spellcheck="false" />
+
+                <div class="group">
+                  <h3>Moteur de transcription</h3>
+                  <div class="field">
+                    <label for="asr-model">Modèle</label>
+                    <select id="asr-model"></select>
+                    <p id="asr-engine-note" class="hint"></p>
+                    <p class="hint">
+                      Un nouveau modèle est téléchargé puis chargé tout de suite (progression dans la
+                      pastille et dans la zone de test) ; les dictées continuent avec l'ancien en attendant.
+                    </p>
+                  </div>
+                  <label class="option field">
+                    <input id="asr-gpu" type="checkbox" />
+                    <span><strong>Utiliser la carte graphique</strong><small>Beaucoup plus rapide ; Whisper seulement.</small></span>
+                  </label>
                 </div>
-                <div>
-                  <label for="hk-translate">Mode traduction (activer / couper)</label>
-                  <input id="hk-translate" type="text" placeholder="Alt+Shift+T (vide : désactivé)" spellcheck="false" />
+
+                <div class="group">
+                  <h3>Mémoire graphique</h3>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="asr-unload">Libérer le modèle sans dictée depuis</label>
+                      <select id="asr-unload"></select>
+                    </div>
+                  </div>
+                  <label class="option field">
+                    <input id="asr-fullscreen" type="checkbox" />
+                    <span><strong>Libérer pendant les jeux et vidéos en plein écran</strong><small>Après une minute sans dicter.</small></span>
+                  </label>
+                  <p class="hint">
+                    Le modèle est rechargé dès le début de la dictée suivante, pendant que vous parlez
+                    (une à deux secondes de plus sur cette dictée seulement).
+                  </p>
                 </div>
-                <div>
-                  <label for="hk-meeting">Réunion (démarrer / arrêter)</label>
-                  <input id="hk-meeting" type="text" placeholder="Alt+Shift+M (vide : désactivé)" spellcheck="false" />
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Dictée et traduction -->
+              <form class="panel" data-panel="dictee" data-kind="general" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Dictée et traduction</h2>
+                    <p class="muted small">Ce qui se passe pendant et après chaque dictée.</p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group">
+                  <h3>Pendant la dictée</h3>
+                  <label class="option field">
+                    <input id="dict-sounds" type="checkbox" />
+                    <span><strong>Sons de début et de fin</strong><small>Et un son d'annulation.</small></span>
+                  </label>
+                  <label class="option field">
+                    <input id="dict-media" type="checkbox" />
+                    <span><strong>Mettre en pause la musique et les vidéos</strong><small>Seul ce qui jouait est relancé à la fin.</small></span>
+                  </label>
+                  <label class="option field">
+                    <input id="dict-commands" type="checkbox" />
+                    <span><strong>Commandes vocales</strong><small>« nouvelle ligne », « nouveau paragraphe », « point à la ligne », « annule la dernière dictée ».</small></span>
+                  </label>
                 </div>
-                <div>
-                  <label for="hk-meeting-copy">Coller les nouvelles répliques (réunion)</label>
-                  <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N (vide : désactivé)" spellcheck="false" />
+
+                <div class="group">
+                  <h3>Mode traduction</h3>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="tr-language">Traduire vers</label>
+                      <select id="tr-language"></select>
+                    </div>
+                  </div>
+                  <p class="hint">
+                    Raccourci <strong data-shortcut="hk-translate"></strong> ou menu de l'icône →
+                    <strong>Mode traduction</strong> : les dictées suivantes sont nettoyées puis
+                    traduites par le LLM, jusqu'à ce que vous coupiez le mode.
+                  </p>
                 </div>
-                <div>
-                  <label for="hk-annotate">Capture commentée (appui : démarrer / arrêter ; maintien : dessiner)</label>
-                  <input id="hk-annotate" type="text" placeholder="Alt+Shift+A (vide : désactivé)" spellcheck="false" />
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Nettoyage par LLM -->
+              <form class="panel" data-panel="nettoyage" data-kind="llm" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Nettoyage par LLM</h2>
+                    <p class="muted small">
+                      Le texte transcrit (jamais l'audio) est envoyé au modèle choisi pour retirer les
+                      hésitations et corriger la ponctuation. Consignes : page <a href="#prompts">Prompts</a>.
+                    </p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group">
+                  <label class="option field">
+                    <input id="enabled" type="checkbox" />
+                    <span><strong>Nettoyer le texte</strong><small>Sinon, la transcription brute est insérée telle quelle.</small></span>
+                  </label>
                 </div>
-                <div>
-                  <label for="hk-hold">Appui minimal (ms)</label>
-                  <input id="hk-hold" type="number" min="50" max="1000" step="10" required />
+
+                <div class="group" data-untracked>
+                  <h3>Profils</h3>
+                  <div class="row">
+                    <select id="profile" aria-label="Profil LLM"></select>
+                    <button id="profile-delete" type="button" class="danger">Supprimer le profil</button>
+                  </div>
+                  <p class="hint">Choisir un profil remplit le formulaire ci-dessous ; « Appliquer » l'active.</p>
+                  <div class="row">
+                    <input id="profile-name" type="text" placeholder="Nom du profil (ex. Ollama du NAS)" spellcheck="false" />
+                    <button id="profile-save" type="button">Enregistrer le formulaire comme profil</button>
+                  </div>
+                </div>
+
+                <div class="group">
+                  <h3>Fournisseur</h3>
+                  <div class="field">
+                    <label for="preset">Préréglage</label>
+                    <select id="preset"></select>
+                    <p id="preset-note" class="hint"></p>
+                  </div>
+                  <div class="field">
+                    <label for="base-url">Adresse de l'API (compatible OpenAI)</label>
+                    <input id="base-url" type="url" spellcheck="false" required />
+                  </div>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="model">Modèle</label>
+                      <input id="model" type="text" spellcheck="false" required />
+                    </div>
+                    <div class="field">
+                      <label for="timeout">Délai maximal (s)</label>
+                      <input id="timeout" type="number" min="0.5" max="60" step="0.5" required />
+                    </div>
+                  </div>
+                  <div class="row">
+                    <button id="provider-test" type="button">Tester ces réglages</button>
+                  </div>
+                  <div id="provider-result" class="result" hidden></div>
+                  <div id="diagnostic" class="diagnostic" hidden></div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Clé API <span id="key-host" class="muted"></span></h3>
+                  <p id="key-status" class="status"></p>
+                  <div class="row">
+                    <input id="key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="Clé API" />
+                    <button id="save" type="button" class="primary">Enregistrer la clé</button>
+                    <button id="delete" type="button" class="danger">Supprimer la clé</button>
+                  </div>
+                  <p class="hint">
+                    Une clé par adresse, enregistrée tout de suite dans le Gestionnaire d'identifiants
+                    Windows : jamais en clair sur le disque, jamais envoyée en HTTP hors de ce PC.
+                    « Tester ces réglages » utilise la clé saisie ici si elle est remplie.
+                  </p>
+                  <div id="result" class="result" hidden></div>
+                </div>
+
+                <div class="group">
+                  <h3>Secours</h3>
+                  <div class="field">
+                    <label for="fallback">Profil de secours</label>
+                    <select id="fallback"></select>
+                    <p class="hint">
+                      Essayé si ce fournisseur échoue (panne, délai dépassé, clé refusée), avant de
+                      coller le texte brut. Ex. un Ollama du réseau local en secours de DeepSeek.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="group">
+                  <h3>Tarif par million de jetons</h3>
+                  <div class="fields four">
+                    <div class="field">
+                      <label for="price-input">Entrée</label>
+                      <input id="price-input" type="number" min="0" step="any" required />
+                    </div>
+                    <div class="field">
+                      <label for="price-cached">Entrée en cache</label>
+                      <input id="price-cached" type="number" min="0" step="any" required />
+                    </div>
+                    <div class="field">
+                      <label for="price-output">Sortie</label>
+                      <input id="price-output" type="number" min="0" step="any" required />
+                    </div>
+                    <div class="field">
+                      <label for="currency">Devise</label>
+                      <input id="currency" type="text" maxlength="3" spellcheck="false" required />
+                    </div>
+                  </div>
+                </div>
+
+                <details class="group">
+                  <summary>Paramètres supplémentaires (avancé)</summary>
+                  <div class="field">
+                    <p class="hint">
+                      Objet JSON ajouté à chaque requête, propre au fournisseur. Exemple :
+                      <code>{"thinking": {"type": "disabled"}}</code> désactive la réflexion (lente)
+                      de DeepSeek et GLM.
+                    </p>
+                    <textarea id="extra" rows="3" spellcheck="false" aria-label="Paramètres supplémentaires"></textarea>
+                  </div>
+                </details>
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Clés API et coût -->
+              <div class="panel" data-panel="cles" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Clés API et coût</h2>
+                    <p class="muted small">Chaque action ici est appliquée immédiatement.</p>
+                  </div>
+                </header>
+
+                <div class="group">
+                  <h3>Clés enregistrées</h3>
+                  <p class="hint">
+                    Une clé par fournisseur, dans le Gestionnaire d'identifiants Windows. Elles ne sont
+                    jamais affichées, ni en entier ni en partie : seulement le fournisseur.
+                  </p>
+                  <ul id="api-keys" class="api-keys"></ul>
+                  <p id="api-keys-empty" class="muted" hidden>Aucune clé enregistrée.</p>
+                  <div id="api-keys-result" class="result" hidden></div>
+                </div>
+
+                <div class="group">
+                  <h3>Consommation</h3>
+                  <table id="usage">
+                    <thead>
+                      <tr><th></th><th>Requêtes</th><th>Jetons</th><th>Coût estimé</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr data-period="today"><th>Aujourd'hui</th><td></td><td></td><td></td></tr>
+                      <tr data-period="month"><th>Ce mois</th><td></td><td></td><td></td></tr>
+                      <tr data-period="total"><th>Total</th><td></td><td></td><td></td></tr>
+                    </tbody>
+                  </table>
+                  <p class="hint">
+                    Jetons envoyés + reçus, comptés par le fournisseur. Coût estimé avec le tarif de
+                    la section Nettoyage par LLM. Le solde exact reste sur le site du fournisseur.
+                  </p>
                 </div>
               </div>
-              <label class="inline">
-                <input id="hk-handsfree" type="checkbox" />
-                Mains libres : deux appuis courts → dictée sans tenir la touche (Échap annule)
-              </label>
-            </section>
 
-            <section>
-              <h2>Micro et transcription</h2>
-              <label for="audio-device">Micro</label>
-              <select id="audio-device"></select>
-              <label for="asr-model">Modèle de transcription</label>
-              <select id="asr-model"></select>
-              <p id="asr-engine-note" class="muted small"></p>
-              <p class="muted small">
-                Un nouveau modèle est téléchargé puis chargé tout de suite (progression dans la
-                pastille) ; les dictées continuent avec l'ancien en attendant.
-              </p>
-              <label class="inline">
-                <input id="asr-gpu" type="checkbox" />
-                Utiliser la carte graphique (beaucoup plus rapide ; Whisper seulement)
-              </label>
-              <label for="asr-unload">Libérer la mémoire graphique sans dictée depuis</label>
-              <select id="asr-unload"></select>
-              <label class="inline">
-                <input id="asr-fullscreen" type="checkbox" />
-                Libérer la mémoire graphique pendant les jeux et vidéos en plein écran
-              </label>
-              <p class="muted small">
-                Le modèle est rechargé dès le début de la dictée suivante, pendant que vous parlez
-                (une à deux secondes de plus sur cette dictée seulement).
-              </p>
-            </section>
+              <!-- Réunions -->
+              <form class="panel" id="meeting-settings-form" data-panel="reunions" data-kind="meetings" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Réunions</h2>
+                    <p class="muted small">
+                      Enregistrement des appels (Teams, Zoom, Meet, Discord…) : raccourci
+                      <strong data-shortcut="hk-meeting"></strong>, menu de l'icône ou page
+                      <a href="#reunions">Réunions</a>.
+                    </p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
 
-            <section>
-              <h2>Pendant la dictée</h2>
-              <label class="inline">
-                <input id="dict-sounds" type="checkbox" />
-                Sons de début et de fin de dictée
-              </label>
-              <label class="inline">
-                <input id="dict-media" type="checkbox" />
-                Mettre en pause la musique et les vidéos, puis les relancer
-              </label>
-              <label class="inline">
-                <input id="dict-commands" type="checkbox" />
-                Commandes vocales : « nouvelle ligne », « nouveau paragraphe », « point à la ligne »,
-                « annule la dernière dictée »
-              </label>
-            </section>
+                <div class="group">
+                  <h3>Son enregistré</h3>
+                  <label class="option field">
+                    <input id="meeting-system" type="checkbox" />
+                    <span><strong>Capter le son du PC</strong><small>Les autres participants (« Eux »), en plus de votre micro (« Moi »).</small></span>
+                  </label>
+                  <label class="option field">
+                    <input id="meeting-echo" type="checkbox" />
+                    <span><strong>Écarter l'écho</strong><small>Appel sur haut-parleurs : le micro réentend les autres. Inutile au casque.</small></span>
+                  </label>
+                </div>
 
-            <section>
-              <h2>Mode traduction</h2>
-              <label for="tr-language">Traduire vers</label>
-              <select id="tr-language"></select>
-              <p class="muted small">
-                Raccourci ci-dessus (Alt+Maj+T) ou menu de l'icône → <strong>Mode traduction</strong> :
-                les dictées suivantes sont nettoyées puis traduites par le LLM. La pastille affiche la
-                langue pendant la dictée. Le mode reste actif jusqu'à ce que vous le coupiez.
-              </p>
-            </section>
+                <div class="group field">
+                  <h3>Audio de la réunion</h3>
+                  <label class="choice">
+                    <input type="radio" name="meeting-audio" value="memoire" />
+                    <span><strong>En mémoire seulement</strong><small>Rien sur le disque ; ce qui n'est pas encore transcrit est perdu si VoiceToText s'arrête.</small></span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="meeting-audio" value="temporaire" />
+                    <span><strong>Fichier temporaire chiffré (recommandé)</strong><small>Chiffré par Windows pendant la réunion (reprise après une coupure), supprimé une fois la transcription terminée.</small></span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="meeting-audio" value="conserve" />
+                    <span><strong>Conservé, chiffré</strong><small>Export en WAV, réécoute et nouvelle transcription possibles.</small></span>
+                  </label>
+                </div>
 
-            <section>
-              <h2>Capture commentée</h2>
-              <p class="muted small">
-                Raccourci ci-dessus (Alt+Maj+A) : parlez en montrant l'écran ; tenez le raccourci
-                pour dessiner avec la souris. Un nouvel appui arrête : images des moments clés
-                (traits, « ici », « là »…) et texte collés dans l'application active.
-              </p>
-              <label for="capture-template">Texte rédigé par le LLM</label>
-              <select id="capture-template"></select>
-              <label for="capture-area">Capturer</label>
-              <select id="capture-area">
-                <option value="ecran">Tout l'écran principal</option>
-                <option value="fenetre">La fenêtre active au démarrage</option>
-                <option value="zone">Une zone tracée à la souris au démarrage</option>
-              </select>
-              <label class="inline">
-                <input id="capture-clicks" type="checkbox" />
-                Les clics sont des moments clés (cercle rouge sur l'image)
-              </label>
-              <label for="capture-keep">Garder les captures sur le disque</label>
-              <select id="capture-keep"></select>
-              <label class="inline">
-                <input id="capture-vision" type="checkbox" />
-                Faire décrire les images par le LLM (modèle qui lit les images)
-              </label>
-              <p id="capture-vision-warning" class="warning" hidden>
-                Les images annotées sont alors envoyées au fournisseur LLM : elles quittent le PC.
-                Évitez avec des informations confidentielles à l'écran.
-              </p>
-              <label for="capture-vision-profile">Fournisseur pour les images</label>
-              <select id="capture-vision-profile"></select>
-              <p class="muted small">
-                Non gardées : seule la dernière reste en mémoire (menu de l'icône → Coller la
-                dernière capture commentée). Sans la description des images, les captures d'écran
-                ne quittent jamais le PC : seul le texte de la narration est envoyé au LLM.
-              </p>
-            </section>
+                <div class="group">
+                  <h3>Détection d'appel</h3>
+                  <label class="option field">
+                    <input id="meeting-detect" type="checkbox" />
+                    <span><strong>Proposer d'enregistrer quand un appel commence</strong><small>Programme qui utilise le micro ; seul son nom est lu.</small></span>
+                  </label>
+                  <table id="meeting-providers" class="providers">
+                    <thead>
+                      <tr><th>Service</th><th>Quand un appel est détecté</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                  <p class="hint">
+                    Navigateurs : proposé après 20 s de micro (pas pour un message vocal). Sans
+                    réponse, la proposition se referme au bout de 20 s sans rien enregistrer.
+                  </p>
+                </div>
 
-            <section>
-              <h2>Mises à jour</h2>
-              <label class="inline">
-                <input id="updates-check" type="checkbox" />
-                Rechercher les nouvelles versions (GitHub, toutes les 6 h ; installation seulement sur votre clic)
-              </label>
-              <p class="muted small">
-                Version installée : <span id="current-version"></span>. Chaque mise à jour est signée ;
-                sa signature est vérifiée avant installation.
-              </p>
-              <div class="row">
-                <button id="settings-update-check" type="button">Vérifier les mises à jour</button>
-                <button id="settings-update-install" type="button" class="primary" hidden>
-                  Télécharger et installer
-                </button>
-              </div>
-              <div id="settings-update-result" class="result" hidden></div>
-            </section>
+                <div class="group">
+                  <h3>Compte rendu et conservation</h3>
+                  <label class="option field">
+                    <input id="meeting-auto-summary" type="checkbox" />
+                    <span><strong>Rédiger le compte rendu automatiquement à la fin</strong><small>Avec le LLM de la section Nettoyage ; prompt modifiable dans la page Prompts.</small></span>
+                  </label>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="meeting-language">Langue du compte rendu</label>
+                      <select id="meeting-language"></select>
+                    </div>
+                    <div class="field">
+                      <label for="meeting-keep">Conserver les réunions</label>
+                      <select id="meeting-keep"></select>
+                    </div>
+                  </div>
+                </div>
+                <div id="meeting-settings-result" class="panel-result result" hidden></div>
+              </form>
 
-            <div class="row">
-              <button id="general-save" type="submit" class="primary">Appliquer</button>
+              <!-- Capture commentée -->
+              <form class="panel" data-panel="capture" data-kind="general" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Capture commentée</h2>
+                    <p class="muted small">
+                      Raccourci <strong data-shortcut="hk-annotate"></strong> : parlez en montrant
+                      l'écran, tenez le raccourci pour dessiner. Un nouvel appui arrête : images des
+                      moments clés et texte collés dans l'application active.
+                    </p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group">
+                  <h3>Résultat</h3>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="capture-template">Texte rédigé par le LLM</label>
+                      <select id="capture-template"></select>
+                    </div>
+                    <div class="field">
+                      <label for="capture-area">Capturer</label>
+                      <select id="capture-area">
+                        <option value="ecran">Tout l'écran principal</option>
+                        <option value="fenetre">La fenêtre active au démarrage</option>
+                        <option value="zone">Une zone tracée à la souris au démarrage</option>
+                      </select>
+                    </div>
+                  </div>
+                  <label class="option field">
+                    <input id="capture-clicks" type="checkbox" />
+                    <span><strong>Les clics sont des moments clés</strong><small>Cercle rouge sur l'image.</small></span>
+                  </label>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="capture-keep">Garder les captures sur le disque</label>
+                      <select id="capture-keep"></select>
+                      <p class="hint">Non : seule la dernière reste en mémoire (menu de l'icône → Coller la dernière capture commentée).</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="group">
+                  <h3>Description des images</h3>
+                  <label class="option field">
+                    <input id="capture-vision" type="checkbox" />
+                    <span><strong>Faire décrire les images par le LLM</strong><small>Modèle qui lit les images. Sinon, les captures ne quittent jamais le PC : seul le texte de la narration est envoyé.</small></span>
+                  </label>
+                  <p id="capture-vision-warning" class="warning" hidden>
+                    Les images annotées sont alors envoyées au fournisseur LLM : elles quittent le PC.
+                    Évitez avec des informations confidentielles à l'écran.
+                  </p>
+                  <div class="field">
+                    <label for="capture-vision-profile">Fournisseur pour les images</label>
+                    <select id="capture-vision-profile"></select>
+                  </div>
+                </div>
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Application -->
+              <form class="panel" data-panel="application" data-kind="general" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Application</h2>
+                    <p class="muted small">Démarrage, mises à jour, sauvegarde des réglages.</p>
+                  </div>
+                  <div class="apply-state"></div>
+                </header>
+
+                <div class="group" data-untracked>
+                  <h3>Démarrage</h3>
+                  <label class="option">
+                    <input id="autostart" type="checkbox" />
+                    <span><strong>Lancer VoiceToText à l'ouverture de session Windows</strong><small>Discret, dans la zone de notification. Appliqué immédiatement.</small></span>
+                  </label>
+                  <p id="autostart-status" class="hint"></p>
+                </div>
+
+                <div class="group">
+                  <h3>Mises à jour</h3>
+                  <label class="option field">
+                    <input id="updates-check" type="checkbox" />
+                    <span><strong>Rechercher les nouvelles versions</strong><small>Sur GitHub, toutes les 6 h ; installation seulement sur votre clic.</small></span>
+                  </label>
+                  <p class="hint">
+                    Version installée : <span id="current-version"></span>. Chaque mise à jour est signée ;
+                    sa signature est vérifiée avant installation.
+                  </p>
+                  <div class="row">
+                    <button id="settings-update-check" type="button">Vérifier maintenant</button>
+                    <button id="settings-update-install" type="button" class="primary" hidden>
+                      Télécharger et installer
+                    </button>
+                  </div>
+                  <div id="settings-update-result" class="result" hidden></div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Exporter / importer les réglages</h3>
+                  <p class="hint">
+                    Configuration, prompts, profils, dictionnaire, snippets et styles dans un fichier
+                    .toml : pour un autre PC ou une sauvegarde. Les clés API ne sont jamais exportées.
+                    L'import remplace tous les réglages (les actuels sont gardés dans
+                    config.avant-import.toml) et s'applique sans redémarrer.
+                  </p>
+                  <div class="row">
+                    <button id="settings-export" type="button">Exporter…</button>
+                    <button id="settings-import" type="button">Importer…</button>
+                  </div>
+                  <div id="transfer-result" class="result" hidden></div>
+                </div>
+                <div class="panel-result result" hidden></div>
+              </form>
+
+              <!-- Zone de test : toujours visible en bas des réglages. -->
+              <aside id="test-dock" class="test-dock" aria-label="Zone de test">
+                <div class="dock-head">
+                  <strong>Zone de test</strong>
+                  <span id="test-state" class="test-state" data-state="idle">Prêt</span>
+                  <span id="test-config" class="test-config muted small"></span>
+                  <button id="test-clear" type="button">Effacer</button>
+                  <button id="test-toggle" type="button" aria-expanded="true">Réduire</button>
+                </div>
+                <div id="test-body" class="dock-body">
+                  <textarea id="test-input" rows="2" spellcheck="false" placeholder="Cliquez ici, puis maintenez la touche de dictée et parlez : le texte arrive ici avec les réglages appliqués. Sélectionnez du texte pour essayer le Command Mode."></textarea>
+                  <div id="test-report" class="test-report" hidden>
+                    <ol id="test-steps" class="test-steps"></ol>
+                    <div class="test-compare">
+                      <div>
+                        <span class="hint">Entendu par le moteur local</span>
+                        <p id="test-raw" class="test-text"></p>
+                      </div>
+                      <div>
+                        <span id="test-text-label" class="hint">Inséré</span>
+                        <p id="test-text" class="test-text"></p>
+                      </div>
+                    </div>
+                    <p id="test-warning" class="warning" hidden></p>
+                  </div>
+                  <p id="test-empty" class="hint">
+                    Chaque dictée, ici ou dans une autre application, s'affiche ici : ce que le moteur a
+                    entendu, le texte inséré, la durée de chaque étape et le coût.
+                  </p>
+                </div>
+              </aside>
             </div>
-            <div id="general-result" class="result" hidden></div>
-          </form>
+          </div>
 
-          <section>
-            <h2>Démarrage</h2>
-            <label class="inline">
-              <input id="autostart" type="checkbox" />
-              Lancer VoiceToText à l'ouverture de session Windows (discret, dans la zone de notification)
-            </label>
-            <p id="autostart-status" class="muted small"></p>
-          </section>
-
-          <section>
-            <h2>Exporter / importer les réglages</h2>
-            <p class="muted small">
-              Configuration, prompts, profils, dictionnaire, snippets et styles dans un fichier
-              .toml : pour un autre PC ou une sauvegarde. Les clés API ne sont jamais exportées :
-              à saisir de nouveau après l'import. L'import remplace tous les réglages (les actuels
-              sont gardés dans config.avant-import.toml) et s'applique sans redémarrer.
-            </p>
-            <div class="row">
-              <button id="settings-export" type="button">Exporter…</button>
-              <button id="settings-import" type="button">Importer…</button>
-            </div>
-            <div id="transfer-result" class="result" hidden></div>
-          </section>
-
-          <section>
-            <h2>Nettoyage du texte</h2>
-            <p class="muted">
-              Le texte transcrit est envoyé au modèle choisi pour retirer les hésitations et
-              corriger la ponctuation. L'audio, lui, ne quitte jamais votre PC.
-            </p>
-
-            <div class="profiles">
-              <label for="profile">Profil</label>
-              <div class="row">
-                <select id="profile"></select>
-                <button id="profile-delete" type="button" class="danger">Supprimer le profil</button>
-              </div>
-              <p class="muted small">
-                Choisir un profil remplit le formulaire ; « Appliquer » l'active.
-              </p>
-            </div>
-
-            <form id="provider-form">
-              <label class="inline">
-                <input id="enabled" type="checkbox" />
-                Nettoyer le texte (sinon, la transcription brute est insérée)
-              </label>
-
-              <label for="preset">Fournisseur</label>
-              <select id="preset"></select>
-              <p id="preset-note" class="muted small"></p>
-
-              <label for="base-url">Adresse de l'API (compatible OpenAI)</label>
-              <input id="base-url" type="url" spellcheck="false" required />
-
-              <div class="grid">
-                <div>
-                  <label for="model">Modèle</label>
-                  <input id="model" type="text" spellcheck="false" required />
-                </div>
-                <div>
-                  <label for="timeout">Délai maximal (s)</label>
-                  <input id="timeout" type="number" min="0.5" max="60" step="0.5" required />
-                </div>
-              </div>
-
-              <label for="fallback">Profil de secours</label>
-              <select id="fallback"></select>
-              <p class="muted small">
-                Essayé si ce fournisseur échoue (panne, délai dépassé, clé refusée), avant de
-                coller le texte brut. Ex. un Ollama du réseau local en secours de DeepSeek.
-              </p>
-
-              <label>Tarif par million de jetons</label>
-              <div class="grid four">
-                <div>
-                  <span class="small muted">Entrée</span>
-                  <input id="price-input" type="number" min="0" step="any" required />
-                </div>
-                <div>
-                  <span class="small muted">Entrée en cache</span>
-                  <input id="price-cached" type="number" min="0" step="any" required />
-                </div>
-                <div>
-                  <span class="small muted">Sortie</span>
-                  <input id="price-output" type="number" min="0" step="any" required />
-                </div>
-                <div>
-                  <span class="small muted">Devise</span>
-                  <input id="currency" type="text" maxlength="3" spellcheck="false" required />
-                </div>
-              </div>
-
-              <details>
-                <summary>Paramètres supplémentaires (avancé)</summary>
-                <p class="muted small">
-                  Objet JSON ajouté à chaque requête, propre au fournisseur. Exemple :
-                  <code>{"thinking": {"type": "disabled"}}</code> désactive la réflexion (lente)
-                  de DeepSeek et GLM.
-                </p>
-                <textarea id="extra" rows="3" spellcheck="false"></textarea>
-              </details>
-
-              <div class="row">
-                <button id="provider-test" type="button">Tester ces réglages</button>
-                <button id="save-provider" type="submit" class="primary">Appliquer</button>
-              </div>
-              <div class="row">
-                <input id="profile-name" type="text" placeholder="Nom du profil (ex. Ollama du NAS)" spellcheck="false" />
-                <button id="profile-save" type="button">Enregistrer comme profil</button>
-              </div>
-            </form>
-            <div id="provider-result" class="result" hidden></div>
-            <div id="diagnostic" class="diagnostic" hidden></div>
-          </section>
-
-          <section>
-            <h2>Clé API <span id="key-host" class="muted"></span></h2>
-            <p class="muted small">Pour l'adresse saisie ci-dessus ; une clé par adresse.</p>
-            <p id="key-status" class="status"></p>
-            <div class="row">
-              <input id="key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-              <button id="save" class="primary">Enregistrer</button>
-            </div>
-            <p class="muted small">
-              Stockée dans le Gestionnaire d'identifiants Windows (VoiceToText/llm-api-key…),
-              jamais en clair sur le disque, et jamais envoyée en HTTP hors de ce PC. « Tester »
-              utilise la clé saisie ici si elle est remplie, sinon celle enregistrée.
-            </p>
-
-            <div class="row">
-              <button id="test">Tester</button>
-              <button id="delete" class="danger">Supprimer la clé</button>
-            </div>
-            <div id="result" class="result" hidden></div>
-          </section>
-
-          <section>
-            <h2>Clés API enregistrées</h2>
-            <p class="muted small">
-              Une clé par fournisseur, dans le Gestionnaire d'identifiants Windows. Elles ne sont
-              jamais affichées, ni en entier ni en partie : seulement le fournisseur.
-            </p>
-            <ul id="api-keys" class="api-keys"></ul>
-            <p id="api-keys-empty" class="muted" hidden>Aucune clé enregistrée.</p>
-            <div id="api-keys-result" class="result" hidden></div>
-          </section>
-
-          <section>
-            <h2>Consommation</h2>
-            <table id="usage">
-              <thead>
-                <tr><th></th><th>Requêtes</th><th>Jetons</th><th>Coût estimé</th></tr>
-              </thead>
-              <tbody>
-                <tr data-period="today"><th>Aujourd'hui</th><td></td><td></td><td></td></tr>
-                <tr data-period="month"><th>Ce mois</th><td></td><td></td><td></td></tr>
-                <tr data-period="total"><th>Total</th><td></td><td></td><td></td></tr>
-              </tbody>
-            </table>
-            <p class="muted small">
-              Jetons envoyés + reçus, comptés par le fournisseur. Coût estimé avec le tarif
-              ci-dessus (par défaut, le plein tarif de deepseek-flash : les heures creuses coûtent
-              moitié moins). Le solde exact reste sur le site du fournisseur.
-            </p>
-          </section>
         </section>
       </main>
     </div>
@@ -754,6 +938,7 @@
     </template>
 
     <script src="common.js"></script>
+    <script src="settings-ui.js"></script>
     <script src="home.js"></script>
     <script src="history.js"></script>
     <script src="meetings.js"></script>
@@ -761,6 +946,7 @@
     <script src="prompts.js"></script>
     <script src="general.js"></script>
     <script src="settings.js"></script>
+    <script src="test-zone.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

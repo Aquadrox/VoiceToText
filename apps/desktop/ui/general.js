@@ -1,4 +1,5 @@
-// Réglages généraux : raccourcis, micro, modèle Whisper, démarrage avec Windows.
+// Réglages généraux : raccourcis, reconnaissance locale, dictée, capture
+// commentée, application. Appliqués section par section (settings-ui.js).
 let generalFilled = false;
 
 /** Libellés affichés (la configuration garde les noms techniques). */
@@ -75,7 +76,7 @@ function fillGeneral(view) {
     ? view.llm_profiles
     : [...view.llm_profiles, view.captures.vision_profile];
   $("capture-vision-profile").replaceChildren(
-    option("", "Fournisseur actif (Réglages → Nettoyage du texte)"),
+    option("", "Fournisseur actif (section Nettoyage par LLM)"),
     ...profiles.map((name) => option(name, `Profil « ${name} »`)),
   );
   $("capture-vision-profile").value = view.captures.vision_profile;
@@ -133,78 +134,104 @@ function fillGeneral(view) {
   $("tr-language").value = view.translation.language;
 }
 
+/** Réglages généraux appliqués (zone de test, raccourcis cités dans les sections). */
+let generalView = null;
+
+/** Raccourcis cités dans les sections (« Raccourci Alt+Shift+T »). */
+function showShortcuts() {
+  for (const element of document.querySelectorAll("[data-shortcut]")) {
+    const control = $(element.dataset.shortcut);
+    const value = control ? SettingsUI.valueFor(control, "-") : "";
+    element.textContent = value || "(désactivé, voir Raccourcis)";
+  }
+}
+
+/** Remplit les sections générales ; les saisies en attente de `keep` sont gardées. */
+function fillAndKeep(view, keep = []) {
+  const pending = SettingsUI.pendingValues(keep);
+  fillGeneral(view);
+  generalView = view;
+  for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.markClean(name);
+  SettingsUI.restorePending(pending);
+  showEngineNote();
+  showVisionWarning();
+  for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.refresh(name);
+  showShortcuts();
+  window.dispatchEvent(new Event("settings-applied"));
+}
+
 async function showGeneral() {
   try {
     const view = await invoke("app_settings_view");
     // Autostart : toujours l'état réel ; le formulaire, une seule fois.
     $("autostart").checked = view.autostart;
-    if (!generalFilled) fillGeneral(view);
+    if (!generalFilled) fillAndKeep(view);
     generalFilled = true;
     const status = await invoke("update_status");
     $("current-version").textContent = status.current;
   } catch (e) {
-    showGeneralResult(String(e), true);
+    SettingsUI.showResult("raccourcis", String(e), true);
   }
 }
 
-function showGeneralResult(text, isError = false) {
-  const result = $("general-result");
-  result.hidden = false;
-  result.textContent = text;
-  result.classList.toggle("error", isError);
+/** Réglages généraux à envoyer : seule la section `applying` est prise du formulaire. */
+function readGeneral(applying) {
+  const v = (id) => SettingsUI.valueFor($(id), applying);
+  return {
+    hotkey: {
+      key: v("hk-key"),
+      command_key: v("hk-command"),
+      paste_raw: v("hk-paste").trim(),
+      retry: v("hk-retry").trim(),
+      translate: v("hk-translate").trim(),
+      meeting: v("hk-meeting").trim(),
+      meeting_copy: v("hk-meeting-copy").trim(),
+      annotate: v("hk-annotate").trim(),
+      min_hold_ms: Number(v("hk-hold")),
+      hands_free: v("hk-handsfree"),
+    },
+    audio: { device: v("audio-device") },
+    asr: {
+      model: v("asr-model"),
+      use_gpu: v("asr-gpu"),
+      unload_after_min: Number(v("asr-unload")),
+      unload_in_fullscreen: v("asr-fullscreen"),
+    },
+    updates: { check: v("updates-check") },
+    dictation: {
+      sounds: v("dict-sounds"),
+      pause_media: v("dict-media"),
+      voice_commands: v("dict-commands"),
+    },
+    translation: { language: v("tr-language") },
+    captures: {
+      template: v("capture-template"),
+      keep_days: Number(v("capture-keep")),
+      area: v("capture-area"),
+      clicks: v("capture-clicks"),
+      vision: v("capture-vision"),
+      vision_profile: v("capture-vision-profile"),
+    },
+  };
 }
 
-$("general-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const button = $("general-save");
-  button.disabled = true;
-  try {
-    const result = await invoke("save_app_settings", {
-      hotkey: {
-        key: $("hk-key").value,
-        command_key: $("hk-command").value,
-        paste_raw: $("hk-paste").value.trim(),
-        retry: $("hk-retry").value.trim(),
-        translate: $("hk-translate").value.trim(),
-        meeting: $("hk-meeting").value.trim(),
-        meeting_copy: $("hk-meeting-copy").value.trim(),
-        annotate: $("hk-annotate").value.trim(),
-        min_hold_ms: Number($("hk-hold").value),
-        hands_free: $("hk-handsfree").checked,
-      },
-      audio: { device: $("audio-device").value },
-      asr: {
-        model: $("asr-model").value,
-        use_gpu: $("asr-gpu").checked,
-        unload_after_min: Number($("asr-unload").value),
-        unload_in_fullscreen: $("asr-fullscreen").checked,
-      },
-      updates: { check: $("updates-check").checked },
-      dictation: {
-        sounds: $("dict-sounds").checked,
-        pause_media: $("dict-media").checked,
-        voice_commands: $("dict-commands").checked,
-      },
-      translation: { language: $("tr-language").value },
-      captures: {
-        template: $("capture-template").value,
-        keep_days: Number($("capture-keep").value),
-        area: $("capture-area").value,
-        clicks: $("capture-clicks").checked,
-        vision: $("capture-vision").checked,
-        vision_profile: $("capture-vision-profile").value,
-      },
-    });
-    const notes = result.notes.map((note) => `\n• ${note}`).join("");
-    showGeneralResult(`✓ Appliqué, sans redémarrage.${notes}`);
-    generalFilled = false;
-    showGeneral();
-  } catch (e) {
-    showGeneralResult(String(e), true);
-  } finally {
-    button.disabled = false;
-  }
-});
+for (const name of SettingsUI.panelsOfKind("general")) {
+  SettingsUI.define(name, {
+    apply: async (applying) => {
+      const result = await invoke("save_app_settings", readGeneral(applying));
+      // Listes à jour (modèle téléchargé…) ; les autres sections gardent leurs saisies.
+      const view = await invoke("app_settings_view");
+      const others = SettingsUI.panelsOfKind("general").filter((n) => n !== applying);
+      fillAndKeep(view, others);
+      const notes = result.notes.map((note) => `\n• ${note}`).join("");
+      return `✓ Appliqué, sans redémarrage : essayez dans la zone de test ci-dessous.${notes}`;
+    },
+    revert: () => {
+      const others = SettingsUI.panelsOfKind("general").filter((n) => n !== name);
+      if (generalView) fillAndKeep(generalView, others);
+    },
+  });
+}
 
 // Mises à jour : vérification à la demande, puis installation sur clic.
 function showUpdateResult(text, isError = false) {

@@ -1,18 +1,23 @@
 package io.github.aquadrox.voicetotext
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
+import android.view.accessibility.AccessibilityManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
@@ -26,6 +31,8 @@ import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONObject
+import java.text.DateFormat
+import java.util.Date
 import java.util.concurrent.Executors
 
 /**
@@ -289,9 +296,43 @@ class MainActivity : Activity() {
             return
         }
         val bubble = ComponentName(this, BubbleService::class.java)
-        val active = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        val bubbleEnabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
-        bubbleStatus.text = if (active) "✓ Bulle activée" else "Bulle pas encore activée"
+        // Le réglage ci-dessus reste coché quand le service est mort ; cette
+        // liste-ci ne contient que les services réellement en marche.
+        val running = getSystemService(AccessibilityManager::class.java)
+            .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { info -> info.resolveInfo.serviceInfo.let { ComponentName(it.packageName, it.name) } == bubble }
+        bubbleStatus.text = when {
+            !bubbleEnabled -> "Bulle pas encore activée"
+            running -> "✓ Bulle activée"
+            else -> "⚠ Bulle activée mais arrêtée par Android (« Ne fonctionne pas » dans l'accessibilité). " +
+                "Pour la relancer, sans forcer l'arrêt de l'application : désactivez-la puis réactivez-la " +
+                "(deux appuis sur le raccourci d'accessibilité suffisent)." + lastExit()
+        }
+    }
+
+    /** Dernier arrêt du processus vu par Android (11 et plus) : pourquoi la bulle s'est arrêtée. */
+    private fun lastExit(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return ""
+        val exit = getSystemService(ActivityManager::class.java)
+            .getHistoricalProcessExitReasons(packageName, 0, 1).firstOrNull() ?: return ""
+        val reason = when (exit.reason) {
+            ApplicationExitInfo.REASON_CRASH -> "plantage de l'application"
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "plantage du moteur de dictée"
+            ApplicationExitInfo.REASON_ANR -> "application bloquée (ANR)"
+            ApplicationExitInfo.REASON_LOW_MEMORY -> "mémoire insuffisante"
+            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "consommation jugée excessive"
+            ApplicationExitInfo.REASON_SIGNALED -> "tuée par le système (signal ${exit.status})"
+            ApplicationExitInfo.REASON_OTHER -> "arrêtée par le système"
+            ApplicationExitInfo.REASON_USER_REQUESTED -> "arrêt forcé"
+            ApplicationExitInfo.REASON_USER_STOPPED -> "arrêtée par l'utilisateur"
+            ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission modifiée"
+            else -> "code ${exit.reason}"
+        }
+        val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(exit.timestamp))
+        val detail = exit.description?.takeIf { it.isNotBlank() }?.let { " : $it" }.orEmpty()
+        return "\nDernier arrêt de l'application : $reason$detail ($date)."
     }
 
     private fun selectedModel(): String =

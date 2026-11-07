@@ -34,20 +34,31 @@ class Recorder {
     fun start(): Boolean {
         if (record != null) return true
         val size = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val audio = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(size, RATE / 5 * 2),
-        )
+        // Micro pris par une autre appli, refusé…: Android lève une exception,
+        // qui tuerait la bulle. Échec signalé à l'appelant à la place.
+        val audio = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(size, RATE / 5 * 2),
+            )
+        } catch (e: Exception) {
+            return false
+        }
         if (audio.state != AudioRecord.STATE_INITIALIZED) {
             audio.release()
             return false
         }
         synchronized(lock) { count = 0 }
         loudest = 0f
-        audio.startRecording()
+        try {
+            audio.startRecording()
+        } catch (e: Exception) {
+            audio.release()
+            return false
+        }
         record = audio
         reader = thread(name = "micro") {
             val buffer = ShortArray(RATE / 20)
@@ -74,7 +85,7 @@ class Recorder {
         record = null
         reader?.join(500)
         reader = null
-        audio.stop()
+        runCatching { audio.stop() }
         audio.release()
         level = 0f
         return synchronized(lock) {

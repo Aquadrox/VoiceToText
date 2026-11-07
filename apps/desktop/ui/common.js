@@ -7,7 +7,9 @@ const integer = new Intl.NumberFormat("fr-FR");
 /** Pages enregistrées : { nom: { show() } } ; `show` est appelé à l'affichage. */
 const PAGES = {};
 const registerPage = (name, page) => (PAGES[name] = page);
-const currentPage = () => location.hash.slice(1) || "accueil";
+/** Ancre « #page/section » : la page, puis la section (Réglages). */
+const currentPage = () => location.hash.slice(1).split("/")[0] || "accueil";
+const currentSection = () => location.hash.slice(1).split("/")[1] ?? "";
 const isShown = (name) => !document.hidden && currentPage() === name;
 
 function formatCost(value, currency) {
