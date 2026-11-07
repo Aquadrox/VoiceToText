@@ -19,6 +19,7 @@ use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
 
 use crate::costs::{self, LedgerStore};
+use crate::dictation_report;
 use crate::feedback::{self, Sound};
 use crate::history::{self, HistoryStore};
 use crate::meetings::MeetingQueue;
@@ -803,6 +804,7 @@ impl Worker {
                 Some(Delivery::Paste) => vtt_platform::foreground_target(),
                 _ => job.target.clone(),
             };
+            let started = Instant::now();
             let result = process(
                 &self.pipeline,
                 &job,
@@ -810,6 +812,7 @@ impl Worker {
                 delivery,
                 &self.retry_shortcut,
             );
+            self.report(&result, &job, &target, delivery.is_some(), started);
             let failed = result.is_err();
             // Un appui accidentel (silence, clip trop court) ne doit pas
             // remplacer la dictée à réessayer.
@@ -853,6 +856,31 @@ impl Worker {
                 self.reporter.set(Status::Idle);
             }
         }
+    }
+
+    /// Zone de test des réglages : résultat et durées de la dictée.
+    fn report(
+        &self,
+        result: &Result<Outcome, vtt_core::Error>,
+        job: &Job,
+        target: &Target,
+        retry: bool,
+        started: Instant,
+    ) {
+        let pricing = match result {
+            Ok(outcome) => self.tariffs.for_outcome(outcome),
+            Err(_) => &self.tariffs.main,
+        };
+        let measures = dictation_report::Measures {
+            audio_ms: job.clip.duration_ms(),
+            asr_ms: self.pipeline.last_asr_ms(),
+            total_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            model: &self.model.loaded.model,
+            command: job.command,
+            retry,
+        };
+        self.reporter
+            .dictation(&dictation_report::build(result, target, pricing, &measures));
     }
 
     fn reconfigure(&mut self, r: Reconfiguration) {

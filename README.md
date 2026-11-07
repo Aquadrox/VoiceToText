@@ -38,7 +38,7 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 
 L'application est **discrète** : une icône dans la zone de notification (à côté de l'horloge) et une pastille qui n'apparaît que pendant la dictée. La fenêtre principale ne s'ouvre jamais d'elle-même.
 
-Pour la lancer à chaque ouverture de session : **Réglages → Démarrage → Lancer VoiceToText à l'ouverture de session Windows**.
+Pour la lancer à chaque ouverture de session : **Réglages → Application → Lancer VoiceToText à l'ouverture de session Windows**.
 
 ### Sur Android
 
@@ -118,7 +118,7 @@ La **pastille** en bas de l'écran indique l'état :
 
 Pendant l'enregistrement, des **barres** dans la pastille suivent le niveau du micro : si elles ne bougent pas, le micro ne capte rien.
 
-Par défaut (désactivable dans **Réglages → Pendant la dictée**) :
+Par défaut (désactivable dans **Réglages → Dictée et traduction**) :
 
 - un **son** marque le début (deux notes montantes), la fin (descendantes) et l'annulation (note grave) ;
 - la **musique et les vidéos** en cours (Spotify, YouTube dans le navigateur, lecteurs compatibles avec les touches multimédias) sont **mises en pause** pendant la dictée, puis relancées. Seul ce qui jouait est relancé.
@@ -136,7 +136,7 @@ Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dicté
 
 Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage.
 
-Désactivables dans **Réglages → Pendant la dictée**.
+Désactivables dans **Réglages → Dictée et traduction**.
 
 ## Command Mode
 
@@ -177,7 +177,7 @@ Dicter en français, insérer dans une autre langue :
 2. Dicter normalement : le texte est nettoyé puis traduit par le LLM avant d'être collé. Pendant la dictée, la pastille affiche la langue (**→ EN**).
 3. **Alt+Maj+T** à nouveau pour revenir au français.
 
-- Langue d'arrivée : **Réglages → Mode traduction** (anglais, espagnol, allemand, italien, portugais, néerlandais).
+- Langue d'arrivée : **Réglages → Dictée et traduction** (anglais, espagnol, allemand, italien, portugais, néerlandais).
 - Le mode s'applique aux dictées commencées pendant qu'il est actif, même dans les applications dont le style demande le texte brut. Les snippets et le Command Mode ne sont pas traduits.
 - Nécessite le LLM ; sans lui, le texte est collé en français et l'historique l'indique (*non nettoyé*).
 - L'historique marque ces dictées *traduit : anglais* ; **Alt+Maj+V** colle toujours la transcription française d'origine.
@@ -191,13 +191,13 @@ Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcriptio
 3. **Alt+Maj+N** colle dans l'application active ce qui a été dit depuis la dernière copie (« Moi : … / Eux : … »).
 4. **Alt+Maj+M** à nouveau pour arrêter : les derniers blocs sont transcrits, puis le **compte rendu** est rédigé par le LLM choisi (résumé, décisions, actions « qui : quoi », questions ouvertes). Prompt modifiable dans la page **Prompts** (« Compte rendu de réunion »), coût compté dans la consommation.
 
-**Détection d'appel** : quand Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype ou Webex utilise le micro (2 s), ou un navigateur (20 s, pour ne pas confondre avec un message vocal), une petite fenêtre en bas à droite propose **Enregistrer** / **Pas maintenant**, ou **…** → **Toujours enregistrer** / **Ne plus proposer** pour ce service. Sans réponse, elle se referme au bout de 20 s sans rien enregistrer ; le même appel n'est pas reproposé. Seul le nom du programme qui utilise le micro est lu. Choix par service et désactivation dans les réglages des réunions.
+**Détection d'appel** : quand Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype ou Webex utilise le micro (2 s), ou un navigateur (20 s, pour ne pas confondre avec un message vocal), une petite fenêtre en bas à droite propose **Enregistrer** / **Pas maintenant**, ou **…** → **Toujours enregistrer** / **Ne plus proposer** pour ce service. Sans réponse, elle se referme au bout de 20 s sans rien enregistrer ; le même appel n'est pas reproposé. Seul le nom du programme qui utilise le micro est lu. Choix par service et désactivation dans **Réglages → Réunions**.
 
 **Écho** (appel sur haut-parleurs, le micro réentend les autres) : les passages du micro qui ne font que suivre le son du PC sont écartés avant transcription, puis les répliques « Moi » qui répètent mot pour mot ce que « Eux » venaient de dire sont masquées. Au casque, rien n'est écarté. Désactivable.
 
 Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendant l'enregistrement), compte rendu (dans la langue de la réunion ou traduit : anglais, espagnol…), renommer, **Copier** (Markdown), **Exporter (.md)**, **Supprimer**.
 
-**Audio de la réunion**, au choix (page Réunions → Réglages des réunions) :
+**Audio de la réunion**, au choix (**Réglages → Réunions**) :
 
 | Réglage | Sur le disque | Si VoiceToText s'arrête pendant la réunion |
 |---|---|---|
@@ -283,16 +283,20 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 ### Réglages
 
-- **Raccourcis** : touche de dictée, touche du Command Mode, « coller la version brute », « réessayer », appui minimal, mains libres.
-- **Pendant la dictée** : sons, pause de la musique et des vidéos, commandes vocales.
-- **Micro et transcription** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
-- **Mises à jour** : vérification automatique.
-- **Démarrage** : lancement à l'ouverture de session.
-- **Exporter / importer les réglages** : voir ci-dessous.
-- **Nettoyage du texte** : profils, fournisseur LLM, modèle, délai, tarif, paramètres avancés, **Tester ces réglages**, **Appliquer**.
-- **Clé API** (pour l'adresse saisie), **Clés API enregistrées** (une par fournisseur : remplacer, supprimer ; les clés ne sont jamais affichées, ni en entier ni en partie), **Consommation** (requêtes, jetons, coût du jour, du mois, total).
+Un menu à gauche découpe les réglages en sections ; une seule est affichée à la fois :
 
-Tout s'applique sans redémarrer : **Appliquer** prend en compte raccourcis, micro, modèle de transcription, mémoire graphique, options de dictée et mises à jour. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. Le nettoyage du texte (**Appliquer**), le démarrage avec Windows et la clé API s'appliquent aussi immédiatement.
+- **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée).
+- **Reconnaissance locale** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
+- **Dictée et traduction** : sons, pause de la musique et des vidéos, commandes vocales, langue du mode traduction.
+- **Nettoyage par LLM** : activer ou non, profils, fournisseur, modèle, délai, **Tester ces réglages**, clé API de l'adresse saisie, profil de secours, tarif, paramètres avancés.
+- **Clés API et coût** : clés enregistrées (une par fournisseur : remplacer, supprimer ; jamais affichées, ni en entier ni en partie), consommation (requêtes, jetons, coût du jour, du mois, total).
+- **Réunions** : audio de la réunion, son du PC, écho, détection d'appel par service, compte rendu automatique et sa langue, conservation.
+- **Capture commentée** : modèle de texte, zone capturée, clics, conservation, description des images.
+- **Application** : démarrage avec Windows, mises à jour, export / import des réglages.
+
+**Appliquer section par section** : modifier un champ le marque d'une barre orange (« modifié »), l'en-tête de la section indique « N modifications non appliquées » et un point orange apparaît dans le menu. **Appliquer** (ou **Ctrl+S**) n'applique que la section affichée, sans redémarrer ; **Annuler** remet les réglages en place. Les modifications des autres sections attendent leur propre **Appliquer**. Une dictée en cours se termine avec les anciens réglages ; la suivante utilise les nouveaux. La clé API, les profils, le démarrage avec Windows et les actions sur les clés s'appliquent immédiatement.
+
+**Zone de test**, en bas des réglages : cliquer dans le champ, maintenir la touche de dictée et parler ; le texte arrive dans le champ avec les réglages appliqués (sélectionner du texte pour essayer le Command Mode). Chaque dictée, ici ou dans une autre application, y est détaillée : durée de l'audio, **ce que le moteur local a entendu**, **le texte inséré**, temps de transcription (et modèle utilisé), temps du nettoyage, jetons et coût, profil de secours, erreur éventuelle. L'état courant (écoute, transcription, téléchargement d'un modèle, erreur) et un résumé des réglages actifs (touche, moteur, LLM) sont affichés en tête. Rien de ce qui s'y affiche n'est enregistré. **Réduire** la replie.
 
 #### Exporter / importer les réglages
 
@@ -337,7 +341,7 @@ Le texte transcrit (jamais l'audio) est envoyé au LLM qui retire les hésitatio
 
 ### Changer de fournisseur
 
-**Réglages → Nettoyage du texte** :
+**Réglages → Nettoyage par LLM** :
 
 1. **Fournisseur** : DeepSeek, GLM (Z.ai), OpenAI, Mistral, OpenRouter, **Ollama (ce PC ou réseau local)** ou toute API compatible OpenAI. Le préréglage remplit l'adresse ; renseigner le modèle et son tarif.
 2. **Clé API** (section suivante) : saisir la clé du fournisseur. **Chaque adresse garde sa propre clé**.
@@ -356,7 +360,7 @@ Adresses : l'application ajoute elle-même `/chat/completions` (s'il a été rec
 
 ### Coût
 
-Chaque réponse indique les jetons consommés ; le coût est estimé avec le tarif saisi (par défaut, le plein tarif de deepseek-flash : estimation haute, les heures creuses coûtent moitié moins). Ordre de grandeur : **environ 1 centime pour 100 dictées**. Totaux dans **Réglages → Consommation** et sur l'accueil, coût de chaque dictée dans l'historique.
+Chaque réponse indique les jetons consommés ; le coût est estimé avec le tarif saisi (par défaut, le plein tarif de deepseek-flash : estimation haute, les heures creuses coûtent moitié moins). Ordre de grandeur : **environ 1 centime pour 100 dictées**. Totaux dans **Réglages → Clés API et coût** et sur l'accueil, coût de chaque dictée dans l'historique.
 
 ### Sans LLM
 
@@ -366,14 +370,14 @@ Pour garder le nettoyage **sans rien envoyer sur Internet** : installer [Ollama]
 
 ## Mises à jour
 
-VoiceToText vérifie les nouvelles versions une minute après le démarrage puis toutes les 6 heures (désactivable dans **Réglages → Mises à jour**). Quand une version est disponible :
+VoiceToText vérifie les nouvelles versions une minute après le démarrage puis toutes les 6 heures (désactivable dans **Réglages → Application**). Quand une version est disponible :
 
 - une notification Windows l'annonce (une fois par version) ;
 - le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**.
 
 Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule.
 
-Pour vérifier tout de suite : **Réglages → Mises à jour → Vérifier les mises à jour**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
+Pour vérifier tout de suite : **Réglages → Application → Vérifier maintenant**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
 
 Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer la 0.5 une fois à la main.
 
@@ -526,7 +530,7 @@ name = "Concis"
 kind = "nettoyage"   # ou "commande"
 text = "Corrige la ponctuation et retire les hésitations. Réponds uniquement avec le texte final."
 
-# Profils LLM enregistrés (Réglages → Nettoyage du texte → Profil).
+# Profils LLM enregistrés (Réglages → Nettoyage par LLM → Profils).
 [[llm_profiles]]
 name = "Ollama du NAS"
 base_url = "http://192.168.1.20:11434/v1"
@@ -541,11 +545,11 @@ extra_body = {}
 |---|---|
 | Rien n'est collé dans une application | Application lancée **en administrateur** : Windows bloque l'insertion depuis une application normale. La relancer sans droits administrateur, ou copier le texte depuis l'**Historique**. |
 | La pastille affiche une erreur | Message complet dans le journal (menu **Ouvrir les journaux**). |
-| Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Tester ces réglages** affiche la cause et des pistes. |
+| Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Nettoyage par LLM → Tester ces réglages** affiche la cause et des pistes. |
 | Serveur local (Ollama, LM Studio) injoignable | L'adresse doit se terminer par `/v1` ; sur une autre machine, Ollama doit écouter sur le réseau (`OLLAMA_HOST=0.0.0.0`) et le pare-feu autoriser le port 11434. **Tester ces réglages** liste les modèles si l'adresse est bonne. |
 | AltGr ne déclenche rien | Vérifier **Réglages → Raccourcis** ; une autre application peut capter la touche. Essayer F13 ou Ctrl droit. |
 | Alt+Maj+V sans effet | Raccourci pris par une autre application (voir le journal) : en choisir un autre dans **Réglages → Raccourcis**. Si plusieurs dispositions de clavier sont installées, Alt+Maj change aussi la langue : choisir un autre raccourci. |
-| Mauvais micro | **Réglages → Micro**. |
+| Mauvais micro | **Réglages → Reconnaissance locale**. |
 | Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
 | Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
 | Téléchargement du modèle échoué | Vérifier la connexion puis cliquer **Appliquer** dans **Réglages** (le téléchargement recommence). |

@@ -6,6 +6,7 @@ mod app_settings;
 mod controller;
 mod costs;
 mod decode;
+mod dictation_report;
 mod export;
 mod feedback;
 mod history;

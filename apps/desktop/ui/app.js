@@ -1,10 +1,11 @@
-// Navigation entre les pages (ancre de l'URL : #accueil, #historique, #reglages).
+// Navigation entre les pages (ancre de l'URL : #accueil, #historique,
+// #reglages/nettoyage…).
 function route() {
   const name = PAGES[currentPage()] ? currentPage() : "accueil";
   for (const section of document.querySelectorAll(".page")) {
     section.hidden = section.id !== `page-${name}`;
   }
-  for (const link of document.querySelectorAll("nav a")) {
+  for (const link of document.querySelectorAll("nav.main-nav a")) {
     if (link.hash === `#${name}`) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }

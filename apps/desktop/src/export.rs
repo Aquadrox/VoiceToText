@@ -22,7 +22,7 @@ const FILTER: &str = "Réglages VoiceToText";
 fn header() -> String {
     format!(
         "# Réglages VoiceToText {} exportés le {}.\n\
-         # Sans les clés API : à saisir de nouveau après l'import (Réglages → Clé API).\n\n",
+         # Sans les clés API : à saisir de nouveau après l'import (Réglages → Nettoyage par LLM → Clé API).\n\n",
         env!("CARGO_PKG_VERSION"),
         crate::costs::today()
     )

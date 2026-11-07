@@ -1,5 +1,5 @@
 // Réunions : enregistrement, liste, transcription Moi / Eux, compte rendu,
-// export, réglages. Le texte transcrit est toujours inséré avec textContent.
+// export, réglages (section Réunions des Réglages). Le texte transcrit est toujours inséré avec textContent.
 const meetingDateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" });
 const MEETING_STATUS = {
   enregistrement: "enregistrement en cours",
@@ -294,6 +294,7 @@ function fillMeetingSettings() {
   $("meeting-keep").replaceChildren(...days.map((d) => option(String(d), d === 0 ? "Toujours" : `${d} jours`)));
   $("meeting-keep").value = String(settings.keep_days);
   meetingSettingsFilled = true;
+  SettingsUI.markClean("reunions");
 }
 
 function tickMeeting() {
@@ -512,11 +513,19 @@ $("meeting-delete").addEventListener("click", () => {
   });
 });
 
-$("meeting-settings-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const result = $("meeting-settings-result");
-  result.hidden = false;
+/** Section Réunions des réglages : remplie depuis la liste des réunions. */
+async function loadMeetingSettings() {
+  if (meetingSettingsFilled) return;
   try {
+    meetingsView = await invoke("meetings_view");
+    if (!meetingSettingsFilled) fillMeetingSettings();
+  } catch (e) {
+    SettingsUI.showResult("reunions", String(e), true);
+  }
+}
+
+SettingsUI.define("reunions", {
+  apply: async () => {
     await invoke("save_meeting_settings", {
       settings: {
         audio: document.querySelector('input[name="meeting-audio"]:checked')?.value ?? "temporaire",
@@ -532,14 +541,10 @@ $("meeting-settings-form").addEventListener("submit", async (event) => {
           .map((select) => ({ key: select.dataset.provider, policy: select.value })),
       },
     });
-    result.classList.remove("error");
-    result.textContent = "✓ Appliqué (prochaine réunion pour l'audio).";
     meetingSettingsFilled = false;
-    await showMeetings();
-  } catch (e) {
-    result.classList.add("error");
-    result.textContent = String(e);
-  }
+    await loadMeetingSettings();
+    return "✓ Appliqué (l'audio et le son du PC : dès la prochaine réunion).";
+  },
 });
 
 // Transcription au fil de l'eau : la page suit les blocs transcrits.
