@@ -170,6 +170,103 @@ static VOSK_RUNTIME: Runtime = Runtime {
     library: "libvosk.so",
 };
 
+/// Modèles de la diarisation (qui parle ?) : segmentation pyannote 3.0 (MIT)
+/// et empreinte vocale WeSpeaker ResNet34-LM (CC BY 4.0), convertis en ONNX
+/// par sherpa-onnx, à des révisions figées de Hugging Face. ONNX Runtime est
+/// celui de Parakeet (téléchargé une fois pour les deux).
+const DIARIZATION_DIR: &str = "diarisation-1";
+static DIARIZATION: Content = Content::Files(&[
+    (
+        "segmentation.onnx",
+        Remote {
+            url: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.onnx",
+            size: 5_992_913,
+            sha256: "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+        },
+    ),
+    (
+        "empreinte.onnx",
+        Remote {
+            url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/wespeaker_en_voxceleb_resnet34_LM.onnx",
+            size: 26_530_550,
+            sha256: "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012",
+        },
+    ),
+]);
+
+/// Modèles de la diarisation prêts à charger.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiarizationModels {
+    pub segmentation: PathBuf,
+    pub embedding: PathBuf,
+    pub runtime: PathBuf,
+}
+
+/// Modèles de la diarisation présents et complets.
+pub fn diarization_local(dir: &Path) -> Option<DiarizationModels> {
+    let models = dir.join(DIARIZATION_DIR);
+    if !complete(&models) {
+        return None;
+    }
+    Some(DiarizationModels {
+        segmentation: models.join("segmentation.onnx"),
+        embedding: models.join("empreinte.onnx"),
+        runtime: local_runtime(dir, &ONNX_RUNTIME)?,
+    })
+}
+
+/// Ce qu'il reste à télécharger pour la diarisation (Mo).
+pub fn diarization_missing_mb(dir: &Path) -> u64 {
+    let models = if complete(&dir.join(DIARIZATION_DIR)) {
+        0
+    } else {
+        DIARIZATION.size()
+    };
+    let runtime = if local_runtime(dir, &ONNX_RUNTIME).is_some() {
+        0
+    } else {
+        ONNX_RUNTIME.content.size()
+    };
+    (models + runtime).div_ceil(1_000_000)
+}
+
+/// Renvoie les modèles de la diarisation, en téléchargeant ce qui manque.
+pub fn ensure_diarization(
+    dir: &Path,
+    mut progress: impl FnMut(u8),
+) -> Result<DiarizationModels, String> {
+    if let Some(models) = diarization_local(dir) {
+        return Ok(models);
+    }
+    let models_missing = !complete(&dir.join(DIARIZATION_DIR));
+    let runtime_missing = local_runtime(dir, &ONNX_RUNTIME).is_none();
+    let mut progress = Progress {
+        total: if models_missing {
+            DIARIZATION.size()
+        } else {
+            0
+        } + if runtime_missing {
+            ONNX_RUNTIME.content.size()
+        } else {
+            0
+        },
+        done: 0,
+        last: u8::MAX,
+        report: &mut progress,
+    };
+    if runtime_missing {
+        install_dir(
+            &dir.join(ONNX_RUNTIME.dir),
+            &ONNX_RUNTIME.content,
+            &mut progress,
+        )?;
+    }
+    if models_missing {
+        install_dir(&dir.join(DIARIZATION_DIR), &DIARIZATION, &mut progress)?;
+    }
+    diarization_local(dir).ok_or_else(|| "modèles de la diarisation incomplets".to_owned())
+}
+
 /// Modèles proposés dans les réglages ; tailles et SHA-256 relevés sur
 /// Hugging Face, GitHub et alphacephei.com (le téléchargement est vérifié
 /// avec).
@@ -707,6 +804,65 @@ mod tests {
             assert!(transcriber.transcribe(&silence).unwrap().len() < 5);
             assert_eq!(local(&dir, id), Some(installed));
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn diarization_needs_its_models_and_the_runtime() {
+        let dir = temp_dir("diarization");
+        assert_eq!(diarization_local(&dir), None);
+        assert_eq!(
+            diarization_missing_mb(&dir),
+            (DIARIZATION.size() + ONNX_RUNTIME.content.size()).div_ceil(1_000_000)
+        );
+        fs::create_dir_all(dir.join(DIARIZATION_DIR)).unwrap();
+        fs::write(dir.join(DIARIZATION_DIR).join(COMPLETE), b"").unwrap();
+        assert_eq!(diarization_local(&dir), None, "ONNX Runtime absent");
+        assert_eq!(
+            diarization_missing_mb(&dir),
+            ONNX_RUNTIME.content.size().div_ceil(1_000_000)
+        );
+        fs::create_dir_all(dir.join(ONNX_RUNTIME.dir)).unwrap();
+        fs::write(dir.join(ONNX_RUNTIME.dir).join(COMPLETE), b"").unwrap();
+        let models = diarization_local(&dir).unwrap();
+        assert_eq!(
+            models.runtime,
+            dir.join(ONNX_RUNTIME.dir).join(ONNX_RUNTIME.library)
+        );
+        assert_eq!(
+            models.embedding,
+            dir.join(DIARIZATION_DIR).join("empreinte.onnx")
+        );
+        assert_eq!(diarization_missing_mb(&dir), 0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Vrai téléchargement des modèles de la diarisation (33 Mo, plus ONNX
+    /// Runtime), puis chargement et analyse de 12 s de silence :
+    /// `cargo test -p voicetotext -- --ignored diarization_download`.
+    /// `VTT_ONNXRUNTIME` : bibliothèque ONNX Runtime 1.31.1 déjà présente
+    /// (évite son téléchargement).
+    #[test]
+    #[ignore]
+    fn diarization_download_and_load() {
+        let dir = temp_dir("diarization-download");
+        if let Ok(library) = std::env::var("VTT_ONNXRUNTIME") {
+            let runtime = dir.join(ONNX_RUNTIME.dir);
+            fs::create_dir_all(&runtime).unwrap();
+            fs::copy(library, runtime.join(ONNX_RUNTIME.library)).unwrap();
+            fs::write(runtime.join(COMPLETE), b"").unwrap();
+        }
+        let mut last = 0;
+        let models = ensure_diarization(&dir, |p| last = p).unwrap();
+        assert_eq!(last, 100);
+        assert_eq!(diarization_local(&dir), Some(models.clone()));
+        let mut diarizer =
+            vtt_asr::Diarizer::load(&models.segmentation, &models.embedding, &models.runtime, 2)
+                .unwrap();
+        let turns = diarizer
+            .diarize(&vec![0.0; 12 * 16_000], &Default::default(), &mut |_| {})
+            .unwrap();
+        assert!(turns.is_empty());
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -67,7 +67,7 @@ Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel
 | Insertion | Presse-papier + Ctrl+V, presse-papier restauré ensuite | Instantané même pour un long texte ; `SendInput` Unicode en repli |
 | Audio | `cpal` (WASAPI), micro ouvert seulement pendant l'appui ; conversion 16 kHz mono maison (`vtt-core::audio`) | Format attendu par Whisper ; pas d'icône « micro utilisé » en permanence |
 | Configuration | TOML dans `%APPDATA%\VoiceToText\config.toml` | Lisible et éditable à la main |
-| Diarisation (essai v0.20) | Méthode pyannote 3 réécrite en Rust : segmentation pyannote 3.0 + empreinte WeSpeaker en ONNX (même ONNX Runtime que Parakeet), regroupement et fbank dans `vtt-core` | Ni Python ni PyTorch ; modèles légers (32 Mo) ; nombre de locuteurs quelconque |
+| Diarisation (v0.20) | Méthode pyannote 3 réécrite en Rust : segmentation pyannote 3.0 + empreinte WeSpeaker en ONNX (même ONNX Runtime que Parakeet), analyse au fil de l'eau, regroupement et fbank dans `vtt-core` ; thread d'analyse et empreintes chiffrées (DPAPI) dans `apps/desktop/src/speakers.rs` ; répliques réparties à l'affichage, transcription d'origine intacte | Ni Python ni PyTorch ; modèles légers (32 Mo) ; nombre de locuteurs quelconque ; aucun audio gardé pour l'analyse |
 | Modèles | Téléchargés au premier lancement dans `%LOCALAPPDATA%\VoiceToText\models`, SHA-256 vérifié | Installeur léger |
 | Journaux | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (durées ASR/insertion de chaque dictée) | Diagnostic à distance |
 

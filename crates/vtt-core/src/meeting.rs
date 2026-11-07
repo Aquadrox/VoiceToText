@@ -11,6 +11,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::audio;
+use crate::diarize;
 use crate::pipeline::SAMPLE_RATE;
 
 /// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).
@@ -180,6 +181,11 @@ pub struct Segment {
     /// Déjà copiée par « Copier les nouvelles répliques ».
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub copied: bool,
+    /// Intervenant (diarisation), numéroté à partir de 0 ; `None` : la
+    /// piste seule (« Moi », « Eux »). Jamais enregistré : calculé à la
+    /// lecture d'après les tours de parole ([`with_speakers`]).
+    #[serde(skip)]
+    pub speaker: Option<usize>,
 }
 
 /// Les blocs des deux pistes arrivent dans le désordre : ordre chronologique.
@@ -201,30 +207,91 @@ pub fn timestamp(ms: u64) -> String {
 /// Au-delà de ce silence, une même personne commence une nouvelle réplique.
 const TURN_GAP_MS: u64 = 10_000;
 
-/// Répliques : segments consécutifs et rapprochés d'une même piste réunis.
-pub fn turns(segments: &[Segment]) -> Vec<(Track, u64, String)> {
-    let mut turns: Vec<(Track, u64, String)> = Vec::new();
+/// Réplique : segments consécutifs et rapprochés d'une même personne.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub track: Track,
+    pub speaker: Option<usize>,
+    pub start_ms: u64,
+    pub text: String,
+}
+
+/// Répliques : segments consécutifs et rapprochés d'une même piste (et d'un
+/// même intervenant) réunis.
+pub fn turns(segments: &[Segment]) -> Vec<Reply> {
+    let mut turns: Vec<Reply> = Vec::new();
     let mut last_end = 0;
     for segment in segments {
         match turns.last_mut() {
-            Some((track, _, text))
-                if *track == segment.track && segment.start_ms <= last_end + TURN_GAP_MS =>
+            Some(reply)
+                if reply.track == segment.track
+                    && reply.speaker == segment.speaker
+                    && segment.start_ms <= last_end + TURN_GAP_MS =>
             {
-                text.push(' ');
-                text.push_str(&segment.text);
+                reply.text.push(' ');
+                reply.text.push_str(&segment.text);
             }
-            _ => turns.push((segment.track, segment.start_ms, segment.text.clone())),
+            _ => turns.push(Reply {
+                track: segment.track,
+                speaker: segment.speaker,
+                start_ms: segment.start_ms,
+                text: segment.text.clone(),
+            }),
         }
         last_end = segment.end_ms;
     }
     turns
 }
 
+/// Nom affiché : celui donné à l'intervenant, « Intervenant 2 », ou la
+/// piste (« Moi », « Eux »).
+pub fn speaker_label(track: Track, speaker: Option<usize>, names: &[String]) -> String {
+    match speaker {
+        Some(i) => names
+            .get(i)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+            .map_or_else(|| format!("Intervenant {}", i + 1), str::to_owned),
+        None => track.label().to_owned(),
+    }
+}
+
+/// Segments de la piste `track` répartis entre les intervenants d'après les
+/// tours de parole (un segment peut être coupé entre deux personnes) ; les
+/// autres pistes restent telles quelles.
+pub fn with_speakers(segments: &[Segment], track: Track, turns: &[diarize::Turn]) -> Vec<Segment> {
+    let mut out = Vec::with_capacity(segments.len());
+    for segment in segments {
+        if segment.track != track {
+            out.push(segment.clone());
+            continue;
+        }
+        for line in diarize::split(&segment.text, segment.start_ms, segment.end_ms, turns) {
+            out.push(Segment {
+                start_ms: line.start_ms,
+                end_ms: line.end_ms,
+                text: line.text,
+                speaker: line.speaker,
+                ..segment.clone()
+            });
+        }
+    }
+    out
+}
+
 /// Transcription lisible, une réplique par ligne : `[12:34] Moi : …`.
-pub fn transcript_text(segments: &[Segment]) -> String {
+/// `names` : noms donnés aux intervenants.
+pub fn transcript_text(segments: &[Segment], names: &[String]) -> String {
     turns(segments)
         .into_iter()
-        .map(|(track, start, text)| format!("[{}] {} : {text}", timestamp(start), track.label()))
+        .map(|r| {
+            format!(
+                "[{}] {} : {}",
+                timestamp(r.start_ms),
+                speaker_label(r.track, r.speaker, names),
+                r.text
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -236,6 +303,7 @@ pub fn to_markdown(
     duration_ms: u64,
     summary: Option<&str>,
     segments: &[Segment],
+    names: &[String],
 ) -> String {
     let mut md = format!("# {title}\n\n{date} · durée {}\n\n", timestamp(duration_ms));
     if let Some(summary) = summary.map(str::trim).filter(|s| !s.is_empty()) {
@@ -244,11 +312,12 @@ pub fn to_markdown(
         md.push_str("\n\n");
     }
     md.push_str("## Transcription\n\n");
-    for (track, start, text) in turns(segments) {
+    for r in turns(segments) {
         md.push_str(&format!(
-            "**{}** [{}] : {text}\n\n",
-            track.label(),
-            timestamp(start)
+            "**{}** [{}] : {}\n\n",
+            speaker_label(r.track, r.speaker, names),
+            timestamp(r.start_ms),
+            r.text
         ));
     }
     md
@@ -503,6 +572,41 @@ pub fn read_audio_range(
     Ok(samples)
 }
 
+/// Relit une piste bloc par bloc (une seconde environ chacun), sans tout
+/// garder en mémoire ; `f` renvoie `false` pour arrêter. Un dernier bloc
+/// tronqué est ignoré.
+pub fn for_each_audio_block(
+    path: &Path,
+    unprotect: Protect,
+    mut f: impl FnMut(&[f32]) -> bool,
+) -> Result<(), String> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    loop {
+        let mut len = [0u8; 4];
+        if file.read_exact(&mut len).is_err() {
+            return Ok(());
+        }
+        let mut block = vec![0u8; u32::from_le_bytes(len) as usize];
+        if file.read_exact(&mut block).is_err() {
+            log::warn!("{} : dernier bloc incomplet ignoré", path.display());
+            return Ok(());
+        }
+        let samples: Vec<f32> = unprotect(&block)?
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| f32::from(i16::from_le_bytes(*b)) / f32::from(i16::MAX))
+            .collect();
+        if !f(&samples) {
+            return Ok(());
+        }
+    }
+}
+
 /// Fichier WAV (16 bits, 16 kHz mono) pour exporter l'audio d'une piste.
 pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     let data_len = (samples.len() * 2) as u32;
@@ -620,6 +724,7 @@ mod tests {
             end_ms: start_ms + 1000,
             text: text.into(),
             copied: false,
+            speaker: None,
         }
     }
 
@@ -633,7 +738,7 @@ mod tests {
         ];
         sort_segments(&mut segments);
         assert_eq!(
-            transcript_text(&segments),
+            transcript_text(&segments, &[]),
             "[00:00] Moi : Bonjour à tous. On commence ?\n[00:09] Eux : Très bien.\n\
              [1:01:01] Eux : Au revoir."
         );
@@ -643,10 +748,47 @@ mod tests {
             3_662_000,
             Some("Rien."),
             &segments,
+            &[],
         );
         assert!(md.starts_with("# Point hebdo\n\n4 nov. 2026 · durée 1:01:02"));
         assert!(md.contains("## Compte rendu\n\nRien."));
         assert!(md.contains("**Eux** [00:09] : Très bien."));
+    }
+
+    #[test]
+    fn speakers_split_the_other_track() {
+        use crate::diarize::Turn;
+        let segments = vec![
+            segment(Track::Moi, 0, "Bonjour."),
+            Segment {
+                end_ms: 8_000,
+                ..segment(Track::Eux, 2_000, "Salut Paul. Oui bonjour Anne, ça va ?")
+            },
+        ];
+        let turns = [
+            Turn {
+                start_ms: 2_000,
+                end_ms: 3_500,
+                speaker: 0,
+            },
+            Turn {
+                start_ms: 3_500,
+                end_ms: 8_000,
+                speaker: 1,
+            },
+        ];
+        let split = with_speakers(&segments, Track::Eux, &turns);
+        assert_eq!(split.len(), 3);
+        assert_eq!(split[0].speaker, None);
+        assert_eq!(split[1].text, "Salut Paul.");
+        assert_eq!(split[1].speaker, Some(0));
+        assert_eq!(split[2].speaker, Some(1));
+        let names = vec![String::new(), "Anne".to_owned()];
+        assert_eq!(
+            transcript_text(&split, &names),
+            "[00:00] Moi : Bonjour.\n[00:02] Intervenant 1 : Salut Paul.\n\
+             [00:03] Anne : Oui bonjour Anne, ça va ?"
+        );
     }
 
     /// Enveloppe de parole pseudo-aléatoire (syllabes de 100 à 300 ms).
@@ -757,6 +899,21 @@ mod tests {
         let part = read_audio_range(&path, xor, 1, 3).unwrap();
         assert_eq!(part.len(), 2);
         assert!((part[0] + 0.5).abs() < 1e-3 && (part[1] - 0.25).abs() < 1e-3);
+        // Bloc par bloc : les mêmes échantillons, arrêt possible.
+        let mut blocks = Vec::new();
+        for_each_audio_block(&path, xor, |b| {
+            blocks.push(b.len());
+            true
+        })
+        .unwrap();
+        assert_eq!(blocks, [2, 1]);
+        let mut first = 0;
+        for_each_audio_block(&path, xor, |b| {
+            first += b.len();
+            false
+        })
+        .unwrap();
+        assert_eq!(first, 2);
         assert_eq!(&wav_bytes(&samples)[..4], b"RIFF");
         delete_audio(&dir);
         assert!(!path.exists());

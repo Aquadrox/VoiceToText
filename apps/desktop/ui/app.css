@@ -774,6 +774,76 @@ ol.entries li {
   overflow-wrap: anywhere;
 }
 
+/* Intervenants distingués : colonne des noms plus large. */
+.turns.named li {
+  grid-template-columns: 4.5em 9em 1fr;
+}
+
+.turns.named .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turns li[data-speaker="0"] .who,
+.speakers li[data-speaker="0"] .label {
+  color: #2f7de1;
+}
+.turns li[data-speaker="1"] .who,
+.speakers li[data-speaker="1"] .label {
+  color: #d9480f;
+}
+.turns li[data-speaker="2"] .who,
+.speakers li[data-speaker="2"] .label {
+  color: #2b8a3e;
+}
+.turns li[data-speaker="3"] .who,
+.speakers li[data-speaker="3"] .label {
+  color: #9c36b5;
+}
+.turns li[data-speaker="4"] .who,
+.speakers li[data-speaker="4"] .label {
+  color: #c2255c;
+}
+.turns li[data-speaker="5"] .who,
+.speakers li[data-speaker="5"] .label {
+  color: #1098ad;
+}
+
+.speakers {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.speakers li {
+  display: grid;
+  grid-template-columns: 7em 12em 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.speakers li:first-child {
+  border-top: none;
+}
+
+.speakers .label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.speakers input {
+  width: 100%;
+}
+
+.speakers .about {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .meeting-more {
   margin: 8px 0;
 }

@@ -61,6 +61,7 @@ fn main() {
         Path::new(segmentation),
         Path::new(embedding),
         Path::new(runtime),
+        std::thread::available_parallelism().map_or(4, |n| n.get().min(4)),
     )
     .expect("chargement des modèles");
     let loaded = started.elapsed();

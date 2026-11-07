@@ -151,7 +151,14 @@ pub fn keywords(question: &str) -> Vec<String> {
 /// Passages d'une transcription utiles pour une question : chaque segment
 /// qui contient un mot significatif, avec ses voisins, sous la forme
 /// `[titre · 12:34] texte`. Vide si rien ne correspond.
-pub fn excerpts(title: &str, segments: &[Segment], keywords: &[String]) -> Vec<String> {
+/// `names` : noms des intervenants ; une réplique d'un intervenant distingué
+/// est précédée de son nom.
+pub fn excerpts(
+    title: &str,
+    segments: &[Segment],
+    keywords: &[String],
+    names: &[String],
+) -> Vec<String> {
     let mut keep = vec![false; segments.len()];
     for (i, segment) in segments.iter().enumerate() {
         let text = fold(&segment.text);
@@ -163,7 +170,15 @@ pub fn excerpts(title: &str, segments: &[Segment], keywords: &[String]) -> Vec<S
         .iter()
         .zip(keep)
         .filter(|(_, keep)| *keep)
-        .map(|(s, _)| format!("[{title} · {}] {}", timestamp(s.start_ms), s.text))
+        .map(|(s, _)| match s.speaker {
+            Some(_) => format!(
+                "[{title} · {}] {} : {}",
+                timestamp(s.start_ms),
+                crate::meeting::speaker_label(s.track, s.speaker, names),
+                s.text
+            ),
+            None => format!("[{title} · {}] {}", timestamp(s.start_ms), s.text),
+        })
         .collect()
 }
 
@@ -179,6 +194,7 @@ mod tests {
             end_ms: start_ms + 5_000,
             text: text.into(),
             copied: false,
+            speaker: None,
         }
     }
 
@@ -220,13 +236,23 @@ mod tests {
         let words = keywords("Quel budget pour la campagne ?");
         assert_eq!(words, ["budget", "campagne"]);
         assert_eq!(
-            excerpts("Point projet", &segments, &words),
+            excerpts("Point projet", &segments, &words, &[]),
             [
                 "[Point projet · 00:05] Parlons du lancement.",
                 "[Point projet · 00:10] Le budget de la campagne est validé.",
                 "[Point projet · 00:15] Cinq mille euros.",
             ]
         );
-        assert!(excerpts("X", &segments, &keywords("météo")).is_empty());
+        assert!(excerpts("X", &segments, &keywords("météo"), &[]).is_empty());
+        // Intervenant distingué : son nom devant la réplique.
+        let named = vec![Segment {
+            speaker: Some(1),
+            ..segment(10_000, "Le budget est validé.")
+        }];
+        let names = vec![String::new(), "Anne".to_owned()];
+        assert_eq!(
+            excerpts("P", &named, &keywords("budget"), &names),
+            ["[P · 00:10] Anne : Le budget est validé."]
+        );
     }
 }

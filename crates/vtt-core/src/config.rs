@@ -228,6 +228,9 @@ pub struct MeetingsConfig {
     pub echo_filter: bool,
     /// Langue du compte rendu ; vide : celle de la réunion.
     pub summary_language: String,
+    /// Distinguer les intervenants (« Intervenant 1, 2… ») dans la piste
+    /// « Eux » et les conférences ; modèles téléchargés à l'activation.
+    pub diarize: bool,
 }
 
 /// Choix de l'utilisateur pour un service d'appel.
@@ -282,6 +285,7 @@ impl Default for MeetingsConfig {
             providers: Vec::new(),
             echo_filter: true,
             summary_language: String::new(),
+            diarize: false,
         }
     }
 }

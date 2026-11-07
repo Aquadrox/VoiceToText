@@ -20,6 +20,7 @@ mod raw_paste;
 mod retry;
 mod settings;
 mod shortcuts;
+mod speakers;
 mod status;
 mod translation;
 mod tray;
@@ -116,6 +117,12 @@ fn main() {
             meetings::export_meeting,
             meetings::export_meeting_audio,
             meetings::save_meeting_settings,
+            meetings::identify_speakers,
+            meetings::set_speaker_count,
+            meetings::rename_speaker,
+            meetings::forget_speakers,
+            meetings::voices_view,
+            meetings::download_voices,
             updates::update_status,
             updates::check_update,
             updates::install_update,
@@ -153,6 +160,13 @@ fn main() {
                 &config.translation.language,
             );
             app.manage(Arc::clone(&translation));
+            let voices = speakers::Voices::new(app.handle().clone(), paths.models_dir.clone());
+            app.manage(Arc::clone(&voices));
+            if config.meetings.diarize {
+                // Activé sans modèles (réglages importés, téléchargement
+                // interrompu) : téléchargés maintenant.
+                voices.download();
+            }
             let meeting_jobs = MeetingQueue::default();
             let meetings = Meetings::new(
                 app.handle().clone(),

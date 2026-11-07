@@ -30,12 +30,17 @@ pub struct Diarizer {
 
 impl Diarizer {
     /// `segmentation` : `segmentation-3.0` en ONNX ; `embedding` : modèle
-    /// d'empreinte (sherpa-onnx) ; `runtime` : bibliothèque ONNX Runtime.
-    pub fn load(segmentation: &Path, embedding: &Path, runtime: &Path) -> Result<Self, Error> {
+    /// d'empreinte (sherpa-onnx) ; `runtime` : bibliothèque ONNX Runtime ;
+    /// `threads` : cœurs utilisés (pendant un appel, en laisser à la
+    /// transcription).
+    pub fn load(
+        segmentation: &Path,
+        embedding: &Path,
+        runtime: &Path,
+        threads: usize,
+    ) -> Result<Self, Error> {
         let environment = environment(runtime)?;
-        let threads = std::thread::available_parallelism()
-            .map(|n| n.get().min(4))
-            .unwrap_or(2);
+        let threads = threads.max(1);
         let open = |path: &Path| -> Result<Session, Error> {
             let context = path.display().to_string();
             Session::builder(&environment)
