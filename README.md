@@ -205,6 +205,19 @@ Page **Réunions** : liste, transcription horodatée Moi / Eux (en direct pendan
 | Fichier temporaire chiffré (**par défaut**) | Chiffré par Windows (DPAPI, lisible seulement par votre session), supprimé une fois la transcription terminée | Transcription reprise au redémarrage |
 | Conservé, chiffré | Gardé ; export en WAV et **Transcrire à nouveau** (après un changement de modèle) | Transcription reprise au redémarrage |
 
+### Distinguer les intervenants
+
+Dans un appel à plusieurs, « Eux » mélange tout le monde. **Réglages → Réunions → Distinguer les intervenants** sépare les voix :
+
+1. À l'activation, deux petits modèles sont téléchargés une fois (33 Mo, plus ONNX Runtime si Parakeet ne l'a pas déjà installé), vérifiés avant usage.
+2. Pendant la réunion, les voix de la piste « Eux » sont analysées sur le PC, au fil de l'eau ; à la fin, chaque réplique « Eux » est attribuée à **Intervenant 1**, **Intervenant 2**… (une réplique peut être coupée entre deux personnes). Aussi pour les conférences (la source captée) et les fichiers importés. Rien n'est envoyé en ligne pour cette analyse.
+3. Page **Réunions**, bloc **Intervenants** : donnez un **nom** à chacun (le temps de parole et sa première phrase aident à le reconnaître). Le nom remplace « Intervenant N » dans la transcription, la copie, l'export Markdown, les questions au LLM et le prochain compte rendu (**Rédiger à nouveau** pour mettre à jour un compte rendu déjà rédigé).
+4. Deux voix confondues, ou une voix coupée en deux ? **Nombre d'intervenants** : imposez le bon nombre, c'est recalculé aussitôt. **Ne plus distinguer** revient à « Eux ».
+
+Pour un enregistrement fait sans ce réglage, **Distinguer les intervenants** (dans ses boutons) analyse après coup l'audio conservé ou le fichier importé toujours présent.
+
+Ce qui est gardé : les tours de parole (qui parle quand) dans la réunion, et les **empreintes vocales**, chiffrées par Windows (`voix.bin`), pour changer le nombre d'intervenants sans l'audio. Une empreinte vocale permet de reconnaître une voix : elle n'est jamais écrite pour une réunion « en mémoire seulement », et elle est effacée avec la réunion ou par **Ne plus distinguer**. Durée : quelques minutes pour une heure d'audio (sur le processeur, en même temps que la transcription).
+
 ### Conférences et fichiers audio / vidéo
 
 Page **Réunions** → **Conférence ou fichier audio / vidéo…** :
@@ -219,7 +232,7 @@ Page **Réunions** → **Conférence ou fichier audio / vidéo…** :
 - **Réécouter un passage** : quand l'audio est disponible (réunion ou conférence avec l'audio « conservé », ou fichier importé toujours à sa place), l'heure de chaque réplique devient **▶ 12:34** : un clic joue 30 s à partir de ce moment. L'audio conservé est déchiffré à la volée, rien n'est écrit sur le disque.
 - **Poser une question** au LLM, sur l'enregistrement affiché ou sur **tous** (« qu'a-t-on décidé pour le budget ? ») : les passages qui contiennent les mots de la question sont envoyés au LLM, qui répond en citant ses sources (titre, heure). Coût compté comme le reste.
 
-Autres réglages : capter ou non le son du PC, écarter l'écho, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
+Autres réglages : capter ou non le son du PC, écarter l'écho, distinguer les intervenants, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
 
 ## Capture commentée
 
@@ -392,6 +405,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
 | Réunions | Transcription et compte rendu dans `meetings\` sur le PC (en clair, comme l'historique) ; audio en mémoire, ou chiffré par Windows (DPAPI) et supprimé ou conservé selon le réglage ; jamais d'audio en clair sur le disque (sauf export WAV demandé) |
 | Compte rendu de réunion | La transcription est envoyée au fournisseur LLM choisi |
+| Voix des intervenants (si activé) | Analysées sur le PC ; empreintes vocales chiffrées par Windows dans le dossier de la réunion (jamais pour une réunion « en mémoire seulement »), effacées avec elle ; **jamais envoyées** |
 | Fichiers audio / vidéo importés | Lus sur le PC, ni copiés ni modifiés ; seule leur transcription est gardée (et envoyée au LLM pour le compte rendu) |
 | Questions sur les enregistrements | Les passages qui correspondent à la question sont envoyés au fournisseur LLM choisi |
 | Statistiques et coût | `usage.json` et `usage-apps.json` : compteurs uniquement (par application : le nom du programme), **aucun texte** |
@@ -408,7 +422,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Fichier | Emplacement |
 |---|---|
 | Configuration | `%APPDATA%\VoiceToText\config.toml` |
-| Modèles de transcription (et bibliothèques de Parakeet, Vosk) | `%LOCALAPPDATA%\VoiceToText\models\` |
+| Modèles de transcription (et bibliothèques de Parakeet, Vosk), modèles des intervenants | `%LOCALAPPDATA%\VoiceToText\models\` |
 | Historique | `%LOCALAPPDATA%\VoiceToText\history.jsonl` |
 | Réunions (une par dossier) | `%LOCALAPPDATA%\VoiceToText\meetings\` |
 | Captures commentées gardées | `%LOCALAPPDATA%\VoiceToText\captures\` |
@@ -461,6 +475,7 @@ keep_days = 0          # réunions supprimées au-delà ; 0 = jamais
 detect = true          # proposer d'enregistrer quand un appel commence
 echo_filter = true     # écarter l'écho (haut-parleurs)
 summary_language = ""  # langue du compte rendu ; "" = celle de la réunion
+diarize = false        # distinguer les intervenants (modèles de 33 Mo téléchargés)
 # Choix par service (absent = proposer) : "toujours" ou "jamais".
 # [[meetings.providers]]
 # key = "zoom"
@@ -586,4 +601,4 @@ Documentation technique :
 
 Composants tiers : [whisper.cpp](https://github.com/ggml-org/whisper.cpp) et les modèles [Whisper](https://github.com/openai/whisper) (MIT), [Tauri](https://tauri.app) (MIT / Apache 2.0). Téléchargés seulement si vous les choisissez : le modèle [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) © NVIDIA ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), conversion ONNX de [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx)), [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT, Microsoft), [Vosk](https://alphacephei.com/vosk/) et son modèle français (Apache 2.0, Alpha Cephei) ; [parakeet-rs](https://github.com/altunenes/parakeet-rs) (MIT / Apache 2.0). Le service LLM choisi (DeepSeek, OpenAI…) reste soumis à ses propres conditions d'utilisation.
 
-Remerciements : l'idée de distinguer les intervenants d'une réunion (diarisation, en cours d'essai) et de les nommer d'après leur temps de parole et leur première phrase vient de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de [Xavier Beheydt](https://beheydt.dev/) (MIT), réécrite ici en Rust. Elle s'appuie sur les travaux et modèles de [pyannote.audio](https://github.com/pyannote/pyannote-audio) (Hervé Bredin, CNRS ; modèle [segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), MIT), de [WeSpeaker](https://github.com/wenet-e2e/wespeaker) (modèle [ResNet34-LM](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) et sur les conversions ONNX de [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (k2-fsa, Apache 2.0), qui a aussi servi de référence pour vérifier les résultats.
+Remerciements : l'idée de distinguer les intervenants d'une réunion (diarisation) et de les nommer d'après leur temps de parole et leur première phrase vient de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de [Xavier Beheydt](https://beheydt.dev/) (MIT), réécrite ici en Rust. Elle s'appuie sur les travaux et modèles de [pyannote.audio](https://github.com/pyannote/pyannote-audio) (Hervé Bredin, CNRS ; modèle [segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), MIT), de [WeSpeaker](https://github.com/wenet-e2e/wespeaker) (modèle [ResNet34-LM](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) et sur les conversions ONNX de [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (k2-fsa, Apache 2.0), qui a aussi servi de référence pour vérifier les résultats.

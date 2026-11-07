@@ -25,6 +25,8 @@
 //! sherpa-onnx (k2-fsa, Apache 2.0). Aucune ligne de code n'est copiée :
 //! tout est réécrit ici.
 
+use serde::{Deserialize, Serialize};
+
 use crate::pipeline::{Error, SAMPLE_RATE, Word};
 
 /// Fenêtre analysée par la segmentation : 10 s.
@@ -51,9 +53,17 @@ const POWERSET: [[bool; LOCAL_SPEAKERS]; CLASSES] = [
 const FRAME_OFFSET: usize = (FRAME_SIZE - FRAME_STEP) / 2;
 /// Parole minimale pour calculer une empreinte : 0,5 s.
 const MIN_EMBEDDING_SAMPLES: usize = SAMPLE_RATE as usize / 2;
-/// Fenêtres au plus (une heure au pas de 2 s) : au-delà, le pas s'allonge,
-/// pour que le regroupement (mémoire en n²) reste sous ≈ 60 Mo.
-const MAX_WINDOWS: usize = 1_800;
+/// Empreintes regroupées au plus (mémoire en n² : ≈ 36 Mo, soit environ une
+/// heure et demie d'audio) ; au-delà, les autres rejoignent le groupe le plus
+/// proche.
+const MAX_CLUSTERED: usize = 3_000;
+/// Écart toléré entre deux morceaux consécutifs (arrondis à la
+/// milliseconde) : 2 ms.
+const CONTIGUOUS: usize = SAMPLE_RATE as usize / 500;
+/// Fenêtres analysées ensemble : les deux modèles alternent moins, leurs
+/// threads se gênent moins (mesuré : fenêtre par fenêtre, 1,6 fois plus
+/// lent).
+const BATCH: usize = 8;
 
 /// Les deux modèles de la diarisation.
 pub trait Models {
@@ -100,7 +110,7 @@ impl Default for Options {
 
 /// Un locuteur parle de `start_ms` à `end_ms`. Locuteurs numérotés à partir
 /// de 0 dans l'ordre où ils prennent la parole.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Turn {
     pub start_ms: u64,
     pub end_ms: u64,
@@ -111,17 +121,8 @@ fn samples_to_ms(samples: usize) -> u64 {
     samples as u64 * 1000 / SAMPLE_RATE as u64
 }
 
-/// Débuts des fenêtres : tous les `step`, la dernière calée sur la fin.
-fn window_starts(len: usize, step: usize) -> Vec<usize> {
-    if len <= WINDOW {
-        return vec![0];
-    }
-    let last = len - WINDOW;
-    let mut starts: Vec<usize> = (0..=last).step_by(step.max(FRAME_STEP)).collect();
-    if starts.last() != Some(&last) {
-        starts.push(last);
-    }
-    starts
+fn ms_to_samples(ms: u64) -> usize {
+    (ms * SAMPLE_RATE as u64 / 1000) as usize
 }
 
 /// Voix actives trame par trame : la classe la plus probable.
@@ -143,25 +144,25 @@ fn frame_span(frame: usize) -> (usize, usize) {
     (start, start + FRAME_STEP)
 }
 
+/// Voix entendues dans une fenêtre, trame par trame.
+#[derive(Debug, Clone, PartialEq)]
 struct Window {
+    /// Début (échantillons depuis le début de l'audio).
     start: usize,
     activity: Vec<[bool; LOCAL_SPEAKERS]>,
 }
 
-/// Parole de la voix `speaker` dans la fenêtre : seule si possible (sans
-/// chevauchement, l'empreinte est plus nette), sinon toute.
-fn speech_of(audio: &[f32], window: &Window, speaker: usize) -> Vec<f32> {
+/// Parole de la voix `speaker` dans la fenêtre (`audio` : ses échantillons) :
+/// seule si possible (sans chevauchement, l'empreinte est plus nette), sinon
+/// toute.
+fn speech_of(audio: &[f32], activity: &[[bool; LOCAL_SPEAKERS]], speaker: usize) -> Vec<f32> {
     let gather = |alone: bool| {
         let mut samples = Vec::new();
-        for (frame, voices) in window.activity.iter().enumerate() {
+        for (frame, voices) in activity.iter().enumerate() {
             let overlap = voices.iter().filter(|&&v| v).count() > 1;
             if voices[speaker] && !(alone && overlap) {
                 let (a, b) = frame_span(frame);
-                let (a, b) = (
-                    (window.start + a).min(audio.len()),
-                    (window.start + b).min(audio.len()),
-                );
-                samples.extend_from_slice(&audio[a..b]);
+                samples.extend_from_slice(&audio[a.min(audio.len())..b.min(audio.len())]);
             }
         }
         samples
@@ -184,6 +185,27 @@ fn normalize(mut v: Vec<f32>) -> Vec<f32> {
 
 fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
     1.0 - a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>()
+}
+
+/// Centre (normé) de chaque groupe.
+fn centroids(embeddings: &[Vec<f32>], labels: &[usize]) -> Vec<Vec<f32>> {
+    let groups = labels.iter().max().map_or(0, |m| m + 1);
+    let dim = embeddings.first().map_or(0, Vec::len);
+    let mut sums = vec![vec![0.0f32; dim]; groups];
+    for (e, &label) in embeddings.iter().zip(labels) {
+        sums[label].iter_mut().zip(e).for_each(|(s, x)| *s += x);
+    }
+    sums.into_iter().map(normalize).collect()
+}
+
+/// Groupe dont le centre est le plus proche.
+fn nearest(embedding: &[f32], centroids: &[Vec<f32>]) -> usize {
+    (0..centroids.len())
+        .min_by(|&a, &b| {
+            cosine_distance(embedding, &centroids[a])
+                .total_cmp(&cosine_distance(embedding, &centroids[b]))
+        })
+        .unwrap_or(0)
 }
 
 /// Classification hiérarchique ascendante, lien moyen, sur des vecteurs
@@ -296,30 +318,410 @@ pub fn cluster(
         }
         return labels;
     }
-    let centroids: Vec<Vec<f32>> = large
-        .iter()
-        .map(|(_, list)| {
-            let mut c = vec![0.0f32; embeddings[0].len()];
-            for &i in list {
-                c.iter_mut().zip(&embeddings[i]).for_each(|(c, x)| *c += x);
-            }
-            normalize(c)
-        })
-        .collect();
+    let mut large_labels = Vec::new();
+    let mut large_embeddings = Vec::new();
     for (label, (_, list)) in large.iter().enumerate() {
-        list.iter().for_each(|&i| labels[i] = label);
+        for &i in list {
+            labels[i] = label;
+            large_labels.push(label);
+            large_embeddings.push(embeddings[i].clone());
+        }
     }
+    let centers = centroids(&large_embeddings, &large_labels);
     for (_, list) in &small {
         for &i in list {
-            labels[i] = (0..centroids.len())
-                .min_by(|&a, &b| {
-                    cosine_distance(&embeddings[i], &centroids[a])
-                        .total_cmp(&cosine_distance(&embeddings[i], &centroids[b]))
-                })
-                .expect("au moins un grand groupe");
+            labels[i] = nearest(&embeddings[i], &centers);
         }
     }
     labels
+}
+
+/// Analyse des voix au fil de l'eau : l'audio arrive par morceaux (blocs
+/// d'une réunion, fichier lu peu à peu) et n'est pas gardé ; seules restent
+/// les voix entendues dans chaque fenêtre et leurs empreintes. Les tours de
+/// parole se calculent ensuite ([`Analysis::turns`]), autant de fois qu'on
+/// veut (nombre de locuteurs changé), sans l'audio.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Analysis {
+    step: usize,
+    windows: Vec<Window>,
+    /// Pour chaque empreinte : sa fenêtre et sa voix locale.
+    owners: Vec<(usize, usize)>,
+    embeddings: Vec<Vec<f32>>,
+    /// Fin de l'audio reçu (échantillons depuis le début).
+    end: usize,
+    /// Audio de la zone en cours, à partir de `region_start`, pas encore
+    /// entièrement analysé.
+    region_start: usize,
+    buffer: Vec<f32>,
+    /// Début de la prochaine fenêtre.
+    next: usize,
+    /// Fenêtres prêtes, analysées par lots de [`BATCH`].
+    pending: Vec<usize>,
+    /// La zone en cours a déjà au moins une fenêtre.
+    covered: bool,
+}
+
+impl Analysis {
+    /// `step` : écart entre deux fenêtres (voir [`Options::step`]).
+    pub fn new(step: usize) -> Self {
+        Self {
+            step: step.max(FRAME_STEP),
+            windows: Vec::new(),
+            owners: Vec::new(),
+            embeddings: Vec::new(),
+            end: 0,
+            region_start: 0,
+            buffer: Vec::new(),
+            next: 0,
+            pending: Vec::new(),
+            covered: false,
+        }
+    }
+
+    /// Analyse `samples` (16 kHz mono), qui commencent à `start_ms`. Un
+    /// morceau qui ne suit pas le précédent (silence sauté) ouvre une
+    /// nouvelle zone : aucune fenêtre ne couvre le trou.
+    pub fn add(
+        &mut self,
+        start_ms: u64,
+        samples: &[f32],
+        models: &mut impl Models,
+    ) -> Result<(), Error> {
+        let start = ms_to_samples(start_ms);
+        if !self.buffer.is_empty() {
+            let region_end = self.region_start + self.buffer.len();
+            if start.abs_diff(region_end) > CONTIGUOUS {
+                self.flush(models)?;
+            }
+        }
+        if self.buffer.is_empty() {
+            self.region_start = start;
+            self.next = start;
+            self.covered = false;
+        }
+        self.buffer.extend_from_slice(samples);
+        let region_end = self.region_start + self.buffer.len();
+        self.end = self.end.max(region_end);
+        while self.next + WINDOW <= region_end {
+            self.pending.push(self.next);
+            self.next += self.step;
+            self.covered = true;
+        }
+        if self.pending.len() >= BATCH {
+            let ready = std::mem::take(&mut self.pending);
+            self.windows_at(&ready, models)?;
+        }
+        // Gardé : les fenêtres en attente, et de quoi caler une dernière
+        // fenêtre sur la fin de la zone.
+        let keep_from = self
+            .next
+            .saturating_sub(self.step)
+            .min(self.pending.first().copied().unwrap_or(usize::MAX))
+            .max(self.region_start)
+            .min(region_end);
+        self.buffer.drain(..keep_from - self.region_start);
+        self.region_start = keep_from;
+        Ok(())
+    }
+
+    /// Fin de l'audio : analyse ce qui reste de la zone en cours.
+    pub fn finish(&mut self, models: &mut impl Models) -> Result<(), Error> {
+        self.flush(models)
+    }
+
+    /// Dernière fenêtre de la zone, calée sur sa fin (complétée par du
+    /// silence si la zone dure moins de 10 s).
+    fn flush(&mut self, models: &mut impl Models) -> Result<(), Error> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let region_end = self.region_start + self.buffer.len();
+        let mut ready = std::mem::take(&mut self.pending);
+        if !self.covered {
+            ready.push(self.region_start);
+        } else if self.next - self.step + WINDOW < region_end {
+            ready.push(region_end - WINDOW);
+        }
+        self.windows_at(&ready, models)?;
+        self.buffer.clear();
+        Ok(())
+    }
+
+    /// Analyse les fenêtres qui commencent à `starts` (dans la zone en
+    /// cours) : toutes les segmentations, puis toutes les empreintes (les
+    /// deux modèles se succèdent moins : mesuré plus rapide).
+    fn windows_at(&mut self, starts: &[usize], models: &mut impl Models) -> Result<(), Error> {
+        let mut padded = vec![0.0f32; WINDOW];
+        let first = self.windows.len();
+        for &start in starts {
+            let audio = self.window_audio(start);
+            padded[..audio.len()].copy_from_slice(audio);
+            padded[audio.len()..].fill(0.0);
+            let real = audio.len();
+            let mut activity = decode(&models.segment(&padded)?);
+            // Trames au-delà de l'audio (fenêtre complétée) : muettes.
+            activity.truncate(real.saturating_sub(FRAME_OFFSET) / FRAME_STEP);
+            self.windows.push(Window { start, activity });
+        }
+        for w in first..self.windows.len() {
+            for speaker in 0..LOCAL_SPEAKERS {
+                let window = &self.windows[w];
+                let speech = speech_of(self.window_audio(window.start), &window.activity, speaker);
+                if speech.len() >= MIN_EMBEDDING_SAMPLES {
+                    self.embeddings.push(normalize(models.embed(&speech)?));
+                    self.owners.push((w, speaker));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Audio de la fenêtre qui commence à `start` (moins de 10 s en fin de
+    /// zone).
+    fn window_audio(&self, start: usize) -> &[f32] {
+        let offset = start - self.region_start;
+        &self.buffer[offset..(offset + WINDOW).min(self.buffer.len())]
+    }
+
+    /// Durée d'audio reçue.
+    pub fn duration_ms(&self) -> u64 {
+        samples_to_ms(self.end)
+    }
+
+    /// Tours de parole d'après l'analyse (`options.step` ne sert pas ici).
+    pub fn turns(&self, options: &Options) -> Vec<Turn> {
+        let n = self.embeddings.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let labels = if n > MAX_CLUSTERED {
+            // Échantillon régulier regroupé ; les autres empreintes
+            // rejoignent le groupe le plus proche.
+            let picked: Vec<Vec<f32>> = (0..MAX_CLUSTERED)
+                .map(|i| self.embeddings[i * n / MAX_CLUSTERED].clone())
+                .collect();
+            let picked_labels = cluster(
+                &picked,
+                options.threshold,
+                options.speakers,
+                options.min_cluster_size,
+            );
+            let centers = centroids(&picked, &picked_labels);
+            self.embeddings
+                .iter()
+                .map(|e| nearest(e, &centers))
+                .collect()
+        } else {
+            cluster(
+                &self.embeddings,
+                options.threshold,
+                options.speakers,
+                options.min_cluster_size,
+            )
+        };
+        let clusters = labels.iter().max().map_or(0, |m| m + 1);
+        let mut local_to_global = vec![[None; LOCAL_SPEAKERS]; self.windows.len()];
+        for (&(w, s), &label) in self.owners.iter().zip(&labels) {
+            local_to_global[w][s] = Some(label);
+        }
+
+        // Votes par trame globale : voix entendues (moyenne des fenêtres) et
+        // locuteur de chacune.
+        let frames = self.end.saturating_sub(FRAME_OFFSET) / FRAME_STEP + 1;
+        let mut votes = vec![0.0f32; frames * clusters];
+        let mut heard = vec![0.0f32; frames];
+        let mut seen = vec![0.0f32; frames];
+        for (w, window) in self.windows.iter().enumerate() {
+            let offset = (window.start + FRAME_STEP / 2) / FRAME_STEP;
+            for (f, voices) in window.activity.iter().enumerate() {
+                let g = offset + f;
+                if g >= frames {
+                    break;
+                }
+                seen[g] += 1.0;
+                for (s, &on) in voices.iter().enumerate() {
+                    if on {
+                        heard[g] += 1.0;
+                        if let Some(k) = local_to_global[w][s] {
+                            votes[g * clusters + k] += 1.0;
+                        }
+                    }
+                }
+            }
+        }
+        let mut active = vec![false; frames * clusters];
+        let mut order: Vec<usize> = (0..clusters).collect();
+        for g in 0..frames {
+            if seen[g] == 0.0 {
+                continue;
+            }
+            let count = (heard[g] / seen[g]).round() as usize;
+            let row = &votes[g * clusters..(g + 1) * clusters];
+            order.sort_by(|&a, &b| row[b].total_cmp(&row[a]));
+            for &k in order.iter().take(count) {
+                if row[k] > 0.0 {
+                    active[g * clusters + k] = true;
+                }
+            }
+        }
+
+        // Trames → tours de parole, petits silences comblés, bribes ignorées.
+        let to_ms = |frame: usize| samples_to_ms(FRAME_OFFSET + frame * FRAME_STEP);
+        let mut turns = Vec::new();
+        for k in 0..clusters {
+            let mut own: Vec<Turn> = Vec::new();
+            let mut start = None;
+            for g in 0..=frames {
+                let on = g < frames && active[g * clusters + k];
+                match (on, start) {
+                    (true, None) => start = Some(g),
+                    (false, Some(s)) => {
+                        let turn = Turn {
+                            start_ms: to_ms(s),
+                            end_ms: to_ms(g).min(samples_to_ms(self.end)),
+                            speaker: k,
+                        };
+                        match own.last_mut() {
+                            Some(last) if turn.start_ms - last.end_ms < options.min_off_ms => {
+                                last.end_ms = turn.end_ms;
+                            }
+                            _ => own.push(turn),
+                        }
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+            turns.extend(
+                own.into_iter()
+                    .filter(|t| t.end_ms - t.start_ms >= options.min_on_ms),
+            );
+        }
+        turns.sort_by_key(|t| (t.start_ms, t.speaker));
+
+        // Locuteurs renumérotés dans l'ordre d'arrivée.
+        let mut arrival: Vec<usize> = Vec::new();
+        for t in &turns {
+            if !arrival.contains(&t.speaker) {
+                arrival.push(t.speaker);
+            }
+        }
+        for t in &mut turns {
+            t.speaker = arrival
+                .iter()
+                .position(|&s| s == t.speaker)
+                .expect("locuteur vu ci-dessus");
+        }
+        turns
+    }
+
+    /// Analyse enregistrable (voix par fenêtre et empreintes ; jamais
+    /// d'audio). À chiffrer : une empreinte vocale identifie une personne.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(&(self.step as u32).to_le_bytes());
+        out.extend_from_slice(&(self.end as u64).to_le_bytes());
+        out.extend_from_slice(&(self.windows.len() as u32).to_le_bytes());
+        for window in &self.windows {
+            out.extend_from_slice(&(window.start as u64).to_le_bytes());
+            out.extend_from_slice(&(window.activity.len() as u32).to_le_bytes());
+            out.extend(window.activity.iter().map(|voices| {
+                voices
+                    .iter()
+                    .enumerate()
+                    .fold(0u8, |bits, (i, &on)| bits | (u8::from(on) << i))
+            }));
+        }
+        let dim = self.embeddings.first().map_or(0, Vec::len);
+        out.extend_from_slice(&(self.embeddings.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(dim as u32).to_le_bytes());
+        for (&(w, s), embedding) in self.owners.iter().zip(&self.embeddings) {
+            out.extend_from_slice(&(w as u32).to_le_bytes());
+            out.push(s as u8);
+            for x in embedding {
+                out.extend_from_slice(&x.to_le_bytes());
+            }
+        }
+        out
+    }
+
+    /// Relit [`Analysis::to_bytes`] (tout est vérifié : fichier tronqué ou
+    /// modifié refusé).
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let mut reader = Reader { bytes, at: 0 };
+        if reader.take(MAGIC.len())? != MAGIC {
+            return Err("format d'analyse des voix inconnu".into());
+        }
+        let step = reader.u32()? as usize;
+        let end = reader.u64()? as usize;
+        let mut analysis = Self::new(step);
+        analysis.end = end;
+        for _ in 0..reader.u32()? {
+            let start = reader.u64()? as usize;
+            let frames = reader.u32()? as usize;
+            let activity = reader
+                .take(frames)?
+                .iter()
+                .map(|&bits| std::array::from_fn(|i| bits & (1 << i) != 0))
+                .collect();
+            analysis.windows.push(Window { start, activity });
+        }
+        let count = reader.u32()? as usize;
+        let dim = reader.u32()? as usize;
+        for _ in 0..count {
+            let w = reader.u32()? as usize;
+            let s = reader.take(1)?[0] as usize;
+            if w >= analysis.windows.len() || s >= LOCAL_SPEAKERS {
+                return Err("analyse des voix incohérente".into());
+            }
+            let embedding = reader
+                .take(dim * 4)?
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect();
+            analysis.owners.push((w, s));
+            analysis.embeddings.push(embedding);
+        }
+        if reader.at != bytes.len() {
+            return Err("analyse des voix incohérente".into());
+        }
+        Ok(analysis)
+    }
+}
+
+/// En-tête du fichier d'analyse (version 1).
+const MAGIC: &[u8] = b"VTTVOIX1";
+
+struct Reader<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl Reader<'_> {
+    fn take(&mut self, n: usize) -> Result<&[u8], String> {
+        let end = self
+            .at
+            .checked_add(n)
+            .filter(|&end| end <= self.bytes.len())
+            .ok_or("analyse des voix tronquée")?;
+        let slice = &self.bytes[self.at..end];
+        self.at = end;
+        Ok(slice)
+    }
+
+    fn u32(&mut self) -> Result<u32, String> {
+        let b = self.take(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn u64(&mut self) -> Result<u64, String> {
+        let b = self.take(8)?;
+        Ok(u64::from_le_bytes(b.try_into().expect("8 octets")))
+    }
 }
 
 /// Tours de parole de `audio` (16 kHz mono). `progress` reçoit l'avancement
@@ -330,137 +732,15 @@ pub fn diarize(
     options: &Options,
     progress: &mut dyn FnMut(f32),
 ) -> Result<Vec<Turn>, Error> {
-    let step = options.step.max(audio.len() / MAX_WINDOWS);
-    let starts = window_starts(audio.len(), step);
-    // Segmentation ≈ 1/3 du temps, empreintes ≈ 2/3.
-    let mut windows = Vec::with_capacity(starts.len());
-    let mut buffer = vec![0.0f32; WINDOW];
-    for (i, &start) in starts.iter().enumerate() {
-        let end = (start + WINDOW).min(audio.len());
-        buffer[..end - start].copy_from_slice(&audio[start..end]);
-        buffer[end - start..].fill(0.0);
-        let mut activity = decode(&models.segment(&buffer)?);
-        // Trames au-delà de la fin de l'audio (fenêtre complétée) : muettes.
-        activity.truncate((end - start).saturating_sub(FRAME_OFFSET) / FRAME_STEP);
-        windows.push(Window { start, activity });
-        progress((i + 1) as f32 / starts.len() as f32 / 3.0);
+    const PIECE: usize = SAMPLE_RATE as usize * 60;
+    let mut analysis = Analysis::new(options.step);
+    for (i, piece) in audio.chunks(PIECE).enumerate() {
+        analysis.add(samples_to_ms(i * PIECE), piece, models)?;
+        let done = ((i + 1) * PIECE).min(audio.len());
+        progress(done as f32 / audio.len() as f32 * 0.99);
     }
-
-    // Une empreinte par voix locale qui parle assez.
-    let mut owners: Vec<(usize, usize)> = Vec::new();
-    let mut embeddings: Vec<Vec<f32>> = Vec::new();
-    for (w, window) in windows.iter().enumerate() {
-        for speaker in 0..LOCAL_SPEAKERS {
-            let speech = speech_of(audio, window, speaker);
-            if speech.len() >= MIN_EMBEDDING_SAMPLES {
-                embeddings.push(normalize(models.embed(&speech)?));
-                owners.push((w, speaker));
-            }
-        }
-        progress((1.0 + 2.0 * (w + 1) as f32 / windows.len() as f32) / 3.0);
-    }
-    if embeddings.is_empty() {
-        return Ok(Vec::new());
-    }
-    let labels = cluster(
-        &embeddings,
-        options.threshold,
-        options.speakers,
-        options.min_cluster_size,
-    );
-    let clusters = labels.iter().max().map_or(0, |m| m + 1);
-    let mut local_to_global = vec![[None; LOCAL_SPEAKERS]; windows.len()];
-    for (&(w, s), &label) in owners.iter().zip(&labels) {
-        local_to_global[w][s] = Some(label);
-    }
-
-    // Votes par trame globale : voix entendues (moyenne des fenêtres) et
-    // locuteur de chacune.
-    let frames = audio.len().saturating_sub(FRAME_OFFSET) / FRAME_STEP + 1;
-    let mut votes = vec![0.0f32; frames * clusters];
-    let mut heard = vec![0.0f32; frames];
-    let mut seen = vec![0.0f32; frames];
-    for (w, window) in windows.iter().enumerate() {
-        let offset = (window.start + FRAME_STEP / 2) / FRAME_STEP;
-        for (f, voices) in window.activity.iter().enumerate() {
-            let g = offset + f;
-            if g >= frames {
-                break;
-            }
-            seen[g] += 1.0;
-            for (s, &on) in voices.iter().enumerate() {
-                if on {
-                    heard[g] += 1.0;
-                    if let Some(k) = local_to_global[w][s] {
-                        votes[g * clusters + k] += 1.0;
-                    }
-                }
-            }
-        }
-    }
-    let mut active = vec![false; frames * clusters];
-    let mut order: Vec<usize> = (0..clusters).collect();
-    for g in 0..frames {
-        if seen[g] == 0.0 {
-            continue;
-        }
-        let count = (heard[g] / seen[g]).round() as usize;
-        let row = &votes[g * clusters..(g + 1) * clusters];
-        order.sort_by(|&a, &b| row[b].total_cmp(&row[a]));
-        for &k in order.iter().take(count) {
-            if row[k] > 0.0 {
-                active[g * clusters + k] = true;
-            }
-        }
-    }
-
-    // Trames → tours de parole, petits silences comblés, bribes ignorées.
-    let to_ms = |frame: usize| samples_to_ms(FRAME_OFFSET + frame * FRAME_STEP);
-    let mut turns = Vec::new();
-    for k in 0..clusters {
-        let mut own: Vec<Turn> = Vec::new();
-        let mut start = None;
-        for g in 0..=frames {
-            let on = g < frames && active[g * clusters + k];
-            match (on, start) {
-                (true, None) => start = Some(g),
-                (false, Some(s)) => {
-                    let turn = Turn {
-                        start_ms: to_ms(s),
-                        end_ms: to_ms(g).min(samples_to_ms(audio.len())),
-                        speaker: k,
-                    };
-                    match own.last_mut() {
-                        Some(last) if turn.start_ms - last.end_ms < options.min_off_ms => {
-                            last.end_ms = turn.end_ms;
-                        }
-                        _ => own.push(turn),
-                    }
-                    start = None;
-                }
-                _ => {}
-            }
-        }
-        turns.extend(
-            own.into_iter()
-                .filter(|t| t.end_ms - t.start_ms >= options.min_on_ms),
-        );
-    }
-    turns.sort_by_key(|t| (t.start_ms, t.speaker));
-
-    // Locuteurs renumérotés dans l'ordre d'arrivée.
-    let mut arrival: Vec<usize> = Vec::new();
-    for t in &turns {
-        if !arrival.contains(&t.speaker) {
-            arrival.push(t.speaker);
-        }
-    }
-    for t in &mut turns {
-        t.speaker = arrival
-            .iter()
-            .position(|&s| s == t.speaker)
-            .expect("locuteur vu ci-dessus");
-    }
+    analysis.finish(models)?;
+    let turns = analysis.turns(options);
     progress(1.0);
     Ok(turns)
 }
@@ -525,6 +805,87 @@ pub fn lines(words: &[Word], turns: &[Turn]) -> Vec<Line> {
                 text: word.text.clone(),
             }),
         }
+    }
+    out
+}
+
+/// Répartit le texte d'un passage transcrit (`start_ms` à `end_ms`) entre
+/// les locuteurs qui y parlent. Le moteur ne donne pas l'heure de chaque
+/// mot : les mots sont étalés, dans l'ordre, sur le temps de parole de
+/// chacun. Un passage sans tour de parole va au locuteur le plus proche
+/// dans le temps.
+pub fn split(text: &str, start_ms: u64, end_ms: u64, turns: &[Turn]) -> Vec<Line> {
+    let whole = |speaker| {
+        vec![Line {
+            speaker,
+            start_ms,
+            end_ms,
+            text: text.to_owned(),
+        }]
+    };
+    // Tours coupés au passage ; un instant n'a qu'un locuteur (le premier).
+    let mut spans: Vec<(u64, u64, usize)> = turns
+        .iter()
+        .filter_map(|t| {
+            let (a, b) = (t.start_ms.max(start_ms), t.end_ms.min(end_ms));
+            (b > a).then_some((a, b, t.speaker))
+        })
+        .collect();
+    spans.sort();
+    let mut timeline: Vec<(u64, u64, usize)> = Vec::new();
+    for (a, b, speaker) in spans {
+        let a = timeline.last().map_or(a, |last| a.max(last.1));
+        if b > a {
+            timeline.push((a, b, speaker));
+        }
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let Some(first) = timeline.first() else {
+        return whole(speaker_near(turns, (start_ms + end_ms) / 2));
+    };
+    if words.is_empty() || timeline.iter().all(|t| t.2 == first.2) {
+        return whole(Some(first.2));
+    }
+    let total: u64 = timeline.iter().map(|(a, b, _)| b - a).sum();
+    // Position sur le temps de parole → (heure, locuteur).
+    let locate = |position: u64| {
+        let mut before = 0;
+        for &(a, b, speaker) in &timeline {
+            if position < before + (b - a) {
+                return (a + position - before, speaker);
+            }
+            before += b - a;
+        }
+        let &(_, b, speaker) = timeline.last().expect("tours non vides");
+        (b, speaker)
+    };
+    let n = words.len() as u64;
+    let mut out: Vec<Line> = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let i = i as u64;
+        let (_, speaker) = locate((2 * i + 1) * total / (2 * n));
+        let (from, _) = locate(i * total / n);
+        let to = locate(((i + 1) * total / n).saturating_sub(1)).0 + 1;
+        match out.last_mut() {
+            Some(line) if line.speaker == Some(speaker) => {
+                line.end_ms = to;
+                line.text.push(' ');
+                line.text.push_str(word);
+            }
+            _ => out.push(Line {
+                speaker: Some(speaker),
+                start_ms: from,
+                end_ms: to,
+                text: (*word).to_owned(),
+            }),
+        }
+    }
+    // Le passage garde ses bornes : début du premier, fin du dernier.
+    if let Some(line) = out.first_mut() {
+        line.start_ms = start_ms;
+    }
+    if let Some(line) = out.last_mut() {
+        line.end_ms = end_ms;
     }
     out
 }
@@ -594,12 +955,97 @@ mod tests {
 
     #[test]
     fn windows_cover_the_whole_audio() {
-        assert_eq!(window_starts(5 * SECOND, 2 * SECOND), vec![0]);
-        assert_eq!(window_starts(WINDOW, 2 * SECOND), vec![0]);
-        let starts = window_starts(25 * SECOND, 2 * SECOND);
-        assert_eq!(starts.first(), Some(&0));
-        assert_eq!(starts.last(), Some(&(15 * SECOND)));
-        assert!(starts.windows(2).all(|w| w[1] - w[0] <= 2 * SECOND));
+        let starts = |pieces: &[(u64, usize)]| {
+            let mut analysis = Analysis::new(2 * SECOND);
+            for &(start_ms, seconds) in pieces {
+                analysis
+                    .add(start_ms, &vec![0.0; seconds * SECOND], &mut Fake)
+                    .unwrap();
+            }
+            analysis.finish(&mut Fake).unwrap();
+            analysis.windows.iter().map(|w| w.start).collect::<Vec<_>>()
+        };
+        assert_eq!(starts(&[(0, 5)]), vec![0]);
+        assert_eq!(starts(&[(0, 10)]), vec![0]);
+        let long = starts(&[(0, 25)]);
+        assert_eq!(long.first(), Some(&0));
+        assert_eq!(long.last(), Some(&(15 * SECOND)));
+        assert!(long.windows(2).all(|w| w[1] - w[0] <= 2 * SECOND));
+        // Même audio en morceaux contigus : mêmes fenêtres.
+        assert_eq!(starts(&[(0, 7), (7_000, 8), (15_000, 10)]), long);
+        // Trou (silence sauté) : nouvelle zone, aucune fenêtre dans le trou.
+        let gap = starts(&[(0, 12), (30_000, 6)]);
+        assert_eq!(gap, vec![0, 2 * SECOND, 30 * SECOND]);
+    }
+
+    #[test]
+    fn pieces_give_the_same_turns_as_the_whole_audio() {
+        let audio = conversation(&[(0.1, 6), (0.0, 1), (0.2, 6), (0.1, 6), (0.2, 6)]);
+        let whole = diarize(&audio, &mut Fake, &Options::default(), &mut |_| {}).unwrap();
+        // Blocs de 6 à 15 s, comme ceux d'une réunion.
+        let mut analysis = Analysis::new(Options::default().step);
+        let mut at = 0;
+        for seconds in [6, 9, 7, 3] {
+            let end = (at + seconds * SECOND).min(audio.len());
+            analysis
+                .add(samples_to_ms(at), &audio[at..end], &mut Fake)
+                .unwrap();
+            at = end;
+        }
+        analysis.finish(&mut Fake).unwrap();
+        assert_eq!(analysis.turns(&Options::default()), whole);
+        assert_eq!(analysis.duration_ms(), 25_000);
+    }
+
+    #[test]
+    fn analysis_survives_a_round_trip_to_bytes() {
+        let audio = conversation(&[(0.1, 8), (0.2, 8), (0.3, 8)]);
+        let mut analysis = Analysis::new(2 * SECOND);
+        analysis.add(0, &audio, &mut Fake).unwrap();
+        analysis.finish(&mut Fake).unwrap();
+        let bytes = analysis.to_bytes();
+        let read = Analysis::from_bytes(&bytes).unwrap();
+        assert_eq!(
+            read.turns(&Options::default()),
+            analysis.turns(&Options::default())
+        );
+        let forced = Options {
+            speakers: Some(2),
+            ..Options::default()
+        };
+        assert_eq!(read.turns(&forced), analysis.turns(&forced));
+        // Fichier tronqué, modifié ou étranger : refusé.
+        assert!(Analysis::from_bytes(&bytes[..bytes.len() - 1]).is_err());
+        assert!(Analysis::from_bytes(b"autre chose").is_err());
+        let mut longer = bytes.clone();
+        longer.push(0);
+        assert!(Analysis::from_bytes(&longer).is_err());
+    }
+
+    #[test]
+    fn many_embeddings_are_clustered_on_a_sample() {
+        // Plus de MAX_CLUSTERED empreintes : deux voix bien séparées.
+        let mut analysis = Analysis::new(SECOND);
+        for i in 0..MAX_CLUSTERED + 500 {
+            analysis.windows.push(Window {
+                start: i * SECOND,
+                activity: vec![[true, false, false]; 30],
+            });
+            analysis.owners.push((i, 0));
+            let voice = if (i / 50) % 2 == 0 {
+                [1.0, 0.1]
+            } else {
+                [0.1, 1.0]
+            };
+            analysis.embeddings.push(normalize(voice.to_vec()));
+        }
+        analysis.end = (MAX_CLUSTERED + 510) * SECOND;
+        let speakers: std::collections::BTreeSet<usize> = analysis
+            .turns(&Options::default())
+            .iter()
+            .map(|t| t.speaker)
+            .collect();
+        assert_eq!(speakers.len(), 2);
     }
 
     #[test]
@@ -744,5 +1190,58 @@ mod tests {
         assert_eq!(lines[0].speaker, Some(0));
         assert_eq!(lines[1].text, "Salut Anne.");
         assert_eq!((lines[1].start_ms, lines[1].end_ms), (2_600, 3_500));
+    }
+
+    fn turn(start_ms: u64, end_ms: u64, speaker: usize) -> Turn {
+        Turn {
+            start_ms,
+            end_ms,
+            speaker,
+        }
+    }
+
+    #[test]
+    fn a_passage_with_one_speaker_stays_whole() {
+        let turns = [turn(0, 4_000, 0), turn(4_000, 9_000, 1)];
+        let lines = split("Bonjour à tous.", 500, 3_500, &turns);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].speaker, Some(0));
+        assert_eq!((lines[0].start_ms, lines[0].end_ms), (500, 3_500));
+        // Aucun tour dans le passage : le locuteur le plus proche.
+        assert_eq!(split("Euh", 9_500, 9_800, &turns)[0].speaker, Some(1));
+        assert_eq!(split("Euh", 0, 100, &[])[0].speaker, None);
+    }
+
+    #[test]
+    fn a_passage_is_shared_by_speaking_time() {
+        // A parle 2 s, B 6 s : un quart des mots pour A.
+        let turns = [turn(0, 2_000, 0), turn(2_000, 8_000, 1)];
+        let text = "un deux trois quatre cinq six sept huit";
+        let lines = split(text, 0, 8_000, &turns);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "un deux");
+        assert_eq!(lines[0].speaker, Some(0));
+        assert_eq!(lines[1].text, "trois quatre cinq six sept huit");
+        assert_eq!(lines[1].speaker, Some(1));
+        assert_eq!((lines[0].start_ms, lines[1].end_ms), (0, 8_000));
+        assert_eq!(lines[1].start_ms, 2_000);
+        // Rien n'est perdu ni dédoublé.
+        let joined: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(joined.join(" "), text);
+    }
+
+    #[test]
+    fn overlapping_turns_do_not_duplicate_words() {
+        let turns = [
+            turn(0, 5_000, 0),
+            turn(3_000, 6_000, 1),
+            turn(6_000, 9_000, 0),
+        ];
+        let text = "a b c d e f g h i";
+        let lines = split(text, 0, 9_000, &turns);
+        let speakers: Vec<Option<usize>> = lines.iter().map(|l| l.speaker).collect();
+        assert_eq!(speakers, vec![Some(0), Some(1), Some(0)]);
+        let joined: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(joined.join(" "), text);
     }
 }

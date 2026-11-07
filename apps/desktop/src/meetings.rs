@@ -21,6 +21,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use vtt_core::calls::{self, Decision, Detector, Policy, Provider};
 use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig, TRANSLATION_LANGUAGES};
+use vtt_core::diarize;
 use vtt_core::meeting::{self, Chunk, Chunker, Segment, Track};
 use vtt_core::usage::Usage;
 use vtt_core::{AudioClip, Pipeline, TextSink};
@@ -32,6 +33,7 @@ use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
 use crate::raw_paste;
 use crate::settings::{self, SharedConfig};
+use crate::speakers::{self, VoiceFeed, VoicesState};
 
 const RECORD_FILE: &str = "meeting.json";
 /// L'audio capté est découpé et transcrit chaque seconde.
@@ -154,6 +156,21 @@ pub struct MeetingRecord {
     /// Lecture du fichier importé (pourcentage), pendant l'import.
     #[serde(default)]
     pub progress: Option<u8>,
+    /// Piste dont les intervenants sont distingués (diarisation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_track: Option<Track>,
+    /// Tours de parole des intervenants sur cette piste.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speaker_turns: Vec<diarize::Turn>,
+    /// Noms donnés aux intervenants (vide : « Intervenant N »).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speaker_names: Vec<String>,
+    /// Nombre d'intervenants imposé (`None` : déduit des voix).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_count: Option<usize>,
+    /// Intervenants en cours d'identification.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub identifying: bool,
 }
 
 fn enabled() -> bool {
@@ -197,13 +214,70 @@ impl MeetingRecord {
         }
     }
 
-    /// Segments affichés : sans l'écho si le filtre est actif.
+    /// Segments affichés : sans l'écho si le filtre est actif, répartis
+    /// entre les intervenants s'ils ont été distingués.
     fn segments(&self) -> Vec<Segment> {
-        if self.echo_filter {
+        let segments = if self.echo_filter {
             meeting::without_echo(&self.segments)
         } else {
             self.segments.clone()
+        };
+        match self.speaker_track {
+            Some(track) if !self.speaker_turns.is_empty() => {
+                meeting::with_speakers(&segments, track, &self.speaker_turns)
+            }
+            _ => segments,
         }
+    }
+
+    /// Piste dont on distingue les intervenants : « Eux » pour un appel
+    /// (« Moi », c'est l'utilisateur), la source unique d'une conférence ou
+    /// d'un fichier (le son du PC si les deux sont captés).
+    fn voice_track(&self) -> Option<Track> {
+        match self.kind {
+            MeetingKind::Reunion => self.system.then_some(Track::Eux),
+            MeetingKind::Conference if self.system => Some(Track::Eux),
+            MeetingKind::Conference => self.mic.then_some(Track::Moi),
+            MeetingKind::Fichier => Some(Track::Eux),
+        }
+    }
+
+    /// Audio où relire les voix après coup : la piste conservée, ou le
+    /// fichier importé s'il existe toujours.
+    fn voice_source(&self, dir: &Path) -> Option<VoiceSource> {
+        match self.kind {
+            MeetingKind::Fichier => self
+                .source_path
+                .as_deref()
+                .map(PathBuf::from)
+                .filter(|p| p.is_file())
+                .map(VoiceSource::File),
+            _ => {
+                let track = self.voice_track()?;
+                let path = dir.join(track.file());
+                (self.audio == MeetingAudio::Conserve && path.is_file())
+                    .then_some(VoiceSource::Track(path))
+            }
+        }
+    }
+
+    /// Les empreintes vocales peuvent être enregistrées (chiffrées) : pas
+    /// pour une réunion « en mémoire seulement », qui promet de ne rien
+    /// écrire de sensible sur le disque (un fichier importé y est déjà).
+    fn keeps_voices(&self) -> bool {
+        self.kind == MeetingKind::Fichier || self.audio != MeetingAudio::Memoire
+    }
+
+    /// Tours de parole d'après l'analyse des voix (nombre imposé ou non).
+    fn set_speakers(&mut self, analysis: &diarize::Analysis) {
+        self.speaker_track = self.voice_track();
+        self.speaker_turns = analysis.turns(&speakers::options(self.speaker_count));
+        let count = self.speaker_turns.iter().map(|t| t.speaker + 1).max();
+        log::info!(
+            "{} : {} intervenant(s) distingué(s)",
+            self.id,
+            count.unwrap_or(0)
+        );
     }
 
     /// Fin de la transcription déjà faite, par piste (reprise).
@@ -215,6 +289,14 @@ impl MeetingRecord {
             .max()
             .unwrap_or(0)
     }
+}
+
+/// Audio à relire pour distinguer les intervenants après coup.
+enum VoiceSource {
+    /// Piste conservée (chiffrée).
+    Track(PathBuf),
+    /// Fichier importé.
+    File(PathBuf),
 }
 
 /// Bloc de réunion à transcrire par le thread de traitement.
@@ -251,6 +333,11 @@ struct Session {
     /// L'audio arrive encore (enregistrement en cours).
     capturing: AtomicBool,
     app: AppHandle,
+    /// Analyse des voix de la piste `voice_track` (intervenants).
+    voices: Mutex<Option<VoiceFeed>>,
+    voice_track: Option<Track>,
+    /// Fin de réunion déjà engagée.
+    finishing: AtomicBool,
 }
 
 impl Session {
@@ -258,8 +345,25 @@ impl Session {
         lock(&self.record).id.clone()
     }
 
+    /// Bloc capté : à l'analyse des voix s'il vient de la piste analysée.
+    fn feed_voices(&self, track: Track, chunk: &Chunk) {
+        if Some(track) != self.voice_track || chunk.is_silent() {
+            return;
+        }
+        if let Some(feed) = lock(&self.voices).as_ref() {
+            feed.send(chunk.start_ms, chunk.samples.clone());
+        }
+    }
+
+    /// Envoi en masse (fichier lu) : attend que l'analyse suive.
+    fn wait_voices(&self) {
+        if let Some(feed) = lock(&self.voices).as_ref() {
+            feed.wait_backlog();
+        }
+    }
+
     fn transcribed(
-        &self,
+        self: &Arc<Self>,
         track: Track,
         start_ms: u64,
         end_ms: u64,
@@ -275,6 +379,7 @@ impl Session {
                         end_ms,
                         text,
                         copied: false,
+                        speaker: None,
                     });
                     meeting::sort_segments(&mut record.segments);
                 }
@@ -291,16 +396,63 @@ impl Session {
         self.finish_if_done();
     }
 
-    /// Plus rien à capter ni à transcrire : réunion terminée.
-    fn finish_if_done(&self) {
+    /// Plus rien à capter ni à transcrire : réunion terminée (après
+    /// l'analyse des voix, si elle a lieu).
+    fn finish_if_done(self: &Arc<Self>) {
         if self.capturing.load(Ordering::SeqCst) || self.pending.load(Ordering::SeqCst) > 0 {
             return;
         }
+        if lock(&self.record).status == MeetingStatus::Terminee
+            || self.finishing.swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        let Some(feed) = lock(&self.voices).take() else {
+            self.complete(None);
+            return;
+        };
+        {
+            let mut record = lock(&self.record);
+            record.identifying = true;
+            record.save(&self.dir);
+        }
+        let _ = self.app.emit("meetings", ());
+        let session = Arc::clone(self);
+        let spawned = thread::Builder::new()
+            .name("voices-finish".into())
+            .spawn(move || {
+                let result = feed.finish();
+                session.complete(Some(result));
+            });
+        if let Err(e) = spawned {
+            log::warn!("fin de l'analyse des voix : {e}");
+            self.complete(Some(Err(e.to_string())));
+        }
+    }
+
+    fn complete(&self, voices: Option<Result<diarize::Analysis, String>>) {
         let (id, audio, title, kind, output) = {
             let mut record = lock(&self.record);
             if record.status == MeetingStatus::Terminee {
                 return;
             }
+            match voices {
+                Some(Ok(analysis)) => {
+                    record.set_speakers(&analysis);
+                    if record.keeps_voices()
+                        && let Err(e) = speakers::save_analysis(&self.dir, &analysis)
+                    {
+                        // Les tours de parole restent ; seul le changement
+                        // du nombre d'intervenants demandera l'audio.
+                        log::warn!("analyse des voix non enregistrée : {e}");
+                    }
+                }
+                Some(Err(e)) => record
+                    .notes
+                    .push(format!("Intervenants non distingués : {e}")),
+                None => {}
+            }
+            record.identifying = false;
             record.status = MeetingStatus::Terminee;
             record.progress = None;
             record.save(&self.dir);
@@ -393,6 +545,38 @@ impl Meetings {
         if let Some(worker) = lock(&self.worker).clone() {
             let _ = worker.send(Work::MeetingWake);
         }
+    }
+
+    /// Session de transcription ; l'analyse des voix s'y ajoute si le
+    /// réglage est actif (modèles téléchargés pour la prochaine fois s'ils
+    /// manquent).
+    fn new_session(&self, dir: PathBuf, mut record: MeetingRecord) -> Arc<Session> {
+        let voice_track = record.voice_track();
+        let voices = if self.config().meetings.diarize && voice_track.is_some() {
+            let state = self.app.state::<VoicesState>();
+            let feed = state.feed();
+            if feed.is_none() {
+                record.notes.push(
+                    "Intervenants non distingués : modèles pas encore téléchargés \
+                     (Réglages → Réunions)."
+                        .into(),
+                );
+                state.download();
+            }
+            feed
+        } else {
+            None
+        };
+        Arc::new(Session {
+            dir,
+            record: Mutex::new(record),
+            pending: AtomicUsize::new(0),
+            capturing: AtomicBool::new(true),
+            app: self.app.clone(),
+            voices: Mutex::new(voices),
+            voice_track,
+            finishing: AtomicBool::new(false),
+        })
     }
 
     fn emit_state(&self, consent: bool) {
@@ -490,6 +674,11 @@ impl Meetings {
             source: None,
             source_path: None,
             progress: None,
+            speaker_track: None,
+            speaker_turns: Vec::new(),
+            speaker_names: Vec::new(),
+            speaker_count: None,
+            identifying: false,
         };
         record.save(&dir);
         log::info!(
@@ -501,13 +690,7 @@ impl Meetings {
                 capture.outputs.join(", ")
             }
         );
-        let session = Arc::new(Session {
-            dir,
-            record: Mutex::new(record),
-            pending: AtomicUsize::new(0),
-            capturing: AtomicBool::new(true),
-            app: self.app.clone(),
-        });
+        let session = self.new_session(dir, record);
         lock(&self.sessions).insert(id.clone(), Arc::clone(&session));
         let (stop_tx, stop_rx) = mpsc::channel();
         let meetings = Arc::clone(self);
@@ -749,6 +932,7 @@ impl Meetings {
                     chunks.extend(chunker.finish());
                 }
                 for chunk in chunks {
+                    session.feed_voices(track, &chunk);
                     if track == Track::Moi && system && echo_filter && echo.is_echo(&chunk) {
                         lock(&session.record).echo_chunks += 1;
                         continue;
@@ -845,15 +1029,14 @@ impl Meetings {
             source: Some(name),
             source_path: Some(path.display().to_string()),
             progress: Some(0),
+            speaker_track: None,
+            speaker_turns: Vec::new(),
+            speaker_names: Vec::new(),
+            speaker_count: None,
+            identifying: false,
         };
         record.save(&dir);
-        let session = Arc::new(Session {
-            dir,
-            record: Mutex::new(record),
-            pending: AtomicUsize::new(0),
-            capturing: AtomicBool::new(true),
-            app: self.app.clone(),
-        });
+        let session = self.new_session(dir, record);
         lock(&self.sessions).insert(id.clone(), Arc::clone(&session));
         let meetings = Arc::clone(self);
         thread::Builder::new()
@@ -876,11 +1059,13 @@ impl Meetings {
             path,
             |samples| {
                 for chunk in chunker.feed(samples) {
+                    session.feed_voices(Track::Eux, &chunk);
                     self.enqueue(&session, Track::Eux, chunk);
                 }
                 while session.pending.load(Ordering::SeqCst) > MAX_PENDING {
                     thread::sleep(Duration::from_millis(200));
                 }
+                session.wait_voices();
                 true
             },
             |percent| {
@@ -895,6 +1080,7 @@ impl Meetings {
             },
         );
         if let Some(chunk) = chunker.finish() {
+            session.feed_voices(Track::Eux, &chunk);
             self.enqueue(&session, Track::Eux, chunk);
         }
         {
@@ -935,6 +1121,14 @@ impl Meetings {
                     log::warn!("suppression de {} : {e}", dir.display());
                 }
                 continue;
+            }
+            if record.identifying
+                && !self.busy(&record.id)
+                && record.status == MeetingStatus::Terminee
+            {
+                // Arrêt pendant « Distinguer les intervenants » : à relancer.
+                record.identifying = false;
+                record.save(&dir);
             }
             if self.busy(&record.id)
                 || matches!(
@@ -991,14 +1185,28 @@ impl Meetings {
         record.status = MeetingStatus::Transcription;
         record.save(&dir);
         let id = record.id.clone();
-        let session = Arc::new(Session {
-            dir,
-            record: Mutex::new(record),
-            pending: AtomicUsize::new(0),
-            capturing: AtomicBool::new(true),
-            app: self.app.clone(),
-        });
+        let session = self.new_session(dir, record);
         lock(&self.sessions).insert(id, Arc::clone(&session));
+        // Voix : toute la piste, relue bloc par bloc dans un thread à part
+        // (la transcription, elle, reprend où elle s'était arrêtée).
+        let reader = lock(&session.voices).as_ref().and_then(VoiceFeed::sender);
+        if let (Some(mut sender), Some(track)) = (reader, session.voice_track) {
+            let path = session.dir.join(track.file());
+            let spawned = thread::Builder::new()
+                .name("voices-read".into())
+                .spawn(move || {
+                    let read = meeting::for_each_audio_block(&path, vtt_platform::unprotect, |b| {
+                        sender.push(b)
+                    });
+                    if let Err(e) = read {
+                        log::warn!("voix : relecture de {} : {e}", path.display());
+                    }
+                    sender.flush();
+                });
+            if let Err(e) = spawned {
+                log::warn!("voix : relecture de l'audio : {e}");
+            }
+        }
         for (track, samples, from_ms) in tracks {
             let from = (from_ms * u64::from(vtt_core::SAMPLE_RATE) / 1000) as usize;
             let mut chunker = Chunker::starting_at(from_ms);
@@ -1069,7 +1277,7 @@ impl Meetings {
         let config = self.config();
         let cleaner = settings::summarizer(&config)
             .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
-        let transcript = meeting::transcript_text(&record.segments());
+        let transcript = meeting::transcript_text(&record.segments(), &record.speaker_names);
         let language = language
             .unwrap_or_else(|| config.meetings.summary_language.clone())
             .trim()
@@ -1134,7 +1342,10 @@ impl Meetings {
             record.save(&session.dir);
             meeting::turns(&fresh)
                 .into_iter()
-                .map(|(track, _, text)| format!("{} : {text}", track.label()))
+                .map(|r| {
+                    let who = meeting::speaker_label(r.track, r.speaker, &record.speaker_names);
+                    format!("{who} : {}", r.text)
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -1230,6 +1441,7 @@ pub struct MeetingRow {
     audio_kept: bool,
     kind: MeetingKind,
     progress: Option<u8>,
+    identifying: bool,
 }
 
 #[derive(Serialize)]
@@ -1277,6 +1489,7 @@ pub fn meetings_view(
                 has_summary: record.summary.is_some(),
                 kind: record.kind,
                 progress: record.progress,
+                identifying: record.identifying,
             })
         })
         .collect();
@@ -1306,8 +1519,23 @@ pub fn meetings_view(
 #[derive(Serialize)]
 pub struct Turn {
     track: Track,
+    speaker: Option<usize>,
+    /// Nom affiché pour un intervenant (vide : le nom de la piste, choisi
+    /// par la page selon le type d'enregistrement).
+    who: String,
     start_ms: u64,
     text: String,
+}
+
+/// Intervenant distingué, pour le reconnaître et le nommer.
+#[derive(Serialize)]
+pub struct SpeakerView {
+    index: usize,
+    label: String,
+    name: String,
+    talk_ms: u64,
+    /// Première réplique (début).
+    first: String,
 }
 
 #[derive(Serialize)]
@@ -1318,26 +1546,78 @@ pub struct MeetingDetail {
     audio_kept: bool,
     /// Un passage peut être réécouté.
     replay: bool,
+    speakers: Vec<SpeakerView>,
+    /// « Distinguer les intervenants » possible (modèles, audio ou analyse
+    /// disponibles).
+    can_identify: bool,
+    /// Analyse des voix conservée : nombre d'intervenants modifiable.
+    voices_kept: bool,
+}
+
+/// Début d'une réplique, au plus `max` caractères.
+fn excerpt(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let cut: String = text.chars().take(max).collect();
+    format!("{}…", cut.trim_end())
 }
 
 #[tauri::command]
 pub fn meeting_detail(
     meetings: State<'_, MeetingsState>,
+    voices: State<'_, VoicesState>,
     id: String,
 ) -> Result<MeetingDetail, String> {
     let (record, dir) = meetings.load(&id)?;
-    let turns = meeting::turns(&record.segments())
+    let replies = meeting::turns(&record.segments());
+    let mut speakers: Vec<SpeakerView> = Vec::new();
+    for reply in &replies {
+        if let Some(index) = reply.speaker
+            && !speakers.iter().any(|s| s.index == index)
+        {
+            speakers.push(SpeakerView {
+                index,
+                label: meeting::speaker_label(reply.track, Some(index), &[]),
+                name: record.speaker_names.get(index).cloned().unwrap_or_default(),
+                talk_ms: record
+                    .speaker_turns
+                    .iter()
+                    .filter(|t| t.speaker == index)
+                    .map(|t| t.end_ms - t.start_ms)
+                    .sum(),
+                first: excerpt(&reply.text, 90),
+            });
+        }
+    }
+    speakers.sort_by_key(|s| s.index);
+    let turns = replies
         .into_iter()
-        .map(|(track, start_ms, text)| Turn {
-            track,
-            start_ms,
-            text,
+        .map(|r| Turn {
+            who: r
+                .speaker
+                .map(|_| meeting::speaker_label(r.track, r.speaker, &record.speaker_names))
+                .unwrap_or_default(),
+            track: r.track,
+            speaker: r.speaker,
+            start_ms: r.start_ms,
+            text: r.text,
         })
         .collect();
+    let busy = meetings.busy(&id);
+    let voices_kept = speakers::analysis_kept(&dir);
     Ok(MeetingDetail {
         audio_kept: dir.join(Track::Moi.file()).is_file() && record.audio == MeetingAudio::Conserve,
-        busy: meetings.busy(&id),
+        can_identify: !busy
+            && !record.identifying
+            && record.status == MeetingStatus::Terminee
+            && record.speaker_turns.is_empty()
+            && voices.installed()
+            && (voices_kept || record.voice_source(&dir).is_some()),
+        voices_kept,
+        busy,
         replay: record.replayable(&dir),
+        speakers,
         record,
         turns,
     })
@@ -1492,10 +1772,16 @@ pub fn ask_meetings(
     let mut sources = 0;
     for record in &records {
         let segments = record.segments();
-        let mut lines = vtt_core::search::excerpts(&record.title, &segments, &keywords);
+        let mut lines =
+            vtt_core::search::excerpts(&record.title, &segments, &keywords, &record.speaker_names);
         // Un seul enregistrement : tout, s'il tient.
         if id.is_some() {
-            let all = vtt_core::search::excerpts(&record.title, &segments, &[String::new()]);
+            let all = vtt_core::search::excerpts(
+                &record.title,
+                &segments,
+                &[String::new()],
+                &record.speaker_names,
+            );
             if all.iter().map(String::len).sum::<usize>() <= MAX_CONTEXT_CHARS {
                 lines = all;
             }
@@ -1632,10 +1918,153 @@ pub fn summarize_meeting(
     meetings.summarize(&id, language)
 }
 
+impl Meetings {
+    /// Distingue les intervenants d'un enregistrement terminé : d'après
+    /// l'analyse conservée, ou en relisant l'audio (dans un thread à part).
+    fn identify(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        let (record, dir) = self.load(id)?;
+        if self.busy(id) || record.identifying || record.status != MeetingStatus::Terminee {
+            return Err("enregistrement en cours de traitement : attendez la fin".into());
+        }
+        if record.voice_track().is_none() {
+            return Err("aucune piste où distinguer des intervenants".into());
+        }
+        if let Ok(analysis) = speakers::load_analysis(&dir) {
+            return self.update(id, |r| r.set_speakers(&analysis));
+        }
+        let source = record
+            .voice_source(&dir)
+            .ok_or("audio non conservé : impossible de distinguer les intervenants après coup")?;
+        let voices = self.app.state::<VoicesState>();
+        let feed = voices.feed().ok_or(
+            "modèles pas encore téléchargés : activez « Distinguer les intervenants » \
+             dans Réglages → Réunions",
+        )?;
+        let mut sender = feed.sender().ok_or("analyse des voix indisponible")?;
+        self.update(id, |r| r.identifying = true)?;
+        let meetings = Arc::clone(self);
+        let id = id.to_owned();
+        thread::Builder::new()
+            .name("voices-identify".into())
+            .spawn(move || {
+                let read = match &source {
+                    VoiceSource::Track(path) => {
+                        meeting::for_each_audio_block(path, vtt_platform::unprotect, |b| {
+                            sender.push(b)
+                        })
+                    }
+                    VoiceSource::File(path) => {
+                        crate::decode::decode(path, |b| sender.push(b), |_| {}).map(|_| ())
+                    }
+                };
+                sender.flush();
+                drop(sender);
+                let result = read.and_then(|()| feed.finish());
+                let saved = match &result {
+                    Ok(analysis) if record.keeps_voices() => {
+                        speakers::save_analysis(&dir, analysis)
+                    }
+                    _ => Ok(()),
+                };
+                if let Err(e) = saved {
+                    log::warn!("analyse des voix non enregistrée : {e}");
+                }
+                let updated = meetings.update(&id, |r| {
+                    match &result {
+                        Ok(analysis) => r.set_speakers(analysis),
+                        Err(e) => r.notes.push(format!("Intervenants non distingués : {e}")),
+                    }
+                    r.identifying = false;
+                });
+                if let Err(e) = updated {
+                    log::warn!("intervenants de {id} : {e}");
+                }
+            })
+            .map_err(|e| format!("analyse des voix : {e}"))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn identify_speakers(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
+    meetings.identify(&id)
+}
+
+/// Nombre d'intervenants imposé (`None` : déduit des voix), recalculé
+/// d'après l'analyse conservée.
+#[tauri::command]
+pub fn set_speaker_count(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    count: Option<usize>,
+) -> Result<(), String> {
+    if count.is_some_and(|c| !(1..=20).contains(&c)) {
+        return Err("nombre d'intervenants : de 1 à 20".into());
+    }
+    let dir = meetings.meeting_dir(&id)?;
+    let analysis = speakers::load_analysis(&dir).map_err(|e| {
+        log::warn!("analyse des voix de {id} : {e}");
+        "analyse des voix non conservée : relancez « Distinguer les intervenants »".to_owned()
+    })?;
+    meetings.update(&id, |r| {
+        r.speaker_count = count;
+        r.set_speakers(&analysis);
+    })
+}
+
+/// Nom d'un intervenant (vide : « Intervenant N »).
+#[tauri::command]
+pub fn rename_speaker(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    index: usize,
+    name: String,
+) -> Result<(), String> {
+    const MAX_NAME: usize = 60;
+    if index >= 50 {
+        return Err("intervenant inconnu".into());
+    }
+    let name: String = name.trim().chars().take(MAX_NAME).collect();
+    meetings.update(&id, |r| {
+        if r.speaker_names.len() <= index {
+            r.speaker_names.resize(index + 1, String::new());
+        }
+        r.speaker_names[index] = name;
+        while r.speaker_names.last().is_some_and(String::is_empty) {
+            r.speaker_names.pop();
+        }
+    })
+}
+
+/// Ne plus distinguer les intervenants : tours, noms et empreintes vocales
+/// effacés.
+#[tauri::command]
+pub fn forget_speakers(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
+    let dir = meetings.meeting_dir(&id)?;
+    meetings.update(&id, |r| {
+        r.speaker_track = None;
+        r.speaker_turns.clear();
+        r.speaker_names.clear();
+        r.speaker_count = None;
+    })?;
+    speakers::delete_analysis(&dir);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn voices_view(voices: State<'_, VoicesState>) -> speakers::VoicesView {
+    voices.view()
+}
+
+#[tauri::command]
+pub fn download_voices(voices: State<'_, VoicesState>) {
+    voices.download();
+}
+
 #[tauri::command]
 pub fn delete_meeting(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
-    if meetings.busy(&id) {
-        return Err("réunion en cours de transcription : attendez la fin".into());
+    if meetings.busy(&id) || meetings.load(&id).is_ok_and(|(r, _)| r.identifying) {
+        return Err("réunion en cours de traitement : attendez la fin".into());
     }
     let dir = meetings.meeting_dir(&id)?;
     fs::remove_dir_all(&dir).map_err(|e| format!("suppression : {e}"))?;
@@ -1652,6 +2081,9 @@ pub fn retranscribe_meeting(meetings: State<'_, MeetingsState>, id: String) -> R
         return Err("réunion déjà en cours de transcription".into());
     }
     let (record, dir) = meetings.load(&id)?;
+    if record.identifying {
+        return Err("intervenants en cours d'identification : attendez la fin".into());
+    }
     if !dir.join(Track::Moi.file()).is_file() {
         return Err("audio non conservé pour cette réunion".into());
     }
@@ -1667,7 +2099,7 @@ pub fn copy_meeting(
     let (record, _) = meetings.load(&id)?;
     let text = match part.as_str() {
         "summary" => record.summary.map(|s| s.text).unwrap_or_default(),
-        "transcript" => meeting::transcript_text(&record.segments()),
+        "transcript" => meeting::transcript_text(&record.segments(), &record.speaker_names),
         _ => markdown(&record),
     };
     vtt_platform::copy_text(&text)
@@ -1691,6 +2123,7 @@ fn markdown(record: &MeetingRecord) -> String {
         record.duration_ms,
         record.summary.as_ref().map(|s| s.text.as_str()),
         &record.segments(),
+        &record.speaker_names,
     )
 }
 
@@ -1785,6 +2218,9 @@ pub fn save_meeting_settings(
     };
     paths.write_config(&config)?;
     crate::app_settings::apply(&app, &paths, &config);
+    if config.meetings.diarize {
+        app.state::<VoicesState>().download();
+    }
     // Durée de conservation raccourcie : appliquée tout de suite.
     meetings.recover();
     log::info!("réglages des réunions appliqués");
@@ -1811,6 +2247,7 @@ mod tests {
                     end_ms: 7_000,
                     text: "Bonjour.".into(),
                     copied: false,
+                    speaker: None,
                 },
                 Segment {
                     track: Track::Eux,
@@ -1818,6 +2255,7 @@ mod tests {
                     end_ms: 9_500,
                     text: "Salut.".into(),
                     copied: true,
+                    speaker: None,
                 },
             ],
             summary: None,
@@ -1832,6 +2270,11 @@ mod tests {
             source: None,
             source_path: None,
             progress: None,
+            speaker_track: None,
+            speaker_turns: Vec::new(),
+            speaker_names: Vec::new(),
+            speaker_count: None,
+            identifying: false,
         }
     }
 
@@ -1846,7 +2289,53 @@ mod tests {
         assert_eq!(loaded.transcribed_until(Track::Moi), 7_000);
         assert_eq!(loaded.transcribed_until(Track::Eux), 9_500);
         assert!(markdown(&loaded).contains("**Moi** [00:00] : Bonjour."));
+        // Fichier d'une version précédente : sans les champs des
+        // intervenants, relu tel quel.
+        let json = fs::read_to_string(dir.join(RECORD_FILE)).unwrap();
+        assert!(!json.contains("speaker"));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn speakers_replace_the_other_track_label() {
+        let mut record = record();
+        record.speaker_track = Some(Track::Eux);
+        record.speaker_turns = vec![diarize::Turn {
+            start_ms: 2_000,
+            end_ms: 9_500,
+            speaker: 0,
+        }];
+        record.speaker_names = vec!["Paul".into()];
+        assert!(markdown(&record).contains("**Paul** [00:02] : Salut."));
+        assert!(markdown(&record).contains("**Moi** [00:00] : Bonjour."));
+        let json = serde_json::to_string(&record).unwrap();
+        let read: MeetingRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(read.speaker_turns, record.speaker_turns);
+        assert_eq!(read.speaker_names, ["Paul"]);
+    }
+
+    #[test]
+    fn voices_come_from_the_other_side_or_the_only_source() {
+        let mut record = record();
+        assert_eq!(record.voice_track(), Some(Track::Eux));
+        record.system = false;
+        assert_eq!(record.voice_track(), None, "appel sans le son du PC");
+        record.kind = MeetingKind::Conference;
+        assert_eq!(
+            record.voice_track(),
+            Some(Track::Moi),
+            "conférence au micro"
+        );
+        record.system = true;
+        assert_eq!(record.voice_track(), Some(Track::Eux));
+        record.kind = MeetingKind::Fichier;
+        assert_eq!(record.voice_track(), Some(Track::Eux));
+    }
+
+    #[test]
+    fn long_replies_are_cut_on_characters() {
+        assert_eq!(excerpt("Bonjour", 90), "Bonjour");
+        assert_eq!(excerpt("Ça va très bien", 6), "Ça va…");
     }
 
     #[test]

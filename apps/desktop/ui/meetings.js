@@ -80,7 +80,9 @@ function renderMeetingList() {
     const status =
       meeting.progress != null
         ? `lecture ${meeting.progress} %`
-        : meeting.status === "terminee"
+        : meeting.identifying
+          ? "intervenants…"
+          : meeting.status === "terminee"
           ? clock(meeting.duration_ms)
           : MEETING_STATUS[meeting.status];
     const kind = meeting.kind === "reunion" ? "" : `${KIND_LABELS[meeting.kind]} · `;
@@ -133,7 +135,11 @@ async function showMeetingDetail() {
     KIND_LABELS[record.kind],
     meetingDateFormat.format(new Date(record.started_at_ms)),
     `durée ${clock(record.duration_ms)}`,
-    record.progress != null ? `lecture du fichier ${record.progress} %` : MEETING_STATUS[record.status],
+    record.progress != null
+      ? `lecture du fichier ${record.progress} %`
+      : record.identifying
+        ? "identification des intervenants…"
+        : MEETING_STATUS[record.status],
     sources,
   ];
   if (record.failed_chunks) meta.push(`${record.failed_chunks} passage(s) non transcrit(s)`);
@@ -148,8 +154,9 @@ async function showMeetingDetail() {
   $("meeting-audio-me").hidden = !detail.audio_kept;
   $("meeting-audio-them").hidden = !(detail.audio_kept && record.system);
   $("meeting-retranscribe").hidden = !detail.audio_kept;
-  $("meeting-retranscribe").disabled = detail.busy;
-  $("meeting-delete").disabled = detail.busy;
+  $("meeting-retranscribe").disabled = detail.busy || record.identifying;
+  $("meeting-identify").hidden = !detail.can_identify;
+  $("meeting-delete").disabled = detail.busy || record.identifying;
 
   $("meeting-summary-block").hidden = !record.summary;
   if (record.summary) {
@@ -161,9 +168,12 @@ async function showMeetingDetail() {
   $("meeting-summary-error").hidden = !record.summary_error;
   $("meeting-summary-error").textContent = record.summary_error ? `Compte rendu impossible : ${record.summary_error}` : "";
 
+  renderSpeakers(detail);
+  $("meeting-turns").classList.toggle("named", detail.speakers.length > 0);
   const turns = detail.turns.map((turn) => {
     const item = document.createElement("li");
     item.dataset.track = turn.track;
+    if (turn.speaker != null) item.dataset.speaker = String(turn.speaker % SPEAKER_COLORS);
     item.dataset.start = turn.start_ms;
     // Audio disponible : l'heure devient un bouton qui fait réécouter.
     const time = document.createElement(detail.replay ? "button" : "span");
@@ -176,7 +186,8 @@ async function showMeetingDetail() {
     }
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = trackLabel(record, turn.track);
+    who.textContent = turn.who || trackLabel(record, turn.track);
+    who.title = who.textContent;
     const text = document.createElement("span");
     text.className = "text";
     text.textContent = turn.text;
@@ -196,6 +207,69 @@ async function showMeetingDetail() {
   $("meeting-turns-empty").hidden = turns.length > 0;
   $("meeting-turns-empty").textContent =
     record.status === "terminee" ? "Aucune parole détectée." : "La transcription s'affiche ici au fil de la réunion.";
+}
+
+/** Couleurs des intervenants (app.css), réutilisées au-delà. */
+const SPEAKER_COLORS = 6;
+/** Nombre d'intervenants proposé au plus (et au moins jusqu'à ceux trouvés). */
+const MAX_SPEAKER_CHOICE = 8;
+
+/** Intervenants distingués : nom à donner, temps de parole, première phrase. */
+function renderSpeakers(detail) {
+  const { record, speakers } = detail;
+  $("meeting-speakers-block").hidden = speakers.length === 0;
+  if (speakers.length === 0) return;
+  const list = $("meeting-speakers");
+  // Nom en cours de saisie : la liste n'est pas reconstruite sous les doigts.
+  if (!list.contains(document.activeElement) || list.dataset.id !== record.id) {
+    list.dataset.id = record.id;
+    list.replaceChildren(
+      ...speakers.map((speaker) => {
+        const item = document.createElement("li");
+        item.dataset.speaker = String(speaker.index % SPEAKER_COLORS);
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = speaker.label;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = speaker.name;
+        input.placeholder = "Nom";
+        input.maxLength = 60;
+        input.spellcheck = false;
+        input.setAttribute("aria-label", `Nom de ${speaker.label}`);
+        input.addEventListener("change", () => renameSpeaker(record.id, speaker.index, input.value));
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") input.blur();
+        });
+        const about = document.createElement("span");
+        about.className = "about";
+        about.textContent = `${clock(speaker.talk_ms)} de parole · « ${speaker.first} »`;
+        item.append(label, input, about);
+        return item;
+      }),
+    );
+  }
+  const select = $("meeting-speaker-count");
+  const most = Math.max(MAX_SPEAKER_CHOICE, speakers.length);
+  select.replaceChildren(
+    option("", "Selon les voix"),
+    ...Array.from({ length: most }, (_, i) => option(String(i + 1), String(i + 1))),
+  );
+  select.value = record.speaker_count == null ? "" : String(record.speaker_count);
+  select.disabled = !detail.voices_kept || detail.busy || record.identifying;
+  select.title = detail.voices_kept
+    ? ""
+    : "Empreintes vocales non conservées (audio en mémoire seulement, ou analyse effacée)";
+  $("meeting-forget-speakers").disabled = detail.busy || record.identifying;
+}
+
+async function renameSpeaker(id, index, name) {
+  try {
+    await invoke("rename_speaker", { id, index, name });
+    await showMeetingDetail();
+  } catch (e) {
+    showMeetingResult(String(e), true);
+  }
 }
 
 /**
@@ -263,6 +337,8 @@ async function playClip(id, startMs, button) {
 function fillMeetingSettings() {
   const settings = meetingsView.settings;
   $("meeting-echo").checked = settings.echo_filter;
+  $("meeting-diarize").checked = settings.diarize;
+  showVoices();
   $("meeting-detect").checked = settings.detect;
   const rows = meetingsView.providers.map((provider) => {
     const row = document.createElement("tr");
@@ -491,6 +567,42 @@ $("meeting-retranscribe").addEventListener("click", () =>
   }),
 );
 
+$("meeting-identify").addEventListener("click", () =>
+  meetingAction($("meeting-identify"), async () => {
+    await invoke("identify_speakers", { id: selectedMeeting });
+    showMeetingResult("Identification des intervenants en cours (quelques minutes pour une heure d'audio).");
+  }),
+);
+
+$("meeting-speaker-count").addEventListener("change", () =>
+  meetingAction($("meeting-speaker-count"), async () => {
+    const value = $("meeting-speaker-count").value;
+    await invoke("set_speaker_count", { id: selectedMeeting, count: value ? Number(value) : null });
+    showMeetingResult(value ? `✓ ${value} intervenant(s).` : "✓ Nombre d'intervenants déduit des voix.");
+  }),
+);
+
+// « Ne plus distinguer » en deux clics : les empreintes vocales sont effacées.
+let forgetSpeakersTimer = null;
+$("meeting-forget-speakers").addEventListener("click", () => {
+  const button = $("meeting-forget-speakers");
+  if (!forgetSpeakersTimer) {
+    button.textContent = "Confirmer";
+    forgetSpeakersTimer = setTimeout(() => {
+      button.textContent = "Ne plus distinguer";
+      forgetSpeakersTimer = null;
+    }, DELETE_CONFIRM_MS);
+    return;
+  }
+  clearTimeout(forgetSpeakersTimer);
+  forgetSpeakersTimer = null;
+  button.textContent = "Ne plus distinguer";
+  meetingAction(button, async () => {
+    await invoke("forget_speakers", { id: selectedMeeting });
+    showMeetingResult("Intervenants et empreintes vocales effacés : « Eux » à nouveau.");
+  });
+});
+
 // Suppression en deux clics.
 let meetingDeleteTimer = null;
 $("meeting-delete").addEventListener("click", () => {
@@ -536,6 +648,7 @@ SettingsUI.define("reunions", {
         detect: $("meeting-detect").checked,
         echo_filter: $("meeting-echo").checked,
         summary_language: $("meeting-language").value,
+        diarize: $("meeting-diarize").checked,
         providers: [...document.querySelectorAll("[data-provider]")]
           .filter((select) => select.value !== "demander")
           .map((select) => ({ key: select.dataset.provider, policy: select.value })),
@@ -543,9 +656,47 @@ SettingsUI.define("reunions", {
     });
     meetingSettingsFilled = false;
     await loadMeetingSettings();
+    const voices = await invoke("voices_view").catch(() => null);
+    if ($("meeting-diarize").checked && voices && !voices.installed) {
+      return "✓ Appliqué ; téléchargement des modèles des intervenants en cours.";
+    }
     return "✓ Appliqué (l'audio et le son du PC : dès la prochaine réunion).";
   },
 });
+
+/** État des modèles des intervenants (section Réunions des réglages). */
+async function showVoices(view) {
+  try {
+    view ??= await invoke("voices_view");
+  } catch {
+    return;
+  }
+  const status = $("meeting-diarize-status");
+  const button = $("meeting-diarize-download");
+  button.hidden = true;
+  if (view.installed) {
+    status.textContent = "Modèles installés.";
+  } else if (view.downloading) {
+    status.textContent = `Téléchargement des modèles : ${view.percent} %`;
+  } else if (view.error) {
+    status.textContent = `Téléchargement impossible : ${view.error}`;
+    button.textContent = "Réessayer";
+    button.hidden = false;
+  } else {
+    status.textContent = `${view.missing_mb} Mo à télécharger à l'activation (vérifiés avant usage).`;
+    button.textContent = "Télécharger les modèles";
+    button.hidden = !$("meeting-diarize").checked;
+  }
+}
+$("meeting-diarize-download").addEventListener("click", async () => {
+  try {
+    await invoke("download_voices");
+  } finally {
+    await showVoices();
+  }
+});
+$("meeting-diarize").addEventListener("change", () => showVoices());
+window.__TAURI__.event.listen("voices", (event) => showVoices(event.payload));
 
 // Transcription au fil de l'eau : la page suit les blocs transcrits.
 let meetingsRefresh = null;

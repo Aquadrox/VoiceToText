@@ -153,6 +153,7 @@
                 <button id="meeting-audio-me" hidden>Audio « Moi » (.wav)</button>
                 <button id="meeting-audio-them" hidden>Audio « Eux » (.wav)</button>
                 <button id="meeting-retranscribe" hidden>Transcrire à nouveau</button>
+                <button id="meeting-identify" hidden>Distinguer les intervenants</button>
                 <button id="meeting-delete" class="danger">Supprimer</button>
               </div>
               <div class="ask">
@@ -172,6 +173,19 @@
                 <div id="meeting-summary" class="summary"></div>
               </div>
               <p id="meeting-summary-error" class="warning" hidden></p>
+              <div id="meeting-speakers-block" hidden>
+                <h2>Intervenants</h2>
+                <p class="muted small">
+                  Voix distinguées sur ce PC. Donnez un nom à chacun : il remplace « Intervenant N »
+                  dans la transcription, l'export et le prochain compte rendu.
+                </p>
+                <ul id="meeting-speakers" class="speakers"></ul>
+                <div class="row wrap">
+                  <label for="meeting-speaker-count" class="small">Nombre d'intervenants</label>
+                  <select id="meeting-speaker-count" class="compact"></select>
+                  <button id="meeting-forget-speakers">Ne plus distinguer</button>
+                </div>
+              </div>
               <div>
                 <h2>Transcription</h2>
                 <ol id="meeting-turns" class="turns"></ol>
@@ -656,6 +670,18 @@
                   </label>
                 </div>
 
+                <div class="group">
+                  <h3>Intervenants</h3>
+                  <label class="option field">
+                    <input id="meeting-diarize" type="checkbox" />
+                    <span><strong>Distinguer les intervenants</strong><small>« Eux » devient « Intervenant 1 », « Intervenant 2 »… puis les noms que vous donnez, à la fin de la réunion ; aussi pour les conférences et les fichiers importés. Analyse des voix sur ce PC : rien n'est envoyé.</small></span>
+                  </label>
+                  <p id="meeting-diarize-status" class="hint"></p>
+                  <div class="row" data-untracked>
+                    <button id="meeting-diarize-download" type="button" hidden>Télécharger les modèles</button>
+                  </div>
+                </div>
+
                 <div class="group field">
                   <h3>Audio de la réunion</h3>
                   <label class="choice">
@@ -807,6 +833,21 @@
                     </button>
                   </div>
                   <div id="settings-update-result" class="result" hidden></div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Crédits</h3>
+                  <p class="hint">
+                    Transcription : whisper.cpp et les modèles Whisper (MIT), Parakeet TDT © NVIDIA
+                    (CC BY 4.0), Vosk (Apache 2.0, Alpha Cephei), ONNX Runtime (MIT, Microsoft).
+                    Interface : Tauri (MIT / Apache 2.0).
+                  </p>
+                  <p class="hint">
+                    Intervenants : idée reprise de pytranscribe de Xavier Beheydt (MIT) ; méthode et
+                    modèle de segmentation de pyannote.audio (Hervé Bredin, CNRS, MIT) ; empreintes
+                    vocales WeSpeaker ResNet34-LM (CC BY 4.0) ; conversions ONNX de sherpa-onnx
+                    (k2-fsa, Apache 2.0).
+                  </p>
                 </div>
 
                 <div class="group" data-untracked>

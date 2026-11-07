@@ -194,24 +194,27 @@ La page Réglages, devenue un long formulaire, est découpée en sections, avec 
 - ✅ Zone de test en bas des réglages : dicter dans le champ ; pour chaque dictée (ici ou ailleurs) : ce que le moteur local a entendu, le texte inséré, temps de transcription et modèle, temps du nettoyage, jetons, coût, secours, erreur ; état en direct (écoute, transcription, téléchargement du modèle) et résumé des réglages actifs. Événement `dictation` envoyé à la fenêtre principale seulement, rien d'enregistré
 - À vérifier sur le PC : rendu Windows (WebView2), dictée dans le champ de test, changement de modèle suivi dans la zone de test
 
-## v0.20 — Qui parle ? (diarisation) 🚧
+## v0.20 — Qui parle ? (diarisation) ✅
 
-Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de Xavier Beheydt (MIT ; WhisperX + pyannote, en Python), réécrite en Rust, sans Python ni PyTorch : crédité dans le README (section Licence) et dans le code.
+Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de Xavier Beheydt (MIT ; WhisperX + pyannote, en Python), réécrite en Rust, sans Python ni PyTorch : crédité dans le README (section Licence), dans l'application (Réglages → Application → Crédits) et dans le code.
 
-- ✅ Essai (prototype testé sous Linux, pas encore dans l'application) :
+- ✅ Essai (PR #47, prototype testé sous Linux) :
   - méthode pyannote 3 : segmentation `segmentation-3.0` (jusqu'à 3 voix par fenêtre de 10 s, chevauchements compris), une empreinte vocale par voix et par fenêtre, regroupement hiérarchique (lien moyen, distance cosinus), reconstruction des tours de parole ; nombre de locuteurs déduit ou imposé
-  - modèles ONNX via le même ONNX Runtime que Parakeet, donc aucune nouvelle dépendance : segmentation pyannote 3.0 (MIT, 6 Mo) et empreinte WeSpeaker ResNet34-LM (CC BY 4.0, 26 Mo, citation à faire dans l'application), au format sherpa-onnx sur Hugging Face, sans compte ni jeton
+  - modèles ONNX via le même ONNX Runtime que Parakeet, donc aucune nouvelle dépendance : segmentation pyannote 3.0 (MIT, 6 Mo) et empreinte WeSpeaker ResNet34-LM (CC BY 4.0, 26 Mo), au format sherpa-onnx sur Hugging Face, sans compte ni jeton
   - algorithme et fbank (filtres mel façon Kaldi) dans `vtt-core` (`diarize`, `fbank`), testés avec de faux modèles ; fbank identiques à `kaldi-native-fbank` (écart < 10⁻⁴) ; modèles dans `vtt-asr` (`Diarizer`) ; essai : `cargo run --release -p vtt-asr --example diarize_wav`
   - mesuré sur 4 enregistrements de test (2 et 4 voix, anglais et chinois) : frontières identiques à sherpa-onnx (à 0,05 s près), bons locuteurs avec le seuil 0,55, même résultat avec un second modèle (3D-Speaker CAM++) ; 10 min à 4 voix : numéros stables du début à la fin
   - empreintes calculées comme à l'entraînement de WeSpeaker (fenêtre de Hamming, moyenne retirée) : les voix sont bien mieux séparées qu'avec les réglages de sherpa-onnx (écart entre « même voix » et « voix différentes » de 0,63 contre 0,39)
-  - vitesse (serveur à 4 cœurs, processeur seul) : 22 fois le temps réel, soit environ 3 min pour une heure ; mémoire bornée (au-delà d'une heure, les fenêtres s'espacent)
-  - limites : seuil calé sur peu d'exemples (deux voix proches se confondent à 0,6) ; essais sur de vraies réunions en français à faire ; pas de diarisation en direct (à la fin de la réunion seulement)
-- ⬜ Modèles téléchargés à la demande (SHA-256 vérifié, révision Hugging Face figée), comme Parakeet
-- ⬜ Après la réunion (audio conservé ou encore en mémoire) et pour les conférences et fichiers importés : répliques « Eux » découpées par intervenant (mots horodatés de Whisper / Parakeet) ; réglage pour l'activer ou non (section Réunions des réglages)
-- ⬜ Crédits affichés dans l'application (page À propos ou Réglages) : pytranscribe, pyannote, WeSpeaker (CC BY 4.0 : attribution obligatoire), sherpa-onnx
-- ⬜ Page Réunions : « Intervenant 1, 2… » ; renommer un intervenant (temps de parole et première phrase pour le reconnaître) ; noms repris dans le compte rendu, la recherche et l'export Markdown
-- ⬜ Nombre d'intervenants imposé pour une réunion (plus fiable que le seuil quand on le connaît)
-- ⬜ Essai sur le PC avec de vraies réunions Teams / Meet en français, réglage du seuil
+- ✅ Analyse au fil de l'eau (`Analysis`) : l'audio arrive par blocs (réunion, fichier lu peu à peu) et n'est pas gardé, seules restent les voix par fenêtre et leurs empreintes ; mêmes tours de parole que l'analyse d'un seul tenant (testé) ; fenêtres analysées par lots de 8 (les deux modèles alternant fenêtre par fenêtre, leurs threads se gênaient : 1,6 fois plus lent) ; au-delà de 3 000 empreintes (≈ 1 h 30), regroupement sur un échantillon, les autres rejoignent le groupe le plus proche
+- ✅ Modèles téléchargés à l'activation du réglage (ou au démarrage s'il est activé sans eux), révisions Hugging Face figées, taille et SHA-256 vérifiés ; ONNX Runtime partagé avec Parakeet ; avancement dans Réglages → Réunions, « Réessayer » en cas d'échec
+- ✅ Réglage `meetings.diarize` (désactivé par défaut : téléchargement et analyse des voix sur accord) dans Réglages → Réunions → Intervenants
+- ✅ Pendant la réunion, les blocs de la piste « Eux » (conférence : la source captée ; fichier : tout) partent à un thread d'analyse (la moitié des cœurs, la transcription continue) ; à la fin, tours de parole puis compte rendu, qui reprend donc les intervenants ; reprise après une coupure (audio relu bloc par bloc, sans tout charger)
+- ✅ Répliques « Eux » réparties entre intervenants à l'affichage, d'après les tours de parole (une réplique peut être coupée : mots étalés sur le temps de parole de chacun) ; transcription d'origine intacte, donc réversible
+- ✅ Page Réunions : « Intervenant 1, 2… » en couleur ; bloc Intervenants : nom à donner (temps de parole et première phrase pour le reconnaître), repris dans la transcription, la copie, l'export Markdown, les questions au LLM et le compte rendu ; nombre d'intervenants imposé, recalculé aussitôt ; « Ne plus distinguer » (empreintes effacées)
+- ✅ « Distinguer les intervenants » après coup pour un enregistrement fait sans le réglage (audio conservé ou fichier importé toujours présent)
+- ✅ Empreintes vocales chiffrées par Windows (`voix.bin`, DPAPI) dans le dossier de la réunion, pour changer le nombre d'intervenants sans l'audio ; jamais écrites pour une réunion « en mémoire seulement » ; effacées avec la réunion
+- ✅ Crédits dans Réglages → Application : pytranscribe, pyannote.audio, WeSpeaker (CC BY 4.0), sherpa-onnx, et les autres composants
+- Limites : seuil (0,55) calé sur peu d'exemples ; pas d'intervenants en direct (à la fin de la réunion seulement)
+- À vérifier sur le PC : vraies réunions Teams / Meet en français (seuil), vitesse pendant un appel avec Whisper sur la carte graphique, rendu Windows du bloc Intervenants
 
 ## Outillage ✅
 
