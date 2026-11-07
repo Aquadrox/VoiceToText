@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -102,10 +103,16 @@ class BubbleService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** Bulle affichée seulement sur un champ de texte ordinaire. */
+    /**
+     * Bulle affichée seulement sur un champ de texte ordinaire. Une exception
+     * ici (fenêtre disparue entre-temps…) tuerait le service, qu'Android
+     * marquerait « Ne fonctionne pas » sans le relancer : on l'ignore, le
+     * prochain événement réessaie.
+     */
     private fun update() {
         if (!::manager.isInitialized || state != IDLE) return
-        if (field() == null) hide() else show()
+        runCatching { if (field() == null) hide() else show() }
+            .onFailure { Log.w("VoiceToText", "Bulle non mise à jour", it) }
     }
 
     private fun field(): AccessibilityNodeInfo? {
@@ -141,6 +148,25 @@ class BubbleService : AccessibilityService() {
             elevation = dp(4).toFloat()
             contentDescription = "Dicter avec VoiceToText"
             setOnTouchListener { view, event -> onTouch(view, event) }
+            // Fenêtre retirée par Android (et non par hide()) : la bulle est
+            // oubliée puis remise au prochain passage, au lieu de rester
+            // invisible jusqu'à un changement de taille.
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) {}
+
+                override fun onViewDetachedFromWindow(view: View) {
+                    if (bubble !== view) return
+                    bubble = null
+                    params = null
+                    if (state != IDLE) {
+                        if (recorder.recording) recorder.stop()
+                        holding = false
+                        state = IDLE
+                    }
+                    main.removeCallbacks(refresh)
+                    main.postDelayed(refresh, 120)
+                }
+            })
         }
         val layout = WindowManager.LayoutParams(
             px,
@@ -165,9 +191,11 @@ class BubbleService : AccessibilityService() {
     }
 
     private fun hide() {
-        bubble?.let { runCatching { manager.removeView(it) } }
+        // Oubliée avant le retrait : le détachement qui suit vient de nous.
+        val view = bubble ?: return
         bubble = null
         params = null
+        runCatching { manager.removeView(view) }
     }
 
     private fun paint(done: Boolean = false) {
@@ -392,7 +420,8 @@ class BubbleService : AccessibilityService() {
 
     /** Coller remplace le contenu du presse-papier (Android interdit de le relire). */
     private fun paste(node: AccessibilityNodeInfo, text: String): Boolean {
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("VoiceToText", text))
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        if (runCatching { clipboard.setPrimaryClip(ClipData.newPlainText("VoiceToText", text)) }.isFailure) return false
         return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
     }
 
