@@ -194,7 +194,7 @@ La page Réglages, devenue un long formulaire, est découpée en sections, avec 
 - ✅ Zone de test en bas des réglages : dicter dans le champ ; pour chaque dictée (ici ou ailleurs) : ce que le moteur local a entendu, le texte inséré, temps de transcription et modèle, temps du nettoyage, jetons, coût, secours, erreur ; état en direct (écoute, transcription, téléchargement du modèle) et résumé des réglages actifs. Événement `dictation` envoyé à la fenêtre principale seulement, rien d'enregistré
 - À vérifier sur le PC : rendu Windows (WebView2), dictée dans le champ de test, changement de modèle suivi dans la zone de test
 
-## v0.19 — Qui parle ? (diarisation) 🚧
+## v0.20 — Qui parle ? (diarisation) 🚧
 
 Distinguer les participants dans la piste « Eux » des réunions et dans les conférences et fichiers importés : « Eux » devient « Intervenant 1 », « Intervenant 2 »…, puis des noms donnés par l'utilisateur. Idée reprise de [pytranscribe](https://github.com/XavierBeheydt/pytranscribe) de Xavier Beheydt (MIT ; WhisperX + pyannote, en Python), réécrite en Rust, sans Python ni PyTorch : crédité dans le README (section Licence) et dans le code.
 
@@ -207,7 +207,7 @@ Distinguer les participants dans la piste « Eux » des réunions et dans les co
   - vitesse (serveur à 4 cœurs, processeur seul) : 22 fois le temps réel, soit environ 3 min pour une heure ; mémoire bornée (au-delà d'une heure, les fenêtres s'espacent)
   - limites : seuil calé sur peu d'exemples (deux voix proches se confondent à 0,6) ; essais sur de vraies réunions en français à faire ; pas de diarisation en direct (à la fin de la réunion seulement)
 - ⬜ Modèles téléchargés à la demande (SHA-256 vérifié, révision Hugging Face figée), comme Parakeet
-- ⬜ Après la réunion (audio conservé ou encore en mémoire) et pour les conférences et fichiers importés : répliques « Eux » découpées par intervenant (mots horodatés de Whisper / Parakeet) ; réglage pour l'activer ou non
+- ⬜ Après la réunion (audio conservé ou encore en mémoire) et pour les conférences et fichiers importés : répliques « Eux » découpées par intervenant (mots horodatés de Whisper / Parakeet) ; réglage pour l'activer ou non (section Réunions des réglages)
 - ⬜ Crédits affichés dans l'application (page À propos ou Réglages) : pytranscribe, pyannote, WeSpeaker (CC BY 4.0 : attribution obligatoire), sherpa-onnx
 - ⬜ Page Réunions : « Intervenant 1, 2… » ; renommer un intervenant (temps de parole et première phrase pour le reconnaître) ; noms repris dans le compte rendu, la recherche et l'export Markdown
 - ⬜ Nombre d'intervenants imposé pour une réunion (plus fiable que le seuil quand on le connaît)
