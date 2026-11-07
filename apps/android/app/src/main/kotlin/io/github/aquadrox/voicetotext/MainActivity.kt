@@ -296,7 +296,7 @@ class MainActivity : Activity() {
             return
         }
         val bubble = ComponentName(this, BubbleService::class.java)
-        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        val bubbleEnabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
         // Le réglage ci-dessus reste coché quand le service est mort ; cette
         // liste-ci ne contient que les services réellement en marche.
@@ -304,7 +304,7 @@ class MainActivity : Activity() {
             .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { info -> info.resolveInfo.serviceInfo.let { ComponentName(it.packageName, it.name) } == bubble }
         bubbleStatus.text = when {
-            !enabled -> "Bulle pas encore activée"
+            !bubbleEnabled -> "Bulle pas encore activée"
             running -> "✓ Bulle activée"
             else -> "⚠ Bulle activée mais arrêtée par Android (« Ne fonctionne pas » dans l'accessibilité). " +
                 "Pour la relancer, sans forcer l'arrêt de l'application : désactivez-la puis réactivez-la " +
