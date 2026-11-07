@@ -2,6 +2,7 @@ package io.github.aquadrox.voicetotext
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
@@ -45,10 +46,16 @@ object Dictation {
         val modelsDir = store.modelsDir
         val historyFile = store.historyFile
         worker.execute {
-            val settings = JSONObject(Native.settings(config, modelsDir)).optJSONObject("ok")
-            val host = settings?.optJSONObject("llm")?.optString("host").orEmpty()
-            Native.setApiKey(store.key(host).orEmpty())
-            val error = JSONObject(Native.start(modelsDir, historyFile, config)).optString("error")
+            // Une exception ici tuerait tout le processus (et la bulle avec) :
+            // elle devient l'erreur rendue à l'appelant.
+            val (settings, error) = try {
+                val settings = JSONObject(Native.settings(config, modelsDir)).optJSONObject("ok")
+                val host = settings?.optJSONObject("llm")?.optString("host").orEmpty()
+                Native.setApiKey(store.key(host).orEmpty())
+                settings to JSONObject(Native.start(modelsDir, historyFile, config)).optString("error")
+            } catch (e: Throwable) {
+                null to failure(e)
+            }
             main.post {
                 loading = false
                 language = settings?.optString("translation")?.ifEmpty { null } ?: language
@@ -63,9 +70,19 @@ object Dictation {
     /** Dicte en arrière-plan ; réponse JSON de [Native.dictate] sur le fil principal. */
     fun run(samples: FloatArray, app: String, mode: Int, selection: String, privacy: Int, done: (JSONObject) -> Unit) {
         worker.execute {
-            val result = JSONObject(Native.dictate(samples, app, mode, selection, privacy))
+            val result = try {
+                JSONObject(Native.dictate(samples, app, mode, selection, privacy))
+            } catch (e: Throwable) {
+                JSONObject().put("kind", "error").put("error", failure(e))
+            }
             main.post { done(result) }
         }
+    }
+
+    /** Message d'une exception inattendue, gardé aussi dans le journal Android. */
+    private fun failure(e: Throwable): String {
+        Log.e("VoiceToText", "Erreur du moteur", e)
+        return "Erreur interne : ${e.message ?: e.javaClass.simpleName}"
     }
 
     /** « ✓ 1,2 s » ou l'erreur du LLM si le texte brut a été inséré. */

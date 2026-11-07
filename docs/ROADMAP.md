@@ -181,6 +181,8 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Réglages du PC avec Parakeet ou Vosk importés tels quels
 - ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
 - ✅ Essai sur le Xiaomi 17T Pro : Parakeet le plus rapide et le plus fiable → modèle conseillé et proposé par défaut (v0.18.1)
+- ✅ Bulle qui disparaissait (service « Ne fonctionne pas » dans l'accessibilité) : une erreur du moteur (panique Rust, exception Kotlin) ou du micro tuait tout le processus, et Android ne relançait pas le service. Erreurs désormais rattrapées et affichées ; bulle remise si Android retire sa fenêtre ; l'application signale une bulle activée mais arrêtée, avec la raison du dernier arrêt donnée par Android (v0.18.2)
+- À vérifier sur le téléphone : si la bulle s'arrête encore, la raison affichée (mémoire insuffisante, arrêtée par le système…) dira s'il faut libérer le modèle écran éteint
 
 ## Outillage ✅
 
