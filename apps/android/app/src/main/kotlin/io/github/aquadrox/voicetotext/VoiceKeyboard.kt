@@ -40,6 +40,12 @@ class VoiceKeyboard : InputMethodService() {
     /** Longueur de la dernière insertion (commande « annule la dernière dictée »). */
     private var lastInserted = 0
 
+    override fun onCreate() {
+        super.onCreate()
+        // Vérification des mises à jour replanifiée (effacée par un arrêt forcé).
+        runCatching { Updater.schedule(this) }
+    }
+
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
         val root = LinearLayout(this).apply {

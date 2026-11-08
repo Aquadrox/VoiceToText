@@ -216,6 +216,18 @@ Distinguer les participants dans la piste « Eux » des réunions et dans les co
 - Limites : seuil (0,55) calé sur peu d'exemples ; pas d'intervenants en direct (à la fin de la réunion seulement)
 - À vérifier sur le PC : vraies réunions Teams / Meet en français (seuil), vitesse pendant un appel avec Whisper sur la carte graphique, rendu Windows du bloc Intervenants
 
+## v0.21 — Android : mises à jour ✅
+
+Comme sur PC (v0.5) : vérifier, prévenir, installer sur un clic.
+
+- ✅ Manifeste `latest-android.json` publié par la CI à chaque tag, à part de `latest.json` (Tauri exige une signature minisign pour chaque entrée) : une entrée par édition (`android-clavier`, `android-bulle`) avec adresse, taille et SHA-256
+- ✅ Vérification à l'ouverture de l'application (si la dernière date de plus d'une heure) puis toutes les 6 h en arrière-plan (JobScheduler, réseau requis, gardée après un redémarrage, replanifiée par le clavier et la bulle) ; désactivable ; notification une fois par version, avec « Installer »
+- ✅ Section Mises à jour : version installée et édition, dernière vérification, « Vérifier maintenant », « Télécharger et installer la x.y.z » avec progression, « Voir les nouveautés » ; bandeau en haut de l'application ; notification « mis à jour : version x.y.z » une fois installée (Android ferme l'application sans la rouvrir) et message au lancement suivant
+- ✅ Installation sur clic par l'installateur d'Android (PackageInstaller) : autorisation « applis inconnues » demandée la première fois, l'installation reprend au retour ; confirmation d'Android ouverte directement, ou par notification si l'application n'est plus à l'écran ; Android 12 et plus : sans confirmation quand Android l'accepte ; échec expliqué (annulée, bloquée par Play Protect, signature, stockage…)
+- ✅ Sécurité : adresses limitées aux Releases du dépôt, HTTPS seulement ; taille et SHA-256 vérifiés ; paquet relu avant l'installation (même identifiant, version annoncée, même édition, même clé de signature) ; Android refuse de toute façon une autre signature ou une version plus ancienne ; pas de seconde clé à gérer (celle des APK, dans les secrets GitHub)
+- ✅ La version de test des PR (`.test`, autre signature) ne se met pas à jour
+- À vérifier sur le téléphone : passage 0.21.0 → 0.21.1 (clavier et bulle), confirmation ou non d'Android/HyperOS, Play Protect sur l'édition bulle, clavier et bulle toujours activés après la mise à jour
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

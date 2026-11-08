@@ -394,6 +394,23 @@ Pour vérifier tout de suite : **Réglages → Application → Vérifier mainten
 
 Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer la 0.5 une fois à la main.
 
+### Sur Android
+
+Même principe depuis la 0.21 : l'application vérifie les nouvelles versions à son ouverture (si la dernière vérification date de plus d'une heure) puis toutes les 6 heures en arrière-plan (désactivable dans la section **Mises à jour** de l'application). Quand une version est disponible :
+
+- une notification l'annonce (une fois par version), avec un bouton **Installer** ;
+- l'application affiche un bandeau **Mettre à jour** et, dans **Mises à jour**, **Télécharger et installer la x.y.z** (et **Voir les nouveautés**).
+
+Rien n'est installé sans votre clic. L'application télécharge l'APK de **votre édition** (clavier ou bulle : la bulle reste installée), vérifie sa taille et son **empreinte SHA-256** publiées avec la version, puis le paquet lui-même (même application, même version, même édition, même signature) ; Android, de son côté, n'accepte une mise à jour que **signée avec la même clé** que l'application installée et refuse une version plus ancienne. Android ferme l'application le temps de la mise à jour ; une notification « VoiceToText mis à jour » la rouvre. Réglages, modèles, clés et historique sont gardés ; le clavier et la bulle restent activés.
+
+- La première fois, Android demande d'**autoriser VoiceToText à installer des applications** (« Sources inconnues ») : le bouton y mène, la mise à jour continue au retour.
+- Android affiche ensuite sa confirmation « Mettre à jour cette application ? » ; depuis Android 12, il peut s'en passer quand l'application se met à jour elle-même (le clic sur **Installer** suffit). Xiaomi (HyperOS) et d'autres peuvent ajouter leur propre vérification.
+- Édition **bulle** : si Play Protect bloque la mise à jour comme la première installation, le couper le temps de l'installation puis le réactiver.
+- Android 13 et plus demande l'autorisation d'afficher des **notifications** au premier lancement ; sans elle, la nouvelle version n'est annoncée que dans l'application.
+- La version de test des PR (« VoiceToText (test) ») ne se met pas à jour.
+
+Les versions antérieures à la 0.21 ne savent pas se mettre à jour : installer la 0.21 une fois à la main (par-dessus, réglages gardés).
+
 ## Confidentialité et sécurité
 
 | Donnée | Où elle va |
@@ -415,7 +432,7 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 | Captures d'écran (capture commentée) | Restent sur le PC : en mémoire, ou dans `captures\` si vous choisissez de les garder ; **jamais envoyées**, sauf si vous activez « Faire décrire les images par le LLM » |
 | Clics de la souris | Pendant une capture commentée seulement (position et moment), pour marquer les images ; ni stockés à part, ni envoyés |
 | Programmes qui utilisent le micro | Nom seulement, lu chaque seconde pour la détection d'appel ; ni stocké, ni envoyé (désactivable) |
-| Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub) |
+| Vérification des mises à jour | Requête vers github.com (votre adresse IP est visible de GitHub), sur PC comme sur Android |
 
 ## Fichiers et emplacements
 

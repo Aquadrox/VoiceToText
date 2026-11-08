@@ -80,6 +80,7 @@ class BubbleService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         manager = getSystemService(WindowManager::class.java)
+        runCatching { Updater.schedule(this) }
         update()
     }
 

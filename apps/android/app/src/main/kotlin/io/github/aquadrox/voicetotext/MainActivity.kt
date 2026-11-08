@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -60,6 +61,26 @@ class MainActivity : Activity() {
     private lateinit var history: Switch
     private lateinit var vocabularyStatus: TextView
     private lateinit var message: TextView
+    private lateinit var updateBanner: LinearLayout
+    private lateinit var updateBannerText: TextView
+    private lateinit var updateStatus: TextView
+    private lateinit var updateInstall: Button
+    private lateinit var updateNotes: Button
+    private lateinit var updateCheck: Button
+    private lateinit var updateProgress: ProgressBar
+    private lateinit var notificationsButton: Button
+
+    /** Téléchargement et vérification de la mise à jour, à part du modèle. */
+    private val updates = Executors.newSingleThreadExecutor()
+    private var installing = false
+    private var checking = false
+
+    /**
+     * Autorisation « applis inconnues » demandée : l'écran des réglages
+     * d'Android s'ouvre (pause), l'installation reprend au retour (reprise).
+     */
+    private var askedInstallPermission = false
+    private var pendingInstall = false
 
     /** Hôte de l'API affiché (la clé est rangée par hôte). */
     private var host = ""
@@ -68,12 +89,49 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(ScrollView(this).apply { addView(content()) })
         refresh()
+        startUpdates()
+        handle(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    /** Notification « Installer » : installation lancée aussitôt. */
+    private fun handle(intent: Intent?) {
+        if (intent?.action == Updater.ACTION_INSTALL) {
+            intent.action = null
+            installUpdate()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        Updater.visible = true
+        Updater.listener = { refreshUpdate() }
         // Retour du dictionnaire : compteurs à jour.
         if (::message.isInitialized) refresh()
+        // Retour de l'autorisation « applis inconnues » : l'installation reprend.
+        if (pendingInstall) {
+            pendingInstall = false
+            if (packageManager.canRequestPackageInstalls()) installUpdate()
+            else store.updateError = "Mise à jour non installée : VoiceToText n'est pas autorisé à installer des applications."
+        }
+        refreshUpdate()
+        // Comme sur PC au démarrage : vérification si la dernière date d'une heure.
+        val stale = System.currentTimeMillis() - store.updateCheckedAt > 60 * 60 * 1000L
+        if (Updater.supported && store.updatesEnabled && stale) checkUpdate(manual = false)
+    }
+
+    override fun onPause() {
+        if (askedInstallPermission) {
+            askedInstallPermission = false
+            pendingInstall = true
+        }
+        Updater.visible = false
+        Updater.listener = null
+        super.onPause()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -85,6 +143,17 @@ class MainActivity : Activity() {
         title("VoiceToText", 26f)
         note("Dictée au clavier ou avec une bulle flottante : parlez, le texte nettoyé s'insère là où vous écrivez. La voix est transcrite sur le téléphone.")
         message = note("").apply { visibility = View.GONE }
+        updateBanner = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setBackgroundColor(0x332E7D32)
+            visibility = View.GONE
+        }.also { addView(it) }
+        updateBannerText = TextView(this@MainActivity).also { updateBanner.addView(it) }
+        updateBanner.addView(Button(this@MainActivity).apply {
+            text = "Mettre à jour"
+            setOnClickListener { installUpdate() }
+        })
 
         section("1. Micro")
         micStatus = note("")
@@ -164,6 +233,36 @@ class MainActivity : Activity() {
                 },
                 IMPORT,
             )
+        }
+
+        section("Mises à jour")
+        updateStatus = note("")
+        if (Updater.supported) {
+            option("Vérifier automatiquement (à l'ouverture puis toutes les 6 h)", store.updatesEnabled) {
+                store.updatesEnabled = it
+                Updater.schedule(this@MainActivity)
+            }
+            updateCheck = button("Vérifier maintenant") { checkUpdate(manual = true) }
+            updateInstall = button("Télécharger et installer") { installUpdate() }
+            updateNotes = button("Voir les nouveautés") {
+                Updater.cached(store)?.notes?.takeIf { it.isNotEmpty() }?.let {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                }
+            }
+            updateProgress = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                visibility = View.GONE
+            }.also { addView(it) }
+            notificationsButton = button("Autoriser les notifications") {
+                startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                )
+            }
+            note("Rien n'est installé sans votre accord. Android vérifie que la mise à jour est signée avec la même clé que l'application installée, et refuse une version plus ancienne ; l'application vérifie en plus l'empreinte SHA-256 publiée avec la version. La première fois, Android demande d'autoriser VoiceToText à installer des applications. Vos réglages, modèles et clés sont gardés.")
+            if (BuildConfig.BUBBLE) {
+                note("Édition bulle : si Play Protect bloque la mise à jour, coupez-le le temps de l'installation puis réactivez-le, comme à la première installation.")
+            }
         }
 
         section("Essayer")
@@ -387,6 +486,109 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Au lancement : « mis à jour », ancien paquet effacé, vérification planifiée, notifications. */
+    private fun startUpdates() {
+        val previous = store.lastRunVersion
+        if (previous != BuildConfig.VERSION_NAME) {
+            store.lastRunVersion = BuildConfig.VERSION_NAME
+            store.updateError = ""
+            if (previous.isNotEmpty()) say("✓ VoiceToText mis à jour : version ${BuildConfig.VERSION_NAME}.")
+        }
+        java.io.File(cacheDir, "update").deleteRecursively()
+        if (!Updater.supported) return
+        runCatching { Updater.schedule(this) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && store.updatesEnabled && !store.askedNotifications &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            store.askedNotifications = true
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATIONS)
+        }
+    }
+
+    /** Bandeau et section « Mises à jour » d'après la dernière vérification. */
+    private fun refreshUpdate() {
+        if (!::updateStatus.isInitialized) return
+        val installed = "Version installée : ${BuildConfig.VERSION_NAME} (édition ${Updater.edition})."
+        if (!Updater.supported) {
+            updateStatus.text = "$installed\nVersion de test : pas de mise à jour automatique (installez l'APK d'une release)."
+            return
+        }
+        val release = Updater.cached(store)
+        updateBanner.visibility = if (release != null && !installing) View.VISIBLE else View.GONE
+        updateBannerText.text = release?.let { "VoiceToText ${it.version} est disponible." }.orEmpty()
+        val checkedAt = store.updateCheckedAt
+        val checked = if (checkedAt == 0L) "jamais" else
+            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(checkedAt))
+        val state = when {
+            installing -> "Téléchargement et vérification de la ${release?.version ?: "nouvelle version"}…"
+            checking -> "Vérification…"
+            release != null -> "Nouvelle version disponible : ${release.version} (${release.size / (1024 * 1024)} Mo)."
+            checkedAt != 0L -> "✓ VoiceToText est à jour."
+            else -> ""
+        }
+        val error = store.updateError.takeIf { it.isNotEmpty() }?.let { "\n⚠ $it" }.orEmpty()
+        updateStatus.text = "$installed\nDernière vérification : $checked.\n$state$error".trimEnd()
+        updateInstall.visibility = if (release != null) View.VISIBLE else View.GONE
+        updateInstall.text = release?.let { "Télécharger et installer la ${it.version}" } ?: "Télécharger et installer"
+        updateInstall.isEnabled = !installing
+        updateNotes.visibility = if (release?.notes?.isNotEmpty() == true) View.VISIBLE else View.GONE
+        updateCheck.isEnabled = !checking && !installing
+        updateProgress.visibility = if (installing) View.VISIBLE else View.GONE
+        val notifications = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+        notificationsButton.visibility = if (store.updatesEnabled && !notifications) View.VISIBLE else View.GONE
+    }
+
+    private fun checkUpdate(manual: Boolean) {
+        if (checking || installing) return
+        checking = true
+        if (manual) store.updateError = ""
+        refreshUpdate()
+        updates.execute {
+            val result = runCatching { Updater.check(this, notify = false) }
+            main.post {
+                checking = false
+                // Vérification automatique : un échec (hors ligne…) reste discret.
+                result.exceptionOrNull()?.let { if (manual) store.updateError = it.message ?: it.toString() }
+                refreshUpdate()
+            }
+        }
+    }
+
+    /** Clic « Installer » : autorisation si besoin, téléchargement vérifié, installateur d'Android. */
+    private fun installUpdate() {
+        if (!Updater.supported || installing) return
+        val release = Updater.cached(store) ?: run {
+            checkUpdate(manual = true)
+            return
+        }
+        if (!packageManager.canRequestPackageInstalls()) {
+            askedInstallPermission = true
+            say("Autorisez VoiceToText à installer des applications, puis revenez : la mise à jour continuera.")
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return
+        }
+        installing = true
+        store.updateError = ""
+        updateProgress.progress = 0
+        refreshUpdate()
+        val poll = object : Runnable {
+            override fun run() {
+                updateProgress.progress = Updater.progress.get()
+                if (installing) main.postDelayed(this, 300)
+            }
+        }
+        main.post(poll)
+        updates.execute {
+            val result = runCatching { Updater.install(this, Updater.download(this, release)) }
+            main.post {
+                installing = false
+                result.exceptionOrNull()?.let { store.updateError = "Mise à jour non installée : ${it.message ?: it}" }
+                if (result.isSuccess) say("Installation de la ${release.version} en cours : Android ferme VoiceToText le temps de la mise à jour ; une notification la rouvre ensuite.")
+                refreshUpdate()
+            }
+        }
+    }
+
     @Deprecated("API Activity simple, sans AndroidX")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -415,14 +617,17 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refreshStatus()
+        refreshUpdate()
     }
 
     override fun onDestroy() {
         worker.shutdown()
+        updates.shutdown()
         super.onDestroy()
     }
 
     private companion object {
         const val IMPORT = 2
+        const val NOTIFICATIONS = 3
     }
 }

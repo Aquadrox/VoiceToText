@@ -258,8 +258,41 @@ jobs:
           json.dump(manifest, open("latest.json", "w"), indent=2)
           PY
           cat latest.json
+      # Manifeste lu par l'application Android
+      # (releases/latest/download/latest-android.json) : à part de latest.json,
+      # dont Tauri exige une signature minisign pour chaque entrée. Une entrée
+      # par édition (le téléphone reste sur la sienne), avec taille et SHA-256
+      # vérifiés avant l'installation ; Android vérifie en plus la signature.
+      - name: Manifeste de mise à jour Android
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from datetime import datetime, timezone
+          tag, repo = os.environ["TAG"], os.environ["GITHUB_REPOSITORY"]
+          version = tag.removeprefix("v")
+          def entry(name):
+              assert os.path.isfile(name), f"{name} absent"
+              return {
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{name}",
+                  "sha256": hashlib.sha256(open(name, "rb").read()).hexdigest(),
+                  "size": os.path.getsize(name),
+              }
+          manifest = {
+              "version": version,
+              "notes": f"https://github.com/{repo}/releases/tag/{tag}",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {
+                  "android-clavier": entry(f"VoiceToText_{version}_android.apk"),
+                  "android-bulle": entry(f"VoiceToText_{version}_android-bulle.apk"),
+              },
+          }
+          json.dump(manifest, open("latest-android.json", "w"), indent=2)
+          PY
+          cat latest-android.json
       - name: Publication de la release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json latest-android.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes

@@ -64,6 +64,41 @@ class Store(private val context: Context) {
         get() = prefs.getInt("bubble_y", -1)
         set(value) = prefs.edit().putInt("bubble_y", value).apply()
 
+    /** Mises à jour : vérification automatique (au lancement puis toutes les 6 h). */
+    var updatesEnabled: Boolean
+        get() = prefs.getBoolean("updates_enabled", true)
+        set(value) = prefs.edit().putBoolean("updates_enabled", value).apply()
+
+    /** Heure de la dernière vérification (ms), réussie ou non. */
+    var updateCheckedAt: Long
+        get() = prefs.getLong("update_checked_at", 0)
+        set(value) = prefs.edit().putLong("update_checked_at", value).apply()
+
+    /** Version disponible trouvée à la dernière vérification (JSON, vide si à jour). */
+    var updateRelease: String
+        get() = prefs.getString("update_release", "").orEmpty()
+        set(value) = prefs.edit().putString("update_release", value).apply()
+
+    /** Dernière version annoncée par notification (une fois par version). */
+    var updateNotified: String
+        get() = prefs.getString("update_notified", "").orEmpty()
+        set(value) = prefs.edit().putString("update_notified", value).apply()
+
+    /** Échec de la dernière installation, affiché dans l'application. */
+    var updateError: String
+        get() = prefs.getString("update_error", "").orEmpty()
+        set(value) = prefs.edit().putString("update_error", value).apply()
+
+    /** Version au dernier lancement : « mis à jour en x.y.z » une fois. */
+    var lastRunVersion: String
+        get() = prefs.getString("last_run_version", "").orEmpty()
+        set(value) = prefs.edit().putString("last_run_version", value).apply()
+
+    /** Autorisation des notifications déjà demandée (Android 13 et plus). */
+    var askedNotifications: Boolean
+        get() = prefs.getBoolean("asked_notifications", false)
+        set(value) = prefs.edit().putBoolean("asked_notifications", value).apply()
+
     var config: String
         get() = if (configFile.exists()) configFile.readText() else ""
         set(value) {
