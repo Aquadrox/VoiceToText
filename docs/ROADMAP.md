@@ -239,6 +239,7 @@ Accélérer la CI sans baisser la garde :
 - ✅ Cache de compilation corrigé : rust-cache recevait un chemin absolu (`C:\t`) qu'il collait derrière le dépôt, et ne sauvegardait donc aucun fichier compilé ; chemin relatif (`D:\t`), cache alimenté par `main` et réutilisé par les PR
 - ✅ CLI Tauri précompilée via npm au lieu de `cargo install` (10 min de compilation à chaque cache vide)
 - ✅ Un nouveau push sur une PR annule la vérification précédente
+- ✅ Mise à jour proposée seulement aux plateformes concernées : à chaque tag, `.github/scripts/platforms.py` liste ce qui change depuis la version que chaque manifeste annonce (doc, CI et simple montée de version ignorées ; `vtt-core`, `vtt-asr`, `vtt-llm`, dépendances ou fichier non classé → les deux). Plateforme non touchée : manifeste précédent repris tel quel (`latest.json` ou `latest-android.json`), l'application ne voit rien à installer ; les installeurs restent publiés pour les nouvelles installations. Notes de la release : plateformes mises à jour ou non
 - ✅ Actions GitHub sur Node.js 24 : checkout v7, upload-artifact v7, download-artifact v8 (contrôle d'empreinte des artefacts désormais bloquant)
 
 ## Plus tard
