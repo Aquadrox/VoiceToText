@@ -392,6 +392,8 @@ Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la s
 
 Pour vérifier tout de suite : **Réglages → Application → Vérifier maintenant**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
 
+Seules les versions qui changent quelque chose sur votre appareil sont proposées : une version qui ne touche que l'application Android n'est pas annoncée sur le PC, et inversement. Le PC et le téléphone peuvent donc afficher des numéros de version différents ; c'est normal.
+
 Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer la 0.5 une fois à la main.
 
 ### Sur Android

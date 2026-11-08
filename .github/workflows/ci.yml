@@ -227,15 +227,70 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Sources à part (src/) : historique et tags, pour comparer les versions.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          path: src
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-installeur-windows
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-android
+      # Une mise à jour n'est proposée qu'aux plateformes dont l'application
+      # change depuis la version qu'elles annoncent déjà (manifestes de la
+      # release précédente). Sinon, leur manifeste est repris tel quel : il
+      # pointe toujours vers l'installeur de l'ancienne release, la version ne
+      # monte pas, et l'application ne voit rien à installer. Les installeurs
+      # sont publiés quand même, pour les nouvelles installations.
+      # Au moindre doute (pas de manifeste, tag introuvable), tout est proposé.
+      - name: Plateformes touchées
+        id: platforms
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p previous
+          gh release download --repo "$GITHUB_REPOSITORY" --dir previous \
+            --pattern latest.json --pattern latest-android.json \
+            || echo "manifestes précédents introuvables : mise à jour proposée partout"
+          {
+            echo "## Mises à jour proposées"
+            echo
+          } > notes.md
+          for platform in windows android; do
+            case "$platform" in
+              windows) file=latest.json label=Windows ;;
+              android) file=latest-android.json label=Android ;;
+            esac
+            changed=true
+            if [ -f "previous/$file" ]; then
+              prev=$(jq -r .version "previous/$file")
+              if git -C src rev-parse -q --verify "refs/tags/v$prev" >/dev/null; then
+                result=$(cd src && python3 .github/scripts/platforms.py "v$prev" "$TAG")
+                echo "$label, depuis v$prev :"
+                jq -r ".reasons.$platform[] | \"  \" + ." <<<"$result"
+                changed=$(jq -r ".$platform" <<<"$result")
+              else
+                echo "::warning::tag v$prev introuvable : mise à jour $label proposée"
+              fi
+            fi
+            echo "$platform=$changed" >> "$GITHUB_OUTPUT"
+            if [ "$changed" = true ]; then
+              echo "- $label : oui" >> notes.md
+            else
+              echo "$label : rien de changé depuis v$prev, manifeste repris"
+              cp "previous/$file" "$file"
+              echo "- $label : non, rien ne change sur $label (la v$prev reste proposée)" >> notes.md
+            fi
+          done
+          echo >> notes.md
+          cat notes.md
       # Manifeste lu par l'application (releases/latest/download/latest.json) :
       # version, URL de l'installeur et sa signature.
       - name: Manifeste de mise à jour
+        if: steps.platforms.outputs.windows == 'true'
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -264,6 +319,7 @@ jobs:
       # par édition (le téléphone reste sur la sienne), avec taille et SHA-256
       # vérifiés avant l'installation ; Android vérifie en plus la signature.
       - name: Manifeste de mise à jour Android
+        if: steps.platforms.outputs.android == 'true'
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -295,4 +351,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json latest-android.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json latest-android.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --generate-notes
