@@ -626,6 +626,48 @@ ol.entries li {
   display: none;
 }
 
+/* Bandeau avec notes de version : texte et boutons, puis la liste dessous. */
+.banner.with-notes {
+  flex-wrap: wrap;
+}
+
+.banner .release-notes {
+  flex-basis: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* Notes de version : une version par bloc dépliable. */
+.release-notes details {
+  margin-top: 8px;
+}
+
+.release-notes ul {
+  margin: 4px 0 0;
+  padding-left: 22px;
+}
+
+.release-notes li {
+  margin: 3px 0;
+}
+
+.release-notes li::marker {
+  color: var(--muted);
+}
+
+.hint.changelog-title {
+  margin-top: 14px;
+}
+
+/* Versions précédentes : un bloc replié, les versions en retrait. */
+.release-notes.older > .release-notes {
+  padding-left: 16px;
+}
+
+.banner a.link {
+  color: var(--accent);
+}
+
 /* Réunions */
 .page-header .spacer {
   flex: 1;

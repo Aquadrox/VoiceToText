@@ -228,6 +228,17 @@ Comme sur PC (v0.5) : vérifier, prévenir, installer sur un clic.
 - ✅ La version de test des PR (`.test`, autre signature) ne se met pas à jour
 - À vérifier sur le téléphone : passage 0.21.0 → 0.21.1 (clavier et bulle), confirmation ou non d'Android/HyperOS, Play Protect sur l'édition bulle, clavier et bulle toujours activés après la mise à jour
 
+## v0.22 — Notes de version ✅
+
+Chaque mise à jour arrive avec la description de ses changements, consultable aussi après l'installation.
+
+- ✅ `CHANGELOG.md` à la racine : une section `## X.Y.Z — AAAA-MM-JJ` par version, une ligne par changement en mots d'utilisateur, préfixe `[PC]` ou `[Android]` pour une seule plateforme ; versions 0.1.0 à 0.21.0 reconstituées
+- ✅ Lecture commune dans `vtt-core` (`changelog`) : tri par plateforme, versions entre l'installée et la proposée (versions sautées comprises), dates en toutes lettres, texte venu du réseau lu sans jamais échouer ; testée sur le vrai fichier
+- ✅ CI : `changelog.py check` sur chaque PR (la version du Cargo.toml doit avoir sa section, préfixes et ordre vérifiés) ; à chaque tag, notes en tête de la release GitHub et champ `changelog` dans `latest.json` et `latest-android.json` (`notes` garde l'adresse de la release, lue par la 0.21 Android)
+- ✅ PC : nouveautés dans le bandeau de l'accueil et sous **Vérifier maintenant** ; après la mise à jour, notification puis bandeau « mis à jour » sur l'accueil jusqu'à **Fermer** (`version.json`, gardé d'un lancement à l'autre) ; nouveautés de chaque version installée dans Réglages → Application, sous le bouton de mise à jour
+- ✅ Android : nouveautés dans le bandeau et la section Mises à jour (lecture par le moteur Rust, `Native.releaseNotes`) ; après la mise à jour, message en haut de l'application avec ce qui a changé ; « Nouveautés de chaque version » dans la section Mises à jour, aussi sur la version de test
+- À vérifier : passage 0.22.0 → 0.22.1 sur le PC et le téléphone (notes affichées avant, puis après)
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

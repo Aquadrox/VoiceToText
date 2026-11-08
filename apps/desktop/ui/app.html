@@ -23,9 +23,16 @@
         <!-- Accueil -->
         <section class="page" id="page-accueil" hidden>
           <h1>Accueil</h1>
-          <div id="update-banner" class="banner" hidden>
+          <div id="update-banner" class="banner with-notes" hidden>
             <span id="update-text"></span>
             <button id="update-install" class="primary">Mettre à jour</button>
+            <div id="update-notes" class="release-notes" hidden></div>
+          </div>
+          <div id="updated-banner" class="banner with-notes" hidden>
+            <span id="updated-text"></span>
+            <a class="link" href="#reglages/application">Toutes les versions</a>
+            <button id="updated-close">Fermer</button>
+            <div id="updated-notes" class="release-notes"></div>
           </div>
           <div class="tiles">
             <div class="tile">
@@ -833,6 +840,13 @@
                     </button>
                   </div>
                   <div id="settings-update-result" class="result" hidden></div>
+                  <div id="settings-update-notes" class="release-notes" hidden></div>
+                  <p class="hint changelog-title">Nouveautés de la version installée :</p>
+                  <div id="changelog" class="release-notes"></div>
+                  <details id="changelog-older-block" class="release-notes older" hidden>
+                    <summary>Versions précédentes</summary>
+                    <div id="changelog-older" class="release-notes"></div>
+                  </details>
                 </div>
 
                 <div class="group" data-untracked>

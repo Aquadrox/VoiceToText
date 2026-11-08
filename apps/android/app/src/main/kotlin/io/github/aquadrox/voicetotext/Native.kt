@@ -52,6 +52,14 @@ object Native {
     /** Enregistre dictionnaire et snippets : `{"ok": "<config.toml>"}` ou erreur. */
     external fun saveVocabulary(toml: String, vocabulary: String): String
 
+    /**
+     * Notes de version pour le téléphone : `{"ok": [{"version", "date"?, "items": [...]}]}`,
+     * la plus récente d'abord. `changelog` vide : notes embarquées dans l'application
+     * (CHANGELOG.md) ; sinon champ `changelog` du manifeste. Versions après `after`
+     * (exclue) et jusqu'à `upTo` (incluse) ; borne vide : sans limite.
+     */
+    external fun releaseNotes(changelog: String, after: String, upTo: String): String
+
     const val DICTATE = 0
     const val TRANSLATE = 1
     const val COMMAND = 2

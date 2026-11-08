@@ -8,6 +8,7 @@
 pub mod annotation;
 pub mod audio;
 pub mod calls;
+pub mod changelog;
 pub mod config;
 pub mod diarize;
 pub mod fbank;

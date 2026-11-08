@@ -169,6 +169,12 @@ async function showGeneral() {
     generalFilled = true;
     const status = await invoke("update_status");
     $("current-version").textContent = status.current;
+    // Sous le bouton de mise à jour : la version installée, puis les précédentes
+    // dans un bloc replié.
+    const [installed, ...older] = (await invoke("changelog_view")).releases;
+    renderReleases($("changelog"), installed ? [installed] : []);
+    renderReleases($("changelog-older"), older, 0);
+    $("changelog-older-block").hidden = older.length === 0;
   } catch (e) {
     SettingsUI.showResult("raccourcis", String(e), true);
   }
@@ -245,13 +251,18 @@ $("settings-update-check").addEventListener("click", async () => {
   const button = $("settings-update-check");
   button.disabled = true;
   $("settings-update-install").hidden = true;
+  renderReleases($("settings-update-notes"), []);
   showUpdateResult("Recherche d'une nouvelle version…");
   try {
     const status = await invoke("check_update");
     if (!status.configured) {
       showUpdateResult("Mises à jour non configurées dans cette version.", true);
     } else if (status.available) {
-      showUpdateResult(`Version ${status.available} disponible (installée : ${status.current}).`);
+      showUpdateResult(
+        `Version ${status.available} disponible (installée : ${status.current}).` +
+          (status.notes.length ? " Nouveautés :" : ""),
+      );
+      renderReleases($("settings-update-notes"), status.notes);
       $("settings-update-install").hidden = false;
     } else {
       showUpdateResult(`✓ VoiceToText est à jour (version ${status.current}).`);

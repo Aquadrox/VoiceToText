@@ -65,6 +65,7 @@ class MainActivity : Activity() {
     private lateinit var updateBannerText: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateInstall: Button
+    private lateinit var updateChangelog: TextView
     private lateinit var updateNotes: Button
     private lateinit var updateCheck: Button
     private lateinit var updateProgress: ProgressBar
@@ -244,7 +245,8 @@ class MainActivity : Activity() {
             }
             updateCheck = button("Vérifier maintenant") { checkUpdate(manual = true) }
             updateInstall = button("Télécharger et installer") { installUpdate() }
-            updateNotes = button("Voir les nouveautés") {
+            updateChangelog = note("").apply { visibility = View.GONE }
+            updateNotes = button("Page de la version sur GitHub") {
                 Updater.cached(store)?.notes?.takeIf { it.isNotEmpty() }?.let {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                 }
@@ -259,6 +261,18 @@ class MainActivity : Activity() {
                         .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
                 )
             }
+        }
+        // Nouveautés des versions installées, consultables après la mise à jour.
+        lateinit var versions: TextView
+        button("Nouveautés de chaque version") {
+            if (versions.text.isEmpty()) {
+                versions.text = Updater.notesText("", "", BuildConfig.VERSION_NAME)
+                    .ifEmpty { "Aucune note de version." }
+            }
+            versions.visibility = if (versions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        versions = note("").apply { visibility = View.GONE }
+        if (Updater.supported) {
             note("Rien n'est installé sans votre accord. Android vérifie que la mise à jour est signée avec la même clé que l'application installée, et refuse une version plus ancienne ; l'application vérifie en plus l'empreinte SHA-256 publiée avec la version. La première fois, Android demande d'autoriser VoiceToText à installer des applications. Vos réglages, modèles et clés sont gardés.")
             if (BuildConfig.BUBBLE) {
                 note("Édition bulle : si Play Protect bloque la mise à jour, coupez-le le temps de l'installation puis réactivez-le, comme à la première installation.")
@@ -492,7 +506,13 @@ class MainActivity : Activity() {
         if (previous != BuildConfig.VERSION_NAME) {
             store.lastRunVersion = BuildConfig.VERSION_NAME
             store.updateError = ""
-            if (previous.isNotEmpty()) say("✓ VoiceToText mis à jour : version ${BuildConfig.VERSION_NAME}.")
+            if (previous.isNotEmpty()) {
+                val notes = Updater.notesText("", previous, BuildConfig.VERSION_NAME)
+                say(
+                    "✓ VoiceToText mis à jour : version ${BuildConfig.VERSION_NAME}." +
+                        if (notes.isEmpty()) "" else "\n\nNouveautés :\n\n$notes",
+                )
+            }
         }
         java.io.File(cacheDir, "update").deleteRecursively()
         if (!Updater.supported) return
@@ -514,8 +534,12 @@ class MainActivity : Activity() {
             return
         }
         val release = Updater.cached(store)
+        // Nouveautés de la version proposée (et des versions sautées).
+        val notes = release?.let { Updater.notesText(it.changelog, BuildConfig.VERSION_NAME, it.version) }.orEmpty()
         updateBanner.visibility = if (release != null && !installing) View.VISIBLE else View.GONE
-        updateBannerText.text = release?.let { "VoiceToText ${it.version} est disponible." }.orEmpty()
+        updateBannerText.text = release?.let {
+            "VoiceToText ${it.version} est disponible." + if (notes.isEmpty()) "" else "\n\n$notes"
+        }.orEmpty()
         val checkedAt = store.updateCheckedAt
         val checked = if (checkedAt == 0L) "jamais" else
             DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(checkedAt))
@@ -531,6 +555,8 @@ class MainActivity : Activity() {
         updateInstall.visibility = if (release != null) View.VISIBLE else View.GONE
         updateInstall.text = release?.let { "Télécharger et installer la ${it.version}" } ?: "Télécharger et installer"
         updateInstall.isEnabled = !installing
+        updateChangelog.text = if (notes.isEmpty()) "" else "Nouveautés :\n\n$notes"
+        updateChangelog.visibility = if (notes.isEmpty()) View.GONE else View.VISIBLE
         updateNotes.visibility = if (release?.notes?.isNotEmpty() == true) View.VISIBLE else View.GONE
         updateCheck.isEnabled = !checking && !installing
         updateProgress.visibility = if (installing) View.VISIBLE else View.GONE

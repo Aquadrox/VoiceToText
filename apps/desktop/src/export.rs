@@ -164,6 +164,7 @@ mod tests {
             logs_dir: dir.join("logs"),
             history_file: dir.join("history.jsonl"),
             usage_file: dir.join("usage.json"),
+            version_file: dir.join("version.json"),
             meetings_dir: dir.join("meetings"),
             captures_dir: dir.join("captures"),
         };

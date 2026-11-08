@@ -10,12 +10,40 @@ async function showUpdateBanner() {
     $("update-banner").hidden = !status.available;
     if (status.available) {
       $("update-text").textContent =
-        `Nouvelle version ${status.available} disponible (installée : ${status.current}).`;
+        `Nouvelle version ${status.available} disponible (installée : ${status.current}).` +
+        (status.notes.length ? " Nouveautés :" : "");
+      renderReleases($("update-notes"), status.notes);
     }
   } catch {
     $("update-banner").hidden = true;
   }
 }
+
+/** Après une mise à jour : ses nouveautés, jusqu'à « Fermer ». */
+async function showUpdatedBanner() {
+  try {
+    const view = await invoke("changelog_view");
+    const shown = view.updated_from !== null && view.news.length > 0;
+    $("updated-banner").hidden = !shown;
+    if (shown) {
+      const from = view.updated_from ? ` (depuis la ${view.updated_from})` : "";
+      $("updated-text").textContent =
+        `✓ VoiceToText a été mis à jour en version ${view.current}${from}. Nouveautés :`;
+      renderReleases($("updated-notes"), view.news);
+    }
+  } catch {
+    $("updated-banner").hidden = true;
+  }
+}
+
+$("updated-close").addEventListener("click", async () => {
+  $("updated-banner").hidden = true;
+  try {
+    await invoke("dismiss_update_news");
+  } catch {
+    // Rien de grave : le bandeau reviendra au prochain affichage.
+  }
+});
 
 $("update-install").addEventListener("click", async () => {
   $("update-install").disabled = true;
@@ -36,6 +64,7 @@ window.__TAURI__.event.listen("update-progress", (event) => {
 
 async function showHome() {
   showUpdateBanner();
+  showUpdatedBanner();
   let view;
   try {
     view = await invoke("home_view");

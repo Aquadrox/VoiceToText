@@ -386,11 +386,13 @@ Pour garder le nettoyage **sans rien envoyer sur Internet** : installer [Ollama]
 VoiceToText vérifie les nouvelles versions une minute après le démarrage puis toutes les 6 heures (désactivable dans **Réglages → Application**). Quand une version est disponible :
 
 - une notification Windows l'annonce (une fois par version) ;
-- le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**.
+- le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**, avec la liste des **nouveautés** (celles des versions sautées comprises).
 
 Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule.
 
-Pour vérifier tout de suite : **Réglages → Application → Vérifier maintenant**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
+Pour vérifier tout de suite : **Réglages → Application → Vérifier maintenant**. La page indique si VoiceToText est à jour ; sinon, elle affiche la nouvelle version et ses nouveautés, et propose **Télécharger et installer**, avec la progression du téléchargement. Le menu de l'icône propose aussi **Rechercher une mise à jour**.
+
+Après la mise à jour, une notification la confirme et l'accueil montre ce qui a changé, jusqu'à **Fermer**. Les nouveautés de la version installée et des précédentes restent consultables dans **Réglages → Application**, sous le bouton de mise à jour (lisibles hors ligne : elles sont livrées avec l'application). Elles viennent de [CHANGELOG.md](CHANGELOG.md).
 
 Seules les versions qui changent quelque chose sur votre appareil sont proposées : une version qui ne touche que l'application Android n'est pas annoncée sur le PC, et inversement. Le PC et le téléphone peuvent donc afficher des numéros de version différents ; c'est normal.
 
@@ -401,9 +403,9 @@ Les versions antérieures à la 0.5 ne savent pas se mettre à jour : installer 
 Même principe depuis la 0.21 : l'application vérifie les nouvelles versions à son ouverture (si la dernière vérification date de plus d'une heure) puis toutes les 6 heures en arrière-plan (désactivable dans la section **Mises à jour** de l'application). Quand une version est disponible :
 
 - une notification l'annonce (une fois par version), avec un bouton **Installer** ;
-- l'application affiche un bandeau **Mettre à jour** et, dans **Mises à jour**, **Télécharger et installer la x.y.z** (et **Voir les nouveautés**).
+- l'application affiche un bandeau **Mettre à jour** avec la liste des nouveautés et, dans **Mises à jour**, **Télécharger et installer la x.y.z**, les nouveautés et **Page de la version sur GitHub**.
 
-Rien n'est installé sans votre clic. L'application télécharge l'APK de **votre édition** (clavier ou bulle : la bulle reste installée), vérifie sa taille et son **empreinte SHA-256** publiées avec la version, puis le paquet lui-même (même application, même version, même édition, même signature) ; Android, de son côté, n'accepte une mise à jour que **signée avec la même clé** que l'application installée et refuse une version plus ancienne. Android ferme l'application le temps de la mise à jour ; une notification « VoiceToText mis à jour » la rouvre. Réglages, modèles, clés et historique sont gardés ; le clavier et la bulle restent activés.
+Rien n'est installé sans votre clic. L'application télécharge l'APK de **votre édition** (clavier ou bulle : la bulle reste installée), vérifie sa taille et son **empreinte SHA-256** publiées avec la version, puis le paquet lui-même (même application, même version, même édition, même signature) ; Android, de son côté, n'accepte une mise à jour que **signée avec la même clé** que l'application installée et refuse une version plus ancienne. Android ferme l'application le temps de la mise à jour ; une notification « VoiceToText mis à jour » la rouvre, avec en haut la liste de ce qui a changé. Réglages, modèles, clés et historique sont gardés ; le clavier et la bulle restent activés. Les nouveautés de chaque version restent consultables : section **Mises à jour → Nouveautés de chaque version**.
 
 - La première fois, Android demande d'**autoriser VoiceToText à installer des applications** (« Sources inconnues ») : le bouton y mène, la mise à jour continue au retour.
 - Android affiche ensuite sa confirmation « Mettre à jour cette application ? » ; depuis Android 12, il peut s'en passer quand l'application se met à jour elle-même (le clic sur **Installer** suffit). Xiaomi (HyperOS) et d'autres peuvent ajouter leur propre vérification.

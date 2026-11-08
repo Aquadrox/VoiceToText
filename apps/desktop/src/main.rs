@@ -57,6 +57,8 @@ fn main() {
     logging::init(&paths.logs_dir);
     log::info!("VoiceToText {} démarre", env!("CARGO_PKG_VERSION"));
 
+    // Réglages déjà là : l'application a déjà servi (mise à jour ou réinstallation).
+    let existing_install = paths.config_file.exists();
     let (config, config_error) = paths.load_config();
 
     tauri::Builder::default()
@@ -126,6 +128,8 @@ fn main() {
             updates::update_status,
             updates::check_update,
             updates::install_update,
+            updates::changelog_view,
+            updates::dismiss_update_news,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();
@@ -197,7 +201,13 @@ fn main() {
                 last_raw,
                 meeting_jobs,
             };
-            let updates = Updates::new(app.handle(), tray_items.update, config.updates.check);
+            let updates = Updates::new(
+                app.handle(),
+                tray_items.update,
+                config.updates.check,
+                paths.version_file.clone(),
+                existing_install,
+            );
             app.manage(Arc::clone(&updates));
             updates::spawn_checks(app.handle().clone(), updates);
             let controller = Controller::new(reporter, recorders, worker, paths, translation);
