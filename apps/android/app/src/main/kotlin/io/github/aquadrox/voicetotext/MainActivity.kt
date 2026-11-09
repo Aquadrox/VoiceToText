@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.graphics.Typeface
 import android.text.InputType
 import android.util.TypedValue
 import android.view.View
@@ -208,6 +209,8 @@ class MainActivity : Activity() {
             llmModel = field("Modèle (ex. deepseek-flash)")
             apiKey = field("Nouvelle clé API (jamais affichée)").apply {
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                // Android passe les champs de mot de passe en police à chasse fixe.
+                typeface = Typeface.DEFAULT
             }
             keyStatus = note("")
             secondary("Supprimer la clé") {
@@ -376,12 +379,14 @@ class MainActivity : Activity() {
         val chosen = (0 until list.length()).map { list.getJSONObject(it) }
             .firstOrNull { it.getString("id") == view.getString("model") }
         val ready = chosen?.getBoolean("downloaded") == true
+        // Nom court (« Parakeet TDT v3, 8 bits ») : la description est dans la carte Modèle.
+        val name = chosen?.getString("label")?.substringBefore(" (").orEmpty()
         modelStep.set(
             ready,
             when {
                 chosen == null -> "Choisissez un modèle ci-dessous"
-                ready -> "${chosen.getString("label")} : prêt"
-                else -> "${chosen.getString("label")} : à télécharger ci-dessous"
+                ready -> "$name : prêt"
+                else -> "$name : à télécharger ci-dessous"
             },
         )
         refreshStatus()

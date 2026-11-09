@@ -262,7 +262,8 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 - ✅ Clavier : icônes à la place des émojis, touches arrondies avec ondulation, mode traduction allumé en touche claire, touche consigne vermillon pendant l'écoute, disque de niveau autour du micro (`LevelRing`)
 - ✅ Bulle : icônes (micro, consigne, attente, coche) au lieu des émojis
 - ✅ Historique dans une carte (date et application, puis texte ; toucher pour copier), dictionnaire en pastilles, snippets en liste
-- À vérifier sur le téléphone (APK de test de la PR) : rendu clair et sombre, barres d'Android, clavier, bulle, notifications
+- ✅ Vérifié sur le serveur : les deux éditions compilent ; écrans principal, historique, dictionnaire et clavier capturés en clair et en sombre avec Robolectric (vrai code, moteur Rust compilé pour Linux) ; corrigés grâce aux captures : bouton « Ajouter » rogné, police à chasse fixe du champ de clé API, nom du modèle trop long dans « Mise en route »
+- À vérifier sur le téléphone (APK de test de la PR) : barres d'Android, clavier et bulle en situation, notifications
 
 ## Outillage ✅
 

@@ -72,7 +72,6 @@ fun Activity.screen(bar: (LinearLayout.() -> Unit)? = null, content: LinearLayou
             addView(
                 LinearLayout(this@screen).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
                     setBackgroundColor(getColor(R.color.card))
                     setPadding(dp(16), dp(4), dp(16), dp(12))
                     bar()
@@ -180,10 +179,13 @@ private fun LinearLayout.cardTitle(title: String, icon: Int) {
     addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
 }
 
-/** Rangée horizontale (boutons côte à côte, champ et bouton…). */
+/**
+ * Rangée horizontale (boutons côte à côte, champ et bouton…), alignée en
+ * haut : champs et boutons ont la même hauteur et la même marge. (Centrer
+ * ajouterait la marge après le centrage et rognerait le bas.)
+ */
 fun LinearLayout.row(content: LinearLayout.() -> Unit): LinearLayout = LinearLayout(context).apply {
     orientation = LinearLayout.HORIZONTAL
-    gravity = Gravity.CENTER_VERTICAL
     content()
 }.also { addView(it, LinearLayout.LayoutParams(MATCH, WRAP)) }
 
@@ -237,6 +239,8 @@ fun LinearLayout.field(hint: String, lines: Int = 1): EditText {
         this.hint = hint
         if (lines == 1) isSingleLine = true else minLines = lines
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        // Même hauteur que les boutons, pour les aligner sur une rangée.
+        minHeight = ctx.dp(48)
         setTextColor(ctx.getColor(R.color.fg))
         setHintTextColor(ctx.getColor(R.color.muted))
         background = StateListDrawable().apply {
