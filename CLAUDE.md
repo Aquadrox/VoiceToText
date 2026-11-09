@@ -6,6 +6,7 @@
 - Dev sur un serveur Debian sans GPU ni Windows : tester sous Linux tout ce qui est portable (`vtt-core`), la CI Windows valide le reste. Garder `vtt-core` sans dépendance OS.
 - Avant de livrer : `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 - **Version** : chaque PR qui change l'application monte `version` dans le Cargo.toml racine (l'installeur l'affiche) ; le tag `vX.Y.Z` doit correspondre, la CI refuse sinon.
+- **Publication** : après le merge, le propriétaire lance `./release.sh` (Git Bash) qui pose et envoie le tag `vX.Y.Z` de `main` ; ne jamais pousser de tag soi-même.
 - **Notes de version** : la même PR ajoute en tête de `CHANGELOG.md` sa section `## X.Y.Z — AAAA-MM-JJ`, une ligne `- ` par changement en mots d'utilisateur (affichées dans l'application avec la mise à jour), `[PC]` ou `[Android]` devant ce qui ne concerne qu'une plateforme. La CI (`changelog.py check`) refuse une version sans sa section.
 - CI : les jobs `linux` et `windows` sont obligatoires pour merger ; ne jamais mettre `[skip ci]` sur une branche de PR (la PR resterait bloquée). Les PR de doc passent en quelques secondes grâce à `.github/scripts/changes.sh`.
 - **Signature des mises à jour** : la clé privée minisign appartient au propriétaire (secrets GitHub `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`, lus seulement par les builds de tags). Ne jamais la générer, la demander ni la stocker ici ; seule la clé publique est dans `tauri.conf.json`.

@@ -56,7 +56,8 @@ while IFS= read -r file; do
       code=true
       workspace=true
       ;;
-    *.md | docs/* | LICENSE* | .gitignore) ;;
+    # release.sh : lancé sur le PC du mainteneur pour publier, jamais par la CI.
+    *.md | docs/* | LICENSE* | .gitignore | release.sh) ;;
     Cargo.toml | Cargo.lock)
       only_version_bump "$file" || everything "$file modifié au-delà de la version"
       ;;

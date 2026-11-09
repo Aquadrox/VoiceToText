@@ -68,7 +68,8 @@ def classify(path: str, old: str, new: str) -> tuple[str, ...]:
     # Documentation et CI : l'application installée reste la même.
     if path.endswith(".md") or path.startswith(("docs/", ".github/")):
         return ()
-    if path.startswith("LICENSE") or path == ".gitignore":
+    # Fichiers de Git et script de publication (lancé sur le PC du mainteneur).
+    if path.startswith("LICENSE") or path in (".gitignore", ".gitattributes", "release.sh"):
         return ()
     if path == "Cargo.toml":
         return BOTH if manifest_changed(old, new) else ()
