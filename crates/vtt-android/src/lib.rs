@@ -17,6 +17,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JFloatArray, JString};
 use jni::sys::{jint, jstring};
 use serde::Serialize;
+use vtt_core::changelog::{self, Platform, Release};
 
 /// Texte Java → Rust (vide si nul ou illisible).
 fn text(env: &mut JNIEnv, value: &JString) -> String {
@@ -266,9 +267,66 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     java(&mut env, &json)
 }
 
+/// Notes de version pour le téléphone (changements `[Android]` et communs),
+/// de la plus récente à la plus ancienne. `text` vide : notes embarquées dans
+/// l'application ; sinon champ `changelog` du manifeste de mise à jour.
+/// Versions après `after` (exclue) et jusqu'à `up_to` (incluse) ; borne
+/// vide : sans limite.
+pub fn release_notes(text: &str, after: &str, up_to: &str) -> Vec<Release> {
+    let text = if text.is_empty() {
+        changelog::BUNDLED
+    } else {
+        text
+    };
+    let bound = |version: &str| (!version.is_empty()).then(|| version.to_owned());
+    changelog::releases(
+        text,
+        Platform::Android,
+        bound(after).as_deref(),
+        bound(up_to).as_deref(),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_releaseNotes<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    changelog: JString<'a>,
+    after: JString<'a>,
+    up_to: JString<'a>,
+) -> jstring {
+    let changelog = text(&mut env, &changelog);
+    let after = text(&mut env, &after);
+    let up_to = text(&mut env, &up_to);
+    let json = protect(|| reply(Ok(release_notes(&changelog, &after, &up_to))));
+    java(&mut env, &json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_notes_for_the_phone() {
+        let manifest = "## 0.23.0 — 2026-11-10\n- [PC] PC seul\n- [Android] Téléphone\n\n\
+                        ## 0.22.0 — 2026-11-08\n- Commun\n";
+        let notes = release_notes(manifest, "0.22.0", "0.23.0");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].items, ["Téléphone"]);
+        assert_eq!(release_notes(manifest, "", "").len(), 2);
+        // Notes embarquées : la version compilée en tête, sans date absente
+        // envoyée en `null` (lue comme « null » par Android).
+        let bundled = release_notes("", "", env!("CARGO_PKG_VERSION"));
+        assert!(!bundled.is_empty());
+        let json = reply(Ok(bundled));
+        assert!(!json.contains("null"), "{json}");
+        let undated: serde_json::Value =
+            serde_json::from_str(&reply(Ok(release_notes("## 1.0.0\n- a\n", "", "")))).unwrap();
+        assert_eq!(
+            undated,
+            serde_json::json!({ "ok": [{ "version": "1.0.0", "items": ["a"] }] })
+        );
+    }
 
     #[test]
     fn protect_returns_the_result_when_nothing_panics() {

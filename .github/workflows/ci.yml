@@ -41,6 +41,10 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME, mais Cargo.toml indique $version : monter la version avant de taguer"
             exit 1
           fi
+      # Chaque version a ses notes, affichées avec la mise à jour : vérifié
+      # sur toutes les PR (quelques millisecondes, même pour la doc).
+      - name: Notes de version (CHANGELOG.md)
+        run: python3 .github/scripts/changelog.py check
       - name: Dépendances système (WebKitGTK, ALSA)
         if: steps.changes.outputs.code == 'true'
         run: |
@@ -238,6 +242,21 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-android
+      # Notes de version (CHANGELOG.md) : en tête de la release GitHub, et
+      # dans le champ `changelog` des manifestes, que l'application affiche
+      # avec la mise à jour proposée (versions plus récentes que l'installée).
+      - name: Notes de version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 src/.github/scripts/changelog.py manifest "$TAG" > changelog.txt
+          {
+            echo "## Nouveautés"
+            echo
+            python3 src/.github/scripts/changelog.py notes "$TAG"
+            echo
+          } > notes.md
+          cat notes.md
       # Une mise à jour n'est proposée qu'aux plateformes dont l'application
       # change depuis la version qu'elles annoncent déjà (manifestes de la
       # release précédente). Sinon, leur manifeste est repris tel quel : il
@@ -258,7 +277,7 @@ jobs:
           {
             echo "## Mises à jour proposées"
             echo
-          } > notes.md
+          } >> notes.md
           for platform in windows android; do
             case "$platform" in
               windows) file=latest.json label=Windows ;;
@@ -288,7 +307,8 @@ jobs:
           echo >> notes.md
           cat notes.md
       # Manifeste lu par l'application (releases/latest/download/latest.json) :
-      # version, URL de l'installeur et sa signature.
+      # version, URL de l'installeur et sa signature, notes de version
+      # (`changelog` ; `notes` reste l'adresse de la release).
       - name: Manifeste de mise à jour
         if: steps.platforms.outputs.windows == 'true'
         env:
@@ -307,6 +327,7 @@ jobs:
           manifest = {
               "version": tag.removeprefix("v"),
               "notes": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{tag}",
+              "changelog": open("changelog.txt", encoding="utf-8").read().strip(),
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {"windows-x86_64": entry, "windows-x86_64-nsis": entry},
           }
@@ -338,6 +359,7 @@ jobs:
           manifest = {
               "version": version,
               "notes": f"https://github.com/{repo}/releases/tag/{tag}",
+              "changelog": open("changelog.txt", encoding="utf-8").read().strip(),
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {
                   "android-clavier": entry(f"VoiceToText_{version}_android.apk"),

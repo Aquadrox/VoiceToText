@@ -23,6 +23,38 @@ function formatCost(value, currency) {
   }
 }
 
+/**
+ * Notes de version (CHANGELOG.md) : un bloc dépliable par version, ses
+ * changements en liste ; les `open` premiers dépliés. Conteneur caché si vide.
+ * Notes inchangées : rien n'est refait (les blocs gardent l'état choisi).
+ */
+function renderReleases(container, releases, open = releases.length) {
+  const key = JSON.stringify(releases);
+  if (container.dataset.key === key) return;
+  container.dataset.key = key;
+  container.replaceChildren(
+    ...releases.map((release, index) => {
+      const block = document.createElement("details");
+      block.open = index < open;
+      const summary = document.createElement("summary");
+      summary.textContent = release.date
+        ? `Version ${release.version} · ${release.date}`
+        : `Version ${release.version}`;
+      const list = document.createElement("ul");
+      list.append(
+        ...release.items.map((text) => {
+          const item = document.createElement("li");
+          item.textContent = text;
+          return item;
+        }),
+      );
+      block.append(summary, list);
+      return block;
+    }),
+  );
+  container.hidden = releases.length === 0;
+}
+
 /** Durée lisible : « 45 s », « 12 min », « 3 h 05 ». */
 function formatDuration(ms) {
   const minutes = Math.round(ms / 60000);

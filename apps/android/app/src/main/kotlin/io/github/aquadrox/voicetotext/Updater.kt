@@ -16,6 +16,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -43,6 +44,8 @@ object Updater {
     private const val NOTES = "https://github.com/Aquadrox/VoiceToText/releases/"
     const val INTERVAL_MS = 6 * 60 * 60 * 1000L
     private const val MAX_BYTES = 1024L * 1024 * 1024
+    /** Notes de version gardées avec la release (le manifeste fait moins de 64 Kio). */
+    private const val MAX_CHANGELOG = 48 * 1024
     private const val JOB_ID = 6001
     private const val CHANNEL = "updates"
     private const val NOTIFY_AVAILABLE = 6002
@@ -76,7 +79,10 @@ object Updater {
         val url: String,
         val sha256: String,
         val size: Long,
+        /** Page de la release sur GitHub. */
         val notes: String,
+        /** Notes de version (CHANGELOG.md) publiées avec le manifeste ; vide si absentes. */
+        val changelog: String,
     ) {
         fun toJson(): String = JSONObject()
             .put("version", version)
@@ -84,6 +90,7 @@ object Updater {
             .put("sha256", sha256)
             .put("size", size)
             .put("notes", notes)
+            .put("changelog", changelog)
             .toString()
     }
 
@@ -101,11 +108,11 @@ object Updater {
         val text = store.updateRelease.takeIf { it.isNotEmpty() } ?: return null
         return runCatching {
             val json = JSONObject(text)
-            release(json, json.getString("version"), json.optString("notes"))
+            release(json, json.getString("version"), json.optString("notes"), json.optString("changelog"))
         }.getOrNull()?.takeIf { it.code > BuildConfig.VERSION_CODE }
     }
 
-    private fun release(entry: JSONObject, version: String, notes: String): Release {
+    private fun release(entry: JSONObject, version: String, notes: String, changelog: String): Release {
         val code = code(version) ?: error("Numéro de version illisible : $version")
         val url = entry.getString("url")
         require(url.startsWith(DOWNLOADS) && !url.contains("..")) { "Adresse de téléchargement inattendue." }
@@ -113,7 +120,34 @@ object Updater {
         require(sha256.length == 64 && sha256.all { it in '0'..'9' || it in 'a'..'f' }) { "Empreinte SHA-256 invalide." }
         val size = entry.getLong("size")
         require(size in 1..MAX_BYTES) { "Taille annoncée invalide." }
-        return Release(version, code, url, sha256, size, notes.takeIf { it.startsWith(NOTES) }.orEmpty())
+        return Release(
+            version,
+            code,
+            url,
+            sha256,
+            size,
+            notes.takeIf { it.startsWith(NOTES) }.orEmpty(),
+            changelog.take(MAX_CHANGELOG),
+        )
+    }
+
+    /**
+     * Notes de version lisibles (« Version 0.22.0 — 8 novembre 2026 » puis une
+     * ligne « • » par changement), lues par le moteur Rust comme sur PC.
+     * `changelog` vide : notes embarquées dans l'application ; bornes vides :
+     * sans limite. Vide s'il n'y a rien à montrer.
+     */
+    fun notesText(changelog: String, after: String, upTo: String): String {
+        val releases = runCatching {
+            JSONObject(Native.releaseNotes(changelog, after, upTo)).optJSONArray("ok")
+        }.getOrNull() ?: return ""
+        return (0 until releases.length()).joinToString("\n\n") { index ->
+            val release = releases.getJSONObject(index)
+            val date = release.optString("date").takeIf { it.isNotEmpty() }?.let { " — $it" }.orEmpty()
+            val items = release.optJSONArray("items") ?: JSONArray()
+            val lines = (0 until items.length()).joinToString("\n") { "• ${items.getString(it)}" }
+            "Version ${release.getString("version")}$date\n$lines"
+        }
     }
 
     private fun open(url: String): HttpURLConnection =
@@ -146,7 +180,8 @@ object Updater {
         val version = manifest.getString("version")
         val entry = manifest.getJSONObject("platforms").optJSONObject(platform)
             ?: error("La version $version n'est pas publiée pour l'édition « $edition ».")
-        return release(entry, version, manifest.optString("notes")).takeIf { it.code > BuildConfig.VERSION_CODE }
+        return release(entry, version, manifest.optString("notes"), manifest.optString("changelog"))
+            .takeIf { it.code > BuildConfig.VERSION_CODE }
     }
 
     /**
@@ -329,7 +364,7 @@ object Updater {
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("VoiceToText ${release.version} disponible")
-            .setContentText("Version installée : ${BuildConfig.VERSION_NAME}. Rien n'est installé sans votre accord.")
+            .setContentText("Version installée : ${BuildConfig.VERSION_NAME}. Nouveautés dans l'application ; rien n'est installé sans votre accord.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .addAction(Notification.Action.Builder(null, "Installer", install).build())
@@ -372,7 +407,7 @@ object Updater {
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("VoiceToText mis à jour : version ${BuildConfig.VERSION_NAME}")
-            .setContentText("Clavier, bulle et réglages sont gardés.")
+            .setContentText("Touchez pour voir les nouveautés. Clavier, bulle et réglages sont gardés.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
