@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.25.0 — 2026-11-09
+
+- [Android] Bulle : un double appui passe au clavier VoiceToText (Android 11 et plus) ; sa touche clavier ramène ensuite à votre clavier habituel.
+
 ## 0.24.1 — 2026-11-09
 
 - [Android] Clavier : Espace et Entrée ne passent plus sous la barre de navigation d'Android (boutons retour, accueil, applications) ; le clavier s'arrête au-dessus.

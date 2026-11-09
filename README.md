@@ -67,6 +67,7 @@ Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bull
 - **toucher** : dicter ; toucher encore : le texte s'insère au curseur ;
 - **maintenir** : consigne appliquée au texte sélectionné (comme la touche consigne du clavier) ;
 - **glisser** : déplacer (la position est gardée) ;
+- **double appui** : passer au clavier VoiceToText (Android 11 et plus, clavier activé) ; la bulle s'efface tant qu'il est ouvert, et sa touche clavier (tout à gauche) ramène au clavier habituel ;
 - réglages : taille, affichage même clavier fermé, traduction, insertion en collant, historique (coupé par défaut).
 
 Activation, une seule fois : Android range la bulle dans les services d'**accessibilité** (seul moyen de savoir quel champ est actif et d'y écrire ; aucune autorisation « par-dessus les autres applis » n'est nécessaire).
