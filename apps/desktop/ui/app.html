@@ -6,17 +6,42 @@
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
+    <!-- Icônes Lucide (licence ISC, voir icons-LICENSE.txt), utilisées par <use href="#i-…">. -->
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+      <symbol id="i-book-a" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" /><path d="m8 13 4-7 4 7" /><path d="M9.1 11h5.7" /></symbol>
+      <symbol id="i-clipboard-paste" viewBox="0 0 24 24"><path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z" /><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2M16 4h2a2 2 0 0 1 2 2v2M11 14h10" /><path d="m17 10 4 4-4 4" /></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></symbol>
+      <symbol id="i-message-square-text" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M13 8H7" /><path d="M17 12H7" /></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M10 8h.01" /><path d="M12 12h.01" /><path d="M14 8h.01" /><path d="M16 12h.01" /><path d="M18 8h.01" /><path d="M6 8h.01" /><path d="M7 16h10" /><path d="M8 12h.01" /><rect width="20" height="16" x="2" y="4" rx="2" /></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></symbol>
+      <symbol id="i-languages" viewBox="0 0 24 24"><path d="m5 8 6 6" /><path d="m4 14 6-6 2-3" /><path d="M2 5h12" /><path d="M7 2h1" /><path d="m22 22-5-10-5 10" /><path d="M14 18h6" /></symbol>
+      <symbol id="i-spell-check-2" viewBox="0 0 24 24"><path d="m6 16 6-12 6 12" /><path d="M8 12h8" /><path d="M4 21c1.1 0 1.1-1 2.3-1s1.1 1 2.3 1c1.1 0 1.1-1 2.3-1 1.1 0 1.1 1 2.3 1 1.1 0 1.1-1 2.3-1 1.1 0 1.1 1 2.3 1 1.1 0 1.1-1 2.3-1" /></symbol>
+      <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></symbol>
+      <symbol id="i-app-window" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M10 4v4" /><path d="M2 8h20" /><path d="M6 4v4" /></symbol>
+    </svg>
     <div class="layout">
       <nav class="main-nav" aria-label="Navigation principale">
-        <div class="brand">VoiceToText</div>
-        <a href="#accueil">Accueil</a>
-        <a href="#historique">Historique</a>
-        <a href="#reunions">Réunions</a>
-        <a href="#dictionnaire">Dictionnaire</a>
-        <a href="#snippets">Snippets</a>
-        <a href="#styles">Styles</a>
-        <a href="#prompts">Prompts</a>
-        <a href="#reglages">Réglages<span class="dot" id="nav-settings-dot" title="Modifications non appliquées"></span></a>
+        <div class="brand">
+          <svg class="logo" viewBox="0 0 128 128" aria-hidden="true">
+            <rect width="128" height="128" rx="28" class="logo-bg" />
+            <path class="logo-wave" d="M28 56v16M43 44v40M58 31v66M73 50v28" />
+            <path class="logo-cursor" d="M88 28h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-3.5v54H104a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h3.5V37H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
+          </svg>
+          VoiceToText
+        </div>
+        <a href="#accueil"><svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>Accueil</a>
+        <a href="#historique"><svg class="icon" aria-hidden="true"><use href="#i-history" /></svg>Historique</a>
+        <a href="#reunions"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg>Réunions</a>
+        <a href="#dictionnaire"><svg class="icon" aria-hidden="true"><use href="#i-book-a" /></svg>Dictionnaire</a>
+        <a href="#snippets"><svg class="icon" aria-hidden="true"><use href="#i-clipboard-paste" /></svg>Snippets</a>
+        <a href="#styles"><svg class="icon" aria-hidden="true"><use href="#i-palette" /></svg>Styles</a>
+        <a href="#prompts"><svg class="icon" aria-hidden="true"><use href="#i-message-square-text" /></svg>Prompts</a>
+        <a href="#reglages"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>Réglages<span class="dot" id="nav-settings-dot" title="Modifications non appliquées"></span></a>
       </nav>
 
       <main>
@@ -38,18 +63,22 @@
             <div class="tile">
               <div class="value" id="home-words">–</div>
               <div class="label">mots dictés</div>
+              <div class="sub">depuis le début</div>
             </div>
             <div class="tile">
               <div class="value" id="home-saved">–</div>
-              <div class="label">temps gagné (frappe à 40 mots/min)</div>
+              <div class="label">temps gagné</div>
+              <div class="sub">contre 40 mots/min tapés</div>
             </div>
             <div class="tile">
               <div class="value" id="home-speed">–</div>
-              <div class="label">mots/min, vitesse de parole moyenne</div>
+              <div class="label">mots par minute</div>
+              <div class="sub">vitesse de parole moyenne</div>
             </div>
             <div class="tile">
               <div class="value" id="home-cost">–</div>
-              <div class="label">coût LLM ce mois</div>
+              <div class="label">coût LLM</div>
+              <div class="sub">ce mois-ci</div>
             </div>
           </div>
 
@@ -310,14 +339,14 @@
           <div class="settings-layout">
             <nav class="settings-nav" aria-label="Sections des réglages">
               <h1>Réglages</h1>
-              <a href="#reglages/raccourcis" data-panel-link="raccourcis"><span class="icon" aria-hidden="true">⌨</span>Raccourcis<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/reconnaissance" data-panel-link="reconnaissance"><span class="icon" aria-hidden="true">🎙</span>Reconnaissance locale<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/dictee" data-panel-link="dictee"><span class="icon" aria-hidden="true">✎</span>Dictée et traduction<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/nettoyage" data-panel-link="nettoyage"><span class="icon" aria-hidden="true">✨</span>Nettoyage par LLM<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/cles" data-panel-link="cles"><span class="icon" aria-hidden="true">🔑</span>Clés API et coût<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/reunions" data-panel-link="reunions"><span class="icon" aria-hidden="true">👥</span>Réunions<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/capture" data-panel-link="capture"><span class="icon" aria-hidden="true">🖍</span>Capture commentée<span class="dot" title="Modifications non appliquées"></span></a>
-              <a href="#reglages/application" data-panel-link="application"><span class="icon" aria-hidden="true">⚙</span>Application<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/raccourcis" data-panel-link="raccourcis"><svg class="icon" aria-hidden="true"><use href="#i-keyboard" /></svg>Raccourcis<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/reconnaissance" data-panel-link="reconnaissance"><svg class="icon" aria-hidden="true"><use href="#i-mic" /></svg>Reconnaissance locale<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/dictee" data-panel-link="dictee"><svg class="icon" aria-hidden="true"><use href="#i-languages" /></svg>Dictée et traduction<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/nettoyage" data-panel-link="nettoyage"><svg class="icon" aria-hidden="true"><use href="#i-spell-check-2" /></svg>Nettoyage par LLM<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/cles" data-panel-link="cles"><svg class="icon" aria-hidden="true"><use href="#i-key-round" /></svg>Clés API et coût<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/reunions" data-panel-link="reunions"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg>Réunions<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/capture" data-panel-link="capture"><svg class="icon" aria-hidden="true"><use href="#i-camera" /></svg>Capture commentée<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/application" data-panel-link="application"><svg class="icon" aria-hidden="true"><use href="#i-app-window" /></svg>Application<span class="dot" title="Modifications non appliquées"></span></a>
             </nav>
 
             <div class="settings-panels">

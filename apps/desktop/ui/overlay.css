@@ -1,12 +1,13 @@
 :root {
-  --bg: rgba(24, 24, 32, 0.92);
-  --fg: #f4f4f8;
-  --listening: #ef4444;
-  --handsfree: #22c55e;
-  --command: #f97316;
-  --processing: #6366f1;
-  --loading: #a1a1aa;
-  --error: #f59e0b;
+  /* Encre du logo ; l'écoute prend le vermillon du curseur. */
+  --bg: rgba(23, 23, 28, 0.94);
+  --fg: #f1efe8;
+  --listening: #ff5b36;
+  --handsfree: #3ccf8e;
+  --command: #ff9f1c;
+  --processing: #7cb4ff;
+  --loading: #8a8a93;
+  --error: #f2c94c;
 }
 
 html,
@@ -15,7 +16,7 @@ body {
   height: 100%;
   background: transparent;
   overflow: hidden;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   user-select: none;
 }
 
@@ -94,7 +95,7 @@ body {
 .pill[data-state="meeting"] .dot {
   width: 8px;
   height: 8px;
-  background: var(--error);
+  background: var(--listening);
   animation: meeting-pulse 1.6s ease-in-out infinite;
 }
 

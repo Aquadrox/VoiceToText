@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Micro blanc sur fond indigo. -->
+<!-- Logo (apps/desktop/icons/icon.svg) sans son fond : barres de la voix et
+     curseur de texte, réduits pour tenir dans la zone sûre de l'icône adaptative
+     (cercle de 66 dp au centre). Fond : @color/icon_background. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,30a9,9 0,0 0,-9 9v16a9,9 0,0 0,18 0V39a9,9 0,0 0,-9 -9z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M38,52c0,9 7,16 16,16s16,-7 16,-16M54,68v10M45,78h18" />
+    <group
+        android:scaleX="0.554"
+        android:scaleY="0.554"
+        android:translateX="18.27"
+        android:translateY="18.54">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F1EFE8"
+            android:strokeWidth="10"
+            android:strokeLineCap="round"
+            android:pathData="M28,56v16M43,44v40M58,31v66M73,50v28" />
+        <path
+            android:fillColor="#FF5B36"
+            android:pathData="M88,28h16a2,2 0,0 1,2 2v5a2,2 0,0 1,-2 2h-3.5v54H104a2,2 0,0 1,2 2v5a2,2 0,0 1,-2 2H88a2,2 0,0 1,-2 -2v-5a2,2 0,0 1,2 -2h3.5V37H88a2,2 0,0 1,-2 -2v-5a2,2 0,0 1,2 -2z" />
+    </group>
 </vector>

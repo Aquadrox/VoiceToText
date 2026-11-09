@@ -8,6 +8,14 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.23.0 — 2026-11-09
+
+- Nouveau logo : des barres de voix qui se terminent par un curseur de texte (icône de l'application).
+- [PC] Nouvelle apparence : couleurs tirées du logo (encre, papier, vermillon), icônes dans les menus à la place des émojis, accueil et historique plus aérés, mode sombre retouché.
+- [PC] Accueil : la barre d'aujourd'hui ressort dans le graphique ; la part de chaque application se lit sur une barre complète.
+- [PC] Pastille : vermillon pendant l'écoute et pendant une réunion, une conférence ou une capture ; bleu pendant la transcription.
+- [Android] Clavier et bulle aux couleurs du logo : micro vermillon sur le clavier, bulle d'encre au repos et vermillon à l'écoute.
+
 ## 0.22.0 — 2026-11-08
 
 - [PC] Chaque mise à jour proposée affiche ses nouveautés (accueil et Réglages → Application) ; après l'installation, l'accueil montre ce qui a changé.

@@ -239,6 +239,18 @@ Chaque mise à jour arrive avec la description de ses changements, consultable a
 - ✅ Android : nouveautés dans le bandeau et la section Mises à jour (lecture par le moteur Rust, `Native.releaseNotes`) ; après la mise à jour, message en haut de l'application avec ce qui a changé ; « Nouveautés de chaque version » dans la section Mises à jour, aussi sur la version de test
 - À vérifier : passage 0.22.0 → 0.22.1 sur le PC et le téléphone (notes affichées avant, puis après)
 
+## v0.23 — Identité visuelle ✅
+
+Sortir de l'apparence « générée par défaut » (indigo, émojis, cartes partout) :
+
+- ✅ Logo : barres de voix terminées par un curseur de texte (encre, papier, vermillon) ; sources `apps/desktop/icons/icon.svg` et `icon-small.svg` (version calée sur 16 px pour la zone de notification) ; PNG et `.ico` (16 à 256 px) générés par `node apps/desktop/icons/render-icons.js` ; icône adaptative Android dans la zone sûre
+- ✅ Palette tirée du logo : `--accent` (encre) pour les actions, `--signal` (vermillon) pour ce qui est actif ou enregistre ; contrastes vérifiés (texte ≥ 4,5:1) en clair et en sombre
+- ✅ Icônes Lucide (licence ISC, `ui/icons-LICENSE.txt`) dans le menu principal et celui des réglages, à la place des émojis ; page ouverte marquée par son icône vermillon
+- ✅ Accueil : chiffres sur une seule bande, barre d'aujourd'hui en vermillon, part des mots sur une piste complète ; historique en liste à séparateurs ; titres de groupe sans majuscules forcées ; focus visible au clavier ; police Segoe UI Variable (Windows 11)
+- ✅ Pastille : vermillon (écoute, réunion, conférence, capture), vert, orange, bleu (transcription), gris, jaune ; carte « Appel détecté » aux mêmes couleurs
+- ✅ Android : icône, clavier (fond d'encre, micro vermillon), bulle (encre au repos avec liseré clair, vermillon à l'écoute)
+- À vérifier sur le PC : rendu avec Segoe UI Variable, icône dans la zone de notification et la barre des tâches ; sur le téléphone : icône du lanceur, clavier et bulle
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
@@ -251,6 +263,7 @@ Accélérer la CI sans baisser la garde :
 - ✅ CLI Tauri précompilée via npm au lieu de `cargo install` (10 min de compilation à chaque cache vide)
 - ✅ Un nouveau push sur une PR annule la vérification précédente
 - ✅ Mise à jour proposée seulement aux plateformes concernées : à chaque tag, `.github/scripts/platforms.py` liste ce qui change depuis la version que chaque manifeste annonce (doc, CI et simple montée de version ignorées ; `vtt-core`, `vtt-asr`, `vtt-llm`, dépendances ou fichier non classé → les deux). Plateforme non touchée : manifeste précédent repris tel quel (`latest.json` ou `latest-android.json`), l'application ne voit rien à installer ; les installeurs restent publiés pour les nouvelles installations. Notes de la release : plateformes mises à jour ou non
+- ✅ Publication par `./release.sh` (Git Bash, sur le PC) : version lue dans le `Cargo.toml` de `main` sur GitHub, refus si déjà publiée, plus ancienne que la dernière ou sans notes de version, nouveautés affichées et confirmation, puis tag `vX.Y.Z` posé sur le dernier commit de `main` et envoyé ; dossier local inchangé, tag local d'un envoi échoué repris ; `.gitattributes` garde les `.sh` en LF sous Windows
 - ✅ Actions GitHub sur Node.js 24 : checkout v7, upload-artifact v7, download-artifact v8 (contrôle d'empreinte des artefacts désormais bloquant)
 
 ## Plus tard

@@ -109,10 +109,10 @@ La **pastille** en bas de l'écran indique l'état :
 
 | Couleur | État |
 |---|---|
-| 🔴 Rouge | Écoute (touche maintenue) |
+| 🔴 Rouge | Écoute (touche maintenue) ; réunion, conférence ou capture en cours (petite pastille) |
 | 🟢 Vert | Mains libres (« Échap annule ») |
 | 🟠 Orange | Command Mode : dictez la consigne |
-| 🟣 Violet | Transcription et nettoyage en cours |
+| 🔵 Bleu | Transcription et nettoyage en cours |
 | ⚪ Gris | Chargement ou téléchargement du modèle |
 | 🟡 Jaune | Erreur (message affiché quelques secondes) |
 
@@ -600,6 +600,17 @@ Android (SDK avec `ndk;29.0.14206865` et `cmake;3.31.6`, cible Rust `aarch64-lin
 apps/android/build-native.sh               # moteur Rust → app/src/main/jniLibs
 (cd apps/android && ./gradlew assembleDebug)  # APK de test (VoiceToText (test))
 ```
+
+### Publier une version
+
+Une fois mergée la PR qui monte la version (`Cargo.toml` et sa section dans `CHANGELOG.md`), sur le PC, dans Git Bash, depuis le dossier du dépôt :
+
+```sh
+git pull          # la première fois, pour avoir release.sh
+./release.sh      # ou ./release.sh 0.23.0 pour vérifier la version attendue
+```
+
+Le script lit la version dans `main` sur GitHub, vérifie qu'elle n'est pas déjà publiée et que ses notes existent, affiche les nouveautés et demande confirmation, puis pose le tag `vX.Y.Z` sur le dernier commit de `main` et l'envoie. La CI vérifie tout, puis compile, signe et publie la release ; les applications installées la proposent ensuite. Il ne modifie pas le dossier local.
 
 Signature des APK publiés : clé générée par le mainteneur, jamais dans le dépôt ; la CI la lit dans les secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, seulement pour les tags.
 

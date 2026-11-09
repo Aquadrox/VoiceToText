@@ -1,0 +1,7 @@
+<!-- Logo VoiceToText : la voix (barres) devient du texte (curseur).
+     Source des icônes 48 px et plus ; régénérer avec `node render-icons.js`. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#17171c"/>
+  <path fill="none" stroke="#f1efe8" stroke-width="10" stroke-linecap="round" d="M28 56v16M43 44v40M58 31v66M73 50v28"/>
+  <path fill="#ff5b36" d="M88 28h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-3.5v54H104a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h3.5V37H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z"/>
+</svg>
