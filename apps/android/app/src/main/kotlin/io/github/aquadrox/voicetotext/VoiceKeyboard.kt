@@ -12,12 +12,15 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -129,8 +132,33 @@ class VoiceKeyboard : InputMethodService() {
         root.addView(status, wide)
         root.addView(top, wide)
         root.addView(bottom, wide)
+        avoidNavigationBar(root)
         showTranslate()
         return root
+    }
+
+    /**
+     * Android 15 et plus étendent la fenêtre du clavier sous la barre de
+     * navigation (boutons retour, accueil, applications) : sans marge, Espace
+     * et Entrée passent dessous. La marge du bas suit la hauteur de la barre,
+     * calculée comme Android le fait pour la sienne (`captionBar`, comprise
+     * dans `systemBars`, quand le clavier dessine lui-même la barre en
+     * navigation par gestes). La barre reste transparente sur le fond d'encre,
+     * avec des icônes claires. Avant Android 15, Android cale déjà le clavier
+     * au-dessus de la barre : rien à faire.
+     */
+    private fun avoidNavigationBar(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val bar = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()).bottom
+            view.setPadding(dp(12), dp(8), dp(12), dp(12) + bar)
+            insets
+        }
+        window?.window?.let { window ->
+            // Sans voile gris clair par-dessus le fond (barre à trois boutons).
+            window.isNavigationBarContrastEnforced = false
+            window.insetsController?.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        }
     }
 
     /** Touche : icône claire sur fond d'encre arrondi, ondulation à l'appui. */

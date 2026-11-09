@@ -264,6 +264,7 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 - ✅ Historique dans une carte (date et application, puis texte ; toucher pour copier), dictionnaire en pastilles, snippets en liste
 - ✅ Vérifié sur le serveur : les deux éditions compilent ; écrans principal, historique, dictionnaire et clavier capturés en clair et en sombre avec Robolectric (vrai code, moteur Rust compilé pour Linux) ; corrigés grâce aux captures : bouton « Ajouter » rogné, police à chasse fixe du champ de clé API, nom du modèle trop long dans « Mise en route »
 - À vérifier sur le téléphone (APK de test de la PR) : barres d'Android, clavier et bulle en situation, notifications
+- ✅ Clavier sous la barre de navigation (Android 15 et plus étendent aussi la fenêtre du clavier dessous) : Espace et Entrée cachés par les boutons retour, accueil, applications ; marge du bas calculée comme Android pour sa propre barre, barre transparente sur le fond d'encre (v0.24.1). À vérifier sur le téléphone, navigation à trois boutons et par gestes
 
 ## Outillage ✅
 

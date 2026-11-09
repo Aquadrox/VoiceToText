@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.24.1 — 2026-11-09
+
+- [Android] Clavier : Espace et Entrée ne passent plus sous la barre de navigation d'Android (boutons retour, accueil, applications) ; le clavier s'arrête au-dessus.
+
 ## 0.24.0 — 2026-11-09
 
 - [Android] Nouvelle apparence aux couleurs du logo : en-tête avec le logo, réglages rangés en cartes, mode sombre soigné.
