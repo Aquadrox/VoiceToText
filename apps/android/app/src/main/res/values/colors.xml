@@ -1,4 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Palette tirée du logo, comme sur PC (apps/desktop/ui/app.css) : encre,
+     papier chaud, vermillon. Mode sombre : values-night/colors.xml. -->
 <resources>
     <color name="icon_background">#17171C</color>
+    <color name="bg">#F6F5F2</color>
+    <color name="card">#FFFFFF</color>
+    <color name="fg">#1A1A1F</color>
+    <color name="muted">#68665F</color>
+    <color name="border">#E2E0DA</color>
+    <color name="border_strong">#CBC8BF</color>
+    <!-- Actions (boutons principaux, interrupteurs). -->
+    <color name="accent">#1A1A1F</color>
+    <color name="accent_fg">#FFFFFF</color>
+    <!-- Ce qui est actif ou enregistre. -->
+    <color name="signal">#CC3E1B</color>
+    <color name="ok">#1D7A46</color>
+    <color name="danger">#B42318</color>
+    <color name="warning_bg">#FBF0D6</color>
+    <color name="warning_fg">#6B4410</color>
+    <color name="ripple">#1F1A1A1F</color>
+    <color name="logo_square">#17171C</color>
 </resources>

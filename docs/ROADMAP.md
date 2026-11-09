@@ -251,6 +251,19 @@ Sortir de l'apparence « générée par défaut » (indigo, émojis, cartes part
 - ✅ Android : icône, clavier (fond d'encre, micro vermillon), bulle (encre au repos avec liseré clair, vermillon à l'écoute)
 - À vérifier sur le PC : rendu avec Segoe UI Variable, icône dans la zone de notification et la barre des tâches ; sur le téléphone : icône du lanceur, clavier et bulle
 
+## v0.24 — Android : nouvelle apparence ✅
+
+Même identité que le PC (v0.23), toujours sans bibliothèque :
+
+- ✅ Thème aux couleurs du logo (`res/values` et `values-night`) : encre, papier, vermillon ; barres d'Android assorties ; écrans sans barre d'action, marges des barres gérées (Android 15 dessine l'application dessous)
+- ✅ Composants communs (`Ui.kt`, remplace `Screens.kt`) : en-tête (logo ou retour), cartes titrées avec icône, boutons principal et secondaire avec effet d'appui, champs arrondis (bord vermillon au focus), étapes cochées, « En savoir plus », pastilles qui passent à la ligne (`FlowLayout`)
+- ✅ Écran principal en cartes : Mise en route (micro, modèle, clavier, bulle, cochés une fois faits, boutons masqués quand c'est fait), modèle, comment dicter, bulle, LLM, traduction, historique et dictionnaire, réglages du PC, mises à jour, essai ; « Enregistrer les réglages » fixé en bas
+- ✅ Icônes Lucide converties en VectorDrawable (`res/drawable/ic_*.xml`, licence dans `assets/icons-LICENSE.txt`), vérifiées au pixel contre l'original ; logo en en-tête, logo blanc pour les notifications
+- ✅ Clavier : icônes à la place des émojis, touches arrondies avec ondulation, mode traduction allumé en touche claire, touche consigne vermillon pendant l'écoute, disque de niveau autour du micro (`LevelRing`)
+- ✅ Bulle : icônes (micro, consigne, attente, coche) au lieu des émojis
+- ✅ Historique dans une carte (date et application, puis texte ; toucher pour copier), dictionnaire en pastilles, snippets en liste
+- À vérifier sur le téléphone (APK de test de la PR) : rendu clair et sombre, barres d'Android, clavier, bulle, notifications
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

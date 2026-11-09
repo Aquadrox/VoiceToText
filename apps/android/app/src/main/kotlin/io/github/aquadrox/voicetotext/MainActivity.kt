@@ -9,7 +9,6 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
+import android.util.TypedValue
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.view.inputmethod.InputMethodManager
@@ -27,7 +27,6 @@ import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ArrayAdapter
-import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
@@ -45,9 +44,14 @@ class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    private lateinit var micStatus: TextView
-    private lateinit var keyboardStatus: TextView
-    private lateinit var bubbleStatus: TextView
+    private lateinit var micStep: Step
+    private lateinit var micButton: Button
+    private lateinit var modelStep: Step
+    private lateinit var keyboardStep: Step
+    private lateinit var keyboardActivate: Button
+    /** Édition bulle seulement. */
+    private var bubbleStep: Step? = null
+    private var bubbleButtons: View? = null
     private lateinit var models: RadioGroup
     private lateinit var download: Button
     private lateinit var progress: ProgressBar
@@ -88,7 +92,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(ScrollView(this).apply { addView(content()) })
+        screen(bar = { primary("Enregistrer les réglages") { save() } }) { content() }
         refresh()
         startUpdates()
         handle(intent)
@@ -135,186 +139,194 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-
-    private fun content(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(24), dp(20), dp(32))
-
-        title("VoiceToText", 26f)
-        note("Dictée au clavier ou avec une bulle flottante : parlez, le texte nettoyé s'insère là où vous écrivez. La voix est transcrite sur le téléphone.")
-        message = note("").apply { visibility = View.GONE }
-        updateBanner = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(0x332E7D32)
+    private fun LinearLayout.content() {
+        header("VoiceToText", "Version ${BuildConfig.VERSION_NAME} · édition ${Updater.edition}")
+        note("Dictez au clavier ou avec une bulle : le texte nettoyé s'insère là où vous écrivez. La voix est transcrite sur le téléphone.")
+        message = notice()
+        updateBanner = card("Nouvelle version", R.drawable.ic_refresh_cw).apply {
+            updateBannerText = note("")
+            primary("Mettre à jour") { installUpdate() }
             visibility = View.GONE
-        }.also { addView(it) }
-        updateBannerText = TextView(this@MainActivity).also { updateBanner.addView(it) }
-        updateBanner.addView(Button(this@MainActivity).apply {
-            text = "Mettre à jour"
-            setOnClickListener { installUpdate() }
-        })
-
-        section("1. Micro")
-        micStatus = note("")
-        button("Autoriser le micro") {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
         }
 
-        section("2. Modèle de transcription")
-        models = RadioGroup(this@MainActivity).also { addView(it) }
-        progress = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            visibility = View.GONE
-        }.also { addView(it) }
-        download = button("Télécharger le modèle choisi") { downloadModel() }
-
-        section("3. Clavier")
-        keyboardStatus = note("")
-        button("Activer le clavier VoiceToText") {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        }
-        button("Choisir le clavier") {
-            getSystemService(InputMethodManager::class.java).showInputMethodPicker()
-        }
-        note("Maintenez 🎤 pour dicter, relâchez pour insérer ; appui court : mains libres. 🌐 revient à votre clavier habituel.")
-
-        section("4. Bulle (sans changer de clavier)")
-        bubbleStatus = note("")
-        if (BuildConfig.BUBBLE) {
-            bubbleOptions()
-        } else {
-            note("Cette édition n'a que le clavier. Pour dicter avec une bulle flottante sans changer de clavier, installez l'APK « android-bulle » de la même version : même application, réglages gardés (voir le README).")
-        }
-
-        section("Nettoyage du texte (LLM)")
-        llmEnabled = Switch(this@MainActivity).apply { text = "Nettoyer et ponctuer avec un LLM" }.also { addView(it) }
-        baseUrl = field("Adresse de l'API (ex. https://api.deepseek.com)")
-        llmModel = field("Modèle (ex. deepseek-flash)")
-        apiKey = field("Nouvelle clé API (jamais affichée)").apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        keyStatus = note("")
-        voiceCommands = Switch(this@MainActivity).apply {
-            text = "Commandes vocales (« nouvelle ligne », « annule la dernière dictée »)"
-        }.also { addView(it) }
-        section("Mode traduction (🌍 au clavier)")
-        language = Spinner(this@MainActivity).also { addView(it) }
-        note("✨ au clavier : maintenez et dictez une consigne (« rends ce texte plus formel », « traduis en anglais ») ; elle s'applique au texte sélectionné.")
-
-        section("Historique")
-        history = Switch(this@MainActivity).apply {
-            text = "Garder les dictées sur le téléphone"
-        }.also { addView(it) }
-        button("Voir l'historique") {
-            startActivity(Intent(this@MainActivity, HistoryActivity::class.java))
-        }
-
-        section("Dictionnaire et snippets")
-        vocabularyStatus = note("")
-        button("Modifier le dictionnaire et les snippets") {
-            startActivity(Intent(this@MainActivity, VocabularyActivity::class.java))
-        }
-
-        button("Enregistrer les réglages") { save() }
-        button("Supprimer la clé") {
-            if (host.isNotEmpty()) store.deleteKey(host)
-            refresh()
-            say("Clé supprimée.")
-        }
-
-        section("Réglages du PC")
-        note("Sur PC : Réglages → Exporter… puis copiez le fichier sur le téléphone. Dictionnaire, snippets, styles et fournisseur LLM sont repris ; les clés API ne sont jamais exportées.")
-        button("Importer un fichier de réglages…") {
-            startActivityForResult(
-                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                },
-                IMPORT,
-            )
-        }
-
-        section("Mises à jour")
-        updateStatus = note("")
-        if (Updater.supported) {
-            option("Vérifier automatiquement (à l'ouverture puis toutes les 6 h)", store.updatesEnabled) {
-                store.updatesEnabled = it
-                Updater.schedule(this@MainActivity)
+        card("Mise en route", R.drawable.ic_list_checks).apply {
+            micStep = step("Micro")
+            micButton = micStep.actions.secondary("Autoriser le micro") {
+                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
             }
-            updateCheck = button("Vérifier maintenant") { checkUpdate(manual = true) }
-            updateInstall = button("Télécharger et installer") { installUpdate() }
-            updateChangelog = note("").apply { visibility = View.GONE }
-            updateNotes = button("Page de la version sur GitHub") {
-                Updater.cached(store)?.notes?.takeIf { it.isNotEmpty() }?.let {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+            modelStep = step("Modèle de transcription")
+            keyboardStep = step("Clavier VoiceToText")
+            keyboardActivate = keyboardStep.actions.secondary("Activer") {
+                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
+            keyboardStep.actions.secondary("Choisir") {
+                getSystemService(InputMethodManager::class.java).showInputMethodPicker()
+            }
+            if (BuildConfig.BUBBLE) {
+                val bubbleRow = step("Bulle de dictée")
+                bubbleRow.actions.secondary("Infos de l'appli") {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
                 }
+                bubbleRow.actions.secondary("Accessibilité") {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+                bubbleStep = bubbleRow
+                bubbleButtons = bubbleRow.actions
             }
-            updateProgress = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+        }
+
+        card("Modèle de transcription", R.drawable.ic_audio_lines).apply {
+            note("La voix est transcrite sur le téléphone ; le modèle choisi se télécharge une seule fois.")
+            models = RadioGroup(this@MainActivity).also { addView(it) }
+            progress = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 100
                 visibility = View.GONE
             }.also { addView(it) }
-            notificationsButton = button("Autoriser les notifications") {
-                startActivity(
-                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            download = primary("Télécharger le modèle choisi") { downloadModel() }
+        }
+
+        card("Comment dicter", R.drawable.ic_mic).apply {
+            note("Clavier : maintenez le micro pour dicter, relâchez pour insérer. Appui court : mains libres, nouvel appui pour finir.")
+            note("À droite du micro, la touche consigne (maintenue) : la consigne dictée s'applique au texte sélectionné (« rends ce texte plus formel », « traduis en anglais »).")
+            note("À gauche du micro : le mode traduction. Tout à gauche : retour à votre clavier habituel.")
+            if (BuildConfig.BUBBLE) {
+                note("Bulle : toucher pour dicter, toucher encore pour insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer.")
+            }
+        }
+
+        card("Bulle de dictée", R.drawable.ic_message_circle).apply {
+            if (BuildConfig.BUBBLE) {
+                bubbleOptions()
+            } else {
+                note("Cette édition n'a que le clavier. Pour dicter avec une bulle flottante sans changer de clavier, installez l'APK « android-bulle » de la même version : même application, réglages gardés (voir le README).")
+            }
+        }
+
+        card("Nettoyage du texte (LLM)", R.drawable.ic_spell_check_2).apply {
+            llmEnabled = option("Nettoyer et ponctuer avec un LLM")
+            baseUrl = field("Adresse de l'API (ex. https://api.deepseek.com)")
+            llmModel = field("Modèle (ex. deepseek-flash)")
+            apiKey = field("Nouvelle clé API (jamais affichée)").apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            keyStatus = note("")
+            secondary("Supprimer la clé") {
+                if (host.isNotEmpty()) store.deleteKey(host)
+                refresh()
+                say("Clé supprimée.")
+            }
+            divider()
+            voiceCommands = option("Commandes vocales (« nouvelle ligne », « annule la dernière dictée »)")
+        }
+
+        card("Traduction", R.drawable.ic_languages).apply {
+            note("Langue d'arrivée du mode traduction (touche à gauche du micro, ou réglage de la bulle) :")
+            language = Spinner(this@MainActivity).also { addView(it) }
+        }
+
+        card("Historique et dictionnaire", R.drawable.ic_history).apply {
+            history = option("Garder les dictées sur le téléphone")
+            secondary("Voir l'historique") {
+                startActivity(Intent(this@MainActivity, HistoryActivity::class.java))
+            }
+            divider()
+            vocabularyStatus = note("")
+            secondary("Dictionnaire et snippets") {
+                startActivity(Intent(this@MainActivity, VocabularyActivity::class.java))
+            }
+        }
+
+        card("Réglages du PC", R.drawable.ic_import).apply {
+            note("Sur PC : Réglages → Exporter… puis copiez le fichier sur le téléphone. Dictionnaire, snippets, styles et fournisseur LLM sont repris ; les clés API ne sont jamais exportées.")
+            secondary("Importer un fichier de réglages…") {
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    },
+                    IMPORT,
                 )
             }
         }
-        // Nouveautés des versions installées, consultables après la mise à jour.
-        lateinit var versions: TextView
-        button("Nouveautés de chaque version") {
-            if (versions.text.isEmpty()) {
-                versions.text = Updater.notesText("", "", BuildConfig.VERSION_NAME)
-                    .ifEmpty { "Aucune note de version." }
+
+        card("Mises à jour", R.drawable.ic_refresh_cw).apply {
+            updateStatus = note("")
+            if (Updater.supported) {
+                option("Vérifier automatiquement (à l'ouverture puis toutes les 6 h)", store.updatesEnabled) {
+                    store.updatesEnabled = it
+                    Updater.schedule(this@MainActivity)
+                }
+                updateInstall = primary("Télécharger et installer") { installUpdate() }
+                updateCheck = secondary("Vérifier maintenant") { checkUpdate(manual = true) }
+                updateProgress = ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    visibility = View.GONE
+                }.also { addView(it) }
+                updateChangelog = note("").apply { visibility = View.GONE }
+                updateNotes = secondary("Page de la version sur GitHub") {
+                    Updater.cached(store)?.notes?.takeIf { it.isNotEmpty() }?.let {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                    }
+                }
+                notificationsButton = secondary("Autoriser les notifications") {
+                    startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                    )
+                }
             }
-            versions.visibility = if (versions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-        versions = note("").apply { visibility = View.GONE }
-        if (Updater.supported) {
-            note("Rien n'est installé sans votre accord. Android vérifie que la mise à jour est signée avec la même clé que l'application installée, et refuse une version plus ancienne ; l'application vérifie en plus l'empreinte SHA-256 publiée avec la version. La première fois, Android demande d'autoriser VoiceToText à installer des applications. Vos réglages, modèles et clés sont gardés.")
-            if (BuildConfig.BUBBLE) {
-                note("Édition bulle : si Play Protect bloque la mise à jour, coupez-le le temps de l'installation puis réactivez-le, comme à la première installation.")
+            // Nouveautés des versions installées, consultables après la mise à jour.
+            lateinit var versions: TextView
+            secondary("Nouveautés de chaque version") {
+                if (versions.text.isEmpty()) {
+                    versions.text = Updater.notesText("", "", BuildConfig.VERSION_NAME)
+                        .ifEmpty { "Aucune note de version." }
+                }
+                versions.visibility = if (versions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            }
+            versions = note("").apply { visibility = View.GONE }
+            if (Updater.supported) {
+                more(
+                    "Rien n'est installé sans votre accord. Android vérifie que la mise à jour est signée avec la même clé que l'application installée, et refuse une version plus ancienne ; l'application vérifie en plus l'empreinte SHA-256 publiée avec la version. La première fois, Android demande d'autoriser VoiceToText à installer des applications. Vos réglages, modèles et clés sont gardés." +
+                        if (BuildConfig.BUBBLE) "\n\nÉdition bulle : si Play Protect bloque la mise à jour, coupez-le le temps de l'installation puis réactivez-le, comme à la première installation." else "",
+                )
             }
         }
 
-        section("Essayer")
-        addView(EditText(this@MainActivity).apply {
-            hint = "Touchez ici et dictez avec le clavier VoiceToText ou la bulle"
-            minLines = 3
-        })
+        card("Essayer", R.drawable.ic_text_cursor_input).apply {
+            field("Touchez ici et dictez avec le clavier VoiceToText ou la bulle", lines = 3)
+        }
     }
 
-    /** Édition « bulle » : activation et réglages de la bulle. */
+    /** Édition « bulle » : réglages de la bulle (l'activation est dans « Mise en route »). */
     private fun LinearLayout.bubbleOptions() {
-        note("Gardez votre clavier habituel : une bulle 🎤 apparaît quand vous écrivez. Toucher : dicter, toucher encore : insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer. Clavier ou bulle, ou les deux : au choix.")
-        note("Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.")
-        button("1. Ouvrir les infos de l'application") {
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        }
-        button("2. Ouvrir l'accessibilité") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }
+        note("Gardez votre clavier habituel : une bulle apparaît quand vous écrivez. Clavier ou bulle, ou les deux : au choix.")
+        more(
+            "Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.",
+            "Comment l'activer",
+        )
         option("Seulement quand le clavier est ouvert", store.bubbleWithKeyboard) { store.bubbleWithKeyboard = it }
         option("Insérer en collant (si le texte n'apparaît pas dans une application ; remplace le presse-papier)", store.bubblePaste) {
             store.bubblePaste = it
         }
-        option("Traduire les dictées (comme 🌍 au clavier)", store.translate) { store.translate = it }
+        option("Traduire les dictées (comme le mode traduction du clavier)", store.translate) { store.translate = it }
         option("Garder les dictées de la bulle dans l'historique", store.bubbleHistory) { store.bubbleHistory = it }
-        note("Taille de la bulle")
+        text("Taille de la bulle", 15f).setPadding(0, dp(10), 0, 0)
         addView(RadioGroup(this@MainActivity).apply {
             orientation = RadioGroup.HORIZONTAL
             listOf("Petite", "Moyenne", "Grande").forEachIndexed { size, label ->
                 addView(RadioButton(this@MainActivity).apply {
                     id = View.generateViewId()
                     text = label
+                    setTextColor(getColor(R.color.fg))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    setPadding(dp(4), 0, dp(16), 0)
                     isChecked = size == store.bubbleSize
                     setOnCheckedChangeListener { _, checked -> if (checked) store.bubbleSize = size }
                 })
             }
         })
-        button("Remettre la bulle à sa place") {
+        secondary("Remettre la bulle à sa place") {
             store.bubbleX = -1
             store.bubbleY = -1
             say("✓ La bulle reprendra sa place à sa prochaine apparition.")
@@ -322,44 +334,7 @@ class MainActivity : Activity() {
         note("La bulle n'apparaît jamais sur un champ de mot de passe. Contrairement au clavier, elle ne voit pas la navigation privée : décochez « Garder les dictées de la bulle » pour qu'aucune n'aille dans l'historique.")
     }
 
-    private fun LinearLayout.title(text: String, size: Float) = TextView(this@MainActivity).apply {
-        this.text = text
-        textSize = size
-        setTypeface(typeface, Typeface.BOLD)
-    }.also { addView(it) }
-
-    private fun LinearLayout.section(text: String) = title(text, 18f).apply {
-        setPadding(0, dp(24), 0, dp(4))
-    }
-
-    private fun LinearLayout.note(text: String) = TextView(this@MainActivity).apply {
-        this.text = text
-        alpha = 0.8f
-        setPadding(0, dp(4), 0, dp(4))
-    }.also { addView(it) }
-
-    private fun LinearLayout.button(text: String, action: () -> Unit) = Button(this@MainActivity).apply {
-        this.text = text
-        setOnClickListener { action() }
-    }.also { addView(it) }
-
-    /** Interrupteur enregistré dès qu'on le touche. */
-    private fun LinearLayout.option(text: String, checked: Boolean, change: (Boolean) -> Unit) =
-        Switch(this@MainActivity).apply {
-            this.text = text
-            isChecked = checked
-            setOnCheckedChangeListener { _, value -> change(value) }
-        }.also { addView(it) }
-
-    private fun LinearLayout.field(hint: String) = EditText(this@MainActivity).apply {
-        this.hint = hint
-        isSingleLine = true
-    }.also { addView(it) }
-
-    private fun say(text: String) {
-        message.text = text
-        message.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
-    }
+    private fun say(text: String) = message.say(text)
 
     /** Réglages relus et affichés. */
     private fun refresh() {
@@ -392,22 +367,35 @@ class MainActivity : Activity() {
                 id = View.generateViewId()
                 tag = model.getString("id")
                 text = "${model.getString("label")} · ${model.getInt("size_mb")} Mo$downloaded"
+                setTextColor(getColor(R.color.fg))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(dp(4), dp(8), 0, dp(8))
                 isChecked = model.getString("id") == view.getString("model")
             })
         }
+        val chosen = (0 until list.length()).map { list.getJSONObject(it) }
+            .firstOrNull { it.getString("id") == view.getString("model") }
+        val ready = chosen?.getBoolean("downloaded") == true
+        modelStep.set(
+            ready,
+            when {
+                chosen == null -> "Choisissez un modèle ci-dessous"
+                ready -> "${chosen.getString("label")} : prêt"
+                else -> "${chosen.getString("label")} : à télécharger ci-dessous"
+            },
+        )
         refreshStatus()
     }
 
     private fun refreshStatus() {
         val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        micStatus.text = if (mic) "✓ Micro autorisé" else "Micro non autorisé"
+        micStep.set(mic, if (mic) "Autorisé" else "Nécessaire pour dicter")
+        micButton.visibility = if (mic) View.GONE else View.VISIBLE
         val enabled = getSystemService(InputMethodManager::class.java).enabledInputMethodList
             .any { it.packageName == packageName }
-        keyboardStatus.text = if (enabled) "✓ Clavier activé" else "Clavier pas encore activé"
-        if (!BuildConfig.BUBBLE) {
-            bubbleStatus.visibility = View.GONE
-            return
-        }
+        keyboardStep.set(enabled, if (enabled) "Activé ; « Choisir » pour passer d'un clavier à l'autre" else "À activer dans les réglages d'Android")
+        keyboardActivate.visibility = if (enabled) View.GONE else View.VISIBLE
+        val bubbleStep = bubbleStep ?: return
         val bubble = ComponentName(this, BubbleService::class.java)
         val bubbleEnabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
@@ -416,13 +404,14 @@ class MainActivity : Activity() {
         val running = getSystemService(AccessibilityManager::class.java)
             .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { info -> info.resolveInfo.serviceInfo.let { ComponentName(it.packageName, it.name) } == bubble }
-        bubbleStatus.text = when {
-            !bubbleEnabled -> "Bulle pas encore activée"
-            running -> "✓ Bulle activée"
-            else -> "⚠ Bulle activée mais arrêtée par Android (« Ne fonctionne pas » dans l'accessibilité). " +
+        bubbleButtons?.visibility = if (running) View.GONE else View.VISIBLE
+        bubbleStep.set(running, when {
+            !bubbleEnabled -> "À activer : « Comment l'activer » dans la carte Bulle"
+            running -> "Activée"
+            else -> "Activée mais arrêtée par Android (« Ne fonctionne pas » dans l'accessibilité). " +
                 "Pour la relancer, sans forcer l'arrêt de l'application : désactivez-la puis réactivez-la " +
                 "(deux appuis sur le raccourci d'accessibilité suffisent)." + lastExit()
-        }
+        })
     }
 
     /** Dernier arrêt du processus vu par Android (11 et plus) : pourquoi la bulle s'est arrêtée. */

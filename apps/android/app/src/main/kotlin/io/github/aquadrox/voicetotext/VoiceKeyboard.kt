@@ -2,9 +2,15 @@ package io.github.aquadrox.voicetotext
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
 import android.view.Gravity
@@ -13,25 +19,41 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
 
 /**
- * Clavier vocal : maintenir 🎤 pour dicter (relâcher pour insérer), ou un
- * appui court pour dicter mains libres (nouvel appui pour finir). 🌍 active
- * le mode traduction ; maintenir ✨ dicte une consigne appliquée au texte
- * sélectionné (Command Mode). Le texte s'insère dans le champ en cours.
+ * Clavier vocal : maintenir le micro pour dicter (relâcher pour insérer), ou
+ * un appui court pour dicter mains libres (nouvel appui pour finir). La touche
+ * à gauche du micro active le mode traduction ; maintenir celle de droite
+ * dicte une consigne appliquée au texte sélectionné (Command Mode). Le texte
+ * s'insère dans le champ en cours.
  */
 class VoiceKeyboard : InputMethodService() {
     private val store by lazy { Store(this) }
     private val recorder = Recorder()
 
     private lateinit var status: TextView
-    private lateinit var mic: Button
-    private lateinit var command: Button
-    private lateinit var translate: Button
+    private lateinit var mic: ImageButton
+    private lateinit var command: ImageButton
+    private lateinit var translate: ImageButton
+    private lateinit var ring: LevelRing
+
+    /** Anneau du micro : suit le niveau de la voix tant que l'enregistrement dure. */
+    private val meter = object : Runnable {
+        override fun run() {
+            if (recorder.recording) {
+                ring.level = maxOf(kotlin.math.sqrt(recorder.level), ring.level * 0.8f)
+                ring.postDelayed(this, 50)
+            } else {
+                ring.level = 0f
+            }
+        }
+    }
 
     private var pressedAt = 0L
     private var handsFree = false
@@ -47,67 +69,61 @@ class VoiceKeyboard : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        val dp = resources.displayMetrics.density
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor(BACKGROUND))
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
+            setPadding(dp(12), dp(8), dp(12), dp(12))
         }
         status = TextView(this).apply {
-            setTextColor(Color.parseColor("#C9C7C0"))
+            setTextColor(Color.parseColor(MUTED))
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, (8 * dp).toInt())
+            setPadding(0, 0, 0, dp(4))
         }
-        mic = Button(this).apply {
-            text = "🎤"
-            textSize = 30f
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor(ACCENT))
-            }
-            contentDescription = "Dicter"
+        mic = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_mic)
+            imageTintList = ColorStateList.valueOf(Color.WHITE)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            background = keyBackground(ACCENT, oval = true)
+            contentDescription = "Dicter (maintenir ; appui court : mains libres)"
             setOnTouchListener { view, event -> onHold(view, event, Native.DICTATE) }
         }
-        fun key(label: String, description: String) = Button(this).apply {
-            text = label
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor(KEY))
-            contentDescription = description
-        }
-        command = key("✨", "Consigne sur le texte sélectionné (maintenir)").apply {
+        ring = LevelRing(this, Color.parseColor(ACCENT)).apply { inner = dp(36).toFloat() }
+        command = key(R.drawable.ic_text_select, "Consigne sur le texte sélectionné (maintenir)").apply {
             setOnTouchListener { view, event -> onHold(view, event, Native.COMMAND) }
         }
-        translate = key("🌍", "Mode traduction").apply {
+        translate = key(R.drawable.ic_languages, "Mode traduction").apply {
             setOnClickListener {
                 store.translate = !store.translate
                 showTranslate()
                 show(if (store.translate) "Traduction → ${Dictation.language}" else "Traduction coupée")
             }
         }
-        val keyHeight = (56 * dp).toInt()
-        val margin = (4 * dp).toInt()
+        val keyHeight = dp(56)
+        val margin = dp(4)
         fun LinearLayout.side(view: View, weight: Float = 1f) = addView(
             view,
             LinearLayout.LayoutParams(0, keyHeight, weight).apply { setMargins(margin, margin, margin, margin) },
         )
+        // Micro au centre, dans son anneau de niveau.
+        val micFrame = FrameLayout(this).apply {
+            addView(ring, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            addView(mic, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
+        }
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            side(key("🌐", "Clavier suivant").apply { setOnClickListener { switchToNextInputMethod(false) } })
+            side(key(R.drawable.ic_keyboard, "Clavier suivant").apply { setOnClickListener { switchToNextInputMethod(false) } })
             side(translate)
-            addView(mic, LinearLayout.LayoutParams((88 * dp).toInt(), (88 * dp).toInt()).apply {
-                setMargins((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
-            })
+            addView(micFrame, LinearLayout.LayoutParams(dp(96), dp(96)))
             side(command)
-            side(key("⌫", "Effacer").apply { setOnClickListener { sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL) } })
+            side(key(R.drawable.ic_delete, "Effacer").apply { setOnClickListener { sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL) } })
         }
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            side(key("espace", "Espace").apply { setOnClickListener { currentInputConnection?.commitText(" ", 1) } }, 3f)
-            side(key("↵", "Entrée").apply { setOnClickListener { enter() } })
+            side(key(R.drawable.ic_space, "Espace").apply { setOnClickListener { currentInputConnection?.commitText(" ", 1) } }, 3f)
+            side(key(R.drawable.ic_corner_down_left, "Entrée").apply { setOnClickListener { enter() } })
         }
         val wide = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(status, wide)
@@ -115,6 +131,24 @@ class VoiceKeyboard : InputMethodService() {
         root.addView(bottom, wide)
         showTranslate()
         return root
+    }
+
+    /** Touche : icône claire sur fond d'encre arrondi, ondulation à l'appui. */
+    private fun key(icon: Int, description: String) = ImageButton(this).apply {
+        setImageResource(icon)
+        imageTintList = ColorStateList.valueOf(Color.parseColor(PAPER))
+        scaleType = ImageView.ScaleType.CENTER
+        background = keyBackground(KEY)
+        contentDescription = description
+    }
+
+    private fun keyBackground(color: String, oval: Boolean = false): Drawable {
+        fun filled(fill: Int) = GradientDrawable().apply {
+            if (oval) shape = GradientDrawable.OVAL else cornerRadius = dp(12).toFloat()
+            setColor(fill)
+        }
+        // Le second fond (blanc) sert de masque : l'ondulation reste dans la forme.
+        return RippleDrawable(ColorStateList.valueOf(Color.parseColor(RIPPLE)), filled(Color.parseColor(color)), filled(Color.WHITE))
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -135,9 +169,11 @@ class VoiceKeyboard : InputMethodService() {
         super.onFinishInputView(finishingInput)
     }
 
+    /** Mode traduction allumé : touche inversée (papier, icône d'encre). */
     private fun showTranslate() {
         if (!::translate.isInitialized) return
-        translate.setBackgroundColor(Color.parseColor(if (store.translate) ACCENT else KEY))
+        translate.background = keyBackground(if (store.translate) PAPER else KEY)
+        translate.imageTintList = ColorStateList.valueOf(Color.parseColor(if (store.translate) BACKGROUND else PAPER))
     }
 
     private fun loadEngine() {
@@ -147,7 +183,7 @@ class VoiceKeyboard : InputMethodService() {
         }
     }
 
-    /** 🎤 et ✨ : maintenir pour dicter ; appui court sur 🎤 : mains libres. */
+    /** Micro et consigne : maintenir pour dicter ; appui court sur le micro : mains libres. */
     @SuppressLint("ClickableViewAccessibility")
     private fun onHold(view: View, event: MotionEvent, kind: Int): Boolean {
         when (event.actionMasked) {
@@ -194,7 +230,10 @@ class VoiceKeyboard : InputMethodService() {
             show("Micro indisponible")
             return
         }
-        view.alpha = 0.7f
+        // Consigne : sa touche passe au vermillon ; l'anneau du micro suit la voix.
+        if (view === command) command.background = keyBackground(ACCENT)
+        ring.removeCallbacks(meter)
+        ring.post(meter)
         show(
             when (mode) {
                 Native.COMMAND -> "Consigne… (appliquée au texte sélectionné)"
@@ -206,8 +245,7 @@ class VoiceKeyboard : InputMethodService() {
 
     private fun finishDictation() {
         val samples = recorder.stop()
-        mic.alpha = 1f
-        command.alpha = 1f
+        command.background = keyBackground(KEY)
         show(if (mode == Native.COMMAND) "Application de la consigne…" else "Transcription…")
         val app = currentInputEditorInfo?.packageName.orEmpty()
         val selection = if (mode == Native.COMMAND) {
@@ -288,11 +326,38 @@ class VoiceKeyboard : InputMethodService() {
     private companion object {
         /** En dessous : appui court (mains libres). */
         const val TAP_MS = 300L
-        const val IDLE = "Maintenez 🎤 pour dicter · ✨ consigne sur la sélection"
-        const val IDLE_SHORT = "maintenez 🎤 pour dicter"
-        // Couleurs du logo : encre, et vermillon (curseur) pour le micro.
+        const val IDLE = "Maintenez le micro pour dicter · touche de droite : consigne"
+        const val IDLE_SHORT = "maintenez le micro pour dicter"
+        // Couleurs du logo : encre, papier, et vermillon (curseur) pour le micro.
         const val BACKGROUND = "#17171C"
         const val KEY = "#2A2A30"
         const val ACCENT = "#FF5B36"
+        const val PAPER = "#F1EFE8"
+        const val MUTED = "#C9C7C0"
+        const val RIPPLE = "#33FFFFFF"
+    }
+}
+
+/** Disque autour du micro : s'élargit avec le niveau de la voix (0 : rien). */
+class LevelRing(context: Context, tint: Int) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = tint
+        alpha = 80
+    }
+
+    var level = 0f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            invalidate()
+        }
+
+    /** Rayon du bouton dessiné par-dessus (px). */
+    var inner = 0f
+
+    override fun onDraw(canvas: Canvas) {
+        if (level <= 0.01f) return
+        val cx = width / 2f
+        val cy = height / 2f
+        canvas.drawCircle(cx, cy, inner + (minOf(cx, cy) - inner) * level, paint)
     }
 }

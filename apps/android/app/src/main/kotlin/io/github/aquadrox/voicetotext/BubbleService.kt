@@ -6,6 +6,7 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -23,7 +24,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.TextView
+import android.widget.ImageView
 import android.widget.Toast
 import org.json.JSONObject
 import kotlin.math.hypot
@@ -44,7 +45,7 @@ class BubbleService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var manager: WindowManager
 
-    private var bubble: TextView? = null
+    private var bubble: ImageView? = null
     private var params: WindowManager.LayoutParams? = null
     /** Taille de la bulle affichée (Store.bubbleSize). */
     private var shownSize = -1
@@ -142,10 +143,12 @@ class BubbleService : AccessibilityService() {
         shownSize = size
         val px = dp(SIZES[size])
         val screen = resources.displayMetrics
-        val view = TextView(this).apply {
-            gravity = Gravity.CENTER
-            textSize = SIZES[size] * 0.4f
-            setTextColor(Color.WHITE)
+        val view = ImageView(this).apply {
+            // Icône (micro, consigne…) à ~45 % du diamètre, en blanc.
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val inset = (px * 0.28f).toInt()
+            setPadding(inset, inset, inset, inset)
+            imageTintList = ColorStateList.valueOf(Color.WHITE)
             elevation = dp(4).toFloat()
             contentDescription = "Dicter avec VoiceToText"
             setOnTouchListener { view, event -> onTouch(view, event) }
@@ -201,13 +204,13 @@ class BubbleService : AccessibilityService() {
 
     private fun paint(done: Boolean = false) {
         val view = bubble ?: return
-        val (color, label) = when {
-            done -> SUCCESS to "✓"
-            state == LISTENING -> RECORDING to if (mode == Native.COMMAND) "✨" else "🎤"
-            state == WORKING -> WAITING to "…"
-            else -> ACCENT to "🎤"
+        val (color, icon) = when {
+            done -> SUCCESS to R.drawable.ic_check
+            state == LISTENING -> RECORDING to if (mode == Native.COMMAND) R.drawable.ic_text_select else R.drawable.ic_mic
+            state == WORKING -> WAITING to R.drawable.ic_ellipsis
+            else -> ACCENT to R.drawable.ic_mic
         }
-        view.text = label
+        view.setImageResource(icon)
         view.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(Color.parseColor(color))
