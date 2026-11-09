@@ -239,6 +239,18 @@ Chaque mise à jour arrive avec la description de ses changements, consultable a
 - ✅ Android : nouveautés dans le bandeau et la section Mises à jour (lecture par le moteur Rust, `Native.releaseNotes`) ; après la mise à jour, message en haut de l'application avec ce qui a changé ; « Nouveautés de chaque version » dans la section Mises à jour, aussi sur la version de test
 - À vérifier : passage 0.22.0 → 0.22.1 sur le PC et le téléphone (notes affichées avant, puis après)
 
+## v0.23 — Identité visuelle ✅
+
+Sortir de l'apparence « générée par défaut » (indigo, émojis, cartes partout) :
+
+- ✅ Logo : barres de voix terminées par un curseur de texte (encre, papier, vermillon) ; sources `apps/desktop/icons/icon.svg` et `icon-small.svg` (version calée sur 16 px pour la zone de notification) ; PNG et `.ico` (16 à 256 px) générés par `node apps/desktop/icons/render-icons.js` ; icône adaptative Android dans la zone sûre
+- ✅ Palette tirée du logo : `--accent` (encre) pour les actions, `--signal` (vermillon) pour ce qui est actif ou enregistre ; contrastes vérifiés (texte ≥ 4,5:1) en clair et en sombre
+- ✅ Icônes Lucide (licence ISC, `ui/icons-LICENSE.txt`) dans le menu principal et celui des réglages, à la place des émojis ; page ouverte marquée par son icône vermillon
+- ✅ Accueil : chiffres sur une seule bande, barre d'aujourd'hui en vermillon, part des mots sur une piste complète ; historique en liste à séparateurs ; titres de groupe sans majuscules forcées ; focus visible au clavier ; police Segoe UI Variable (Windows 11)
+- ✅ Pastille : vermillon (écoute, réunion, conférence, capture), vert, orange, bleu (transcription), gris, jaune ; carte « Appel détecté » aux mêmes couleurs
+- ✅ Android : icône, clavier (fond d'encre, micro vermillon), bulle (encre au repos avec liseré clair, vermillon à l'écoute)
+- À vérifier sur le PC : rendu avec Segoe UI Variable, icône dans la zone de notification et la barre des tâches ; sur le téléphone : icône du lanceur, clavier et bulle
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

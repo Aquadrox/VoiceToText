@@ -1,22 +1,25 @@
 :root {
+  /* Mêmes couleurs que la fenêtre principale (app.css). */
   --bg: #ffffff;
-  --fg: #1c1c24;
-  --muted: #6b6b78;
-  --border: #dcdce4;
-  --accent: #4f46e5;
+  --fg: #1a1a1f;
+  --muted: #68665f;
+  --border: #e2e0da;
+  --border-strong: #cbc8bf;
+  --accent: #1a1a1f;
   --accent-fg: #ffffff;
-  --rec: #b91c1c;
+  --rec: #cc3e1b;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #202028;
-    --fg: #ececf1;
-    --muted: #9d9daa;
-    --border: #34343f;
-    --accent: #818cf8;
-    --accent-fg: #11111a;
-    --rec: #f87171;
+    --bg: #1d1d20;
+    --fg: #edebe6;
+    --muted: #9c9a93;
+    --border: #2e2e32;
+    --border-strong: #46464b;
+    --accent: #edebe6;
+    --accent-fg: #141416;
+    --rec: #ff6a45;
   }
 }
 
@@ -31,7 +34,7 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.35 "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   user-select: none;
 }
 
@@ -93,13 +96,14 @@ button {
 }
 
 button:hover {
-  border-color: var(--accent);
+  border-color: var(--border-strong);
 }
 
 button.primary {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-fg);
+  font-weight: 600;
 }
 
 #more,

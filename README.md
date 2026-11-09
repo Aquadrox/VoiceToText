@@ -109,10 +109,10 @@ La **pastille** en bas de l'écran indique l'état :
 
 | Couleur | État |
 |---|---|
-| 🔴 Rouge | Écoute (touche maintenue) |
+| 🔴 Rouge | Écoute (touche maintenue) ; réunion, conférence ou capture en cours (petite pastille) |
 | 🟢 Vert | Mains libres (« Échap annule ») |
 | 🟠 Orange | Command Mode : dictez la consigne |
-| 🟣 Violet | Transcription et nettoyage en cours |
+| 🔵 Bleu | Transcription et nettoyage en cours |
 | ⚪ Gris | Chargement ou téléchargement du modèle |
 | 🟡 Jaune | Erreur (message affiché quelques secondes) |
 

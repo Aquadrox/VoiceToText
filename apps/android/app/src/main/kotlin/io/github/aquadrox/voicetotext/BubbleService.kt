@@ -211,6 +211,7 @@ class BubbleService : AccessibilityService() {
         view.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(Color.parseColor(color))
+            setStroke(maxOf(1, (1.5f * resources.displayMetrics.density).toInt()), Color.parseColor(RING))
         }
         view.alpha = if (state == IDLE && !done) 0.85f else 1f
         main.removeCallbacks(pulse)
@@ -438,9 +439,12 @@ class BubbleService : AccessibilityService() {
         const val LONG_PRESS_MS = 450L
         /** Diamètre de la bulle (dp) : petite, moyenne, grande. */
         val SIZES = intArrayOf(44, 56, 68)
-        const val ACCENT = "#4F46E5"
-        const val RECORDING = "#DC2626"
-        const val WAITING = "#52525B"
-        const val SUCCESS = "#16A34A"
+        // Couleurs du logo : bulle d'encre au repos, vermillon (curseur) à l'écoute.
+        const val ACCENT = "#17171C"
+        const val RECORDING = "#FF5B36"
+        const val WAITING = "#55555C"
+        const val SUCCESS = "#2E9E62"
+        /** Liseré clair : la bulle d'encre reste visible sur un fond sombre. */
+        const val RING = "#59FFFFFF"
     }
 }

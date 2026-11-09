@@ -1,38 +1,49 @@
 :root {
-  --bg: #f7f7fa;
+  /* Palette tirée du logo : encre, papier chaud, vermillon (le curseur).
+     --accent : actions (boutons principaux, interrupteurs) ;
+     --signal : ce qui est actif ou en cours (page ouverte, enregistrement). */
+  --bg: #f6f5f2;
   --card: #ffffff;
-  --fg: #1c1c24;
-  --muted: #6b6b78;
-  --border: #dcdce4;
-  --accent: #4f46e5;
+  --fg: #1a1a1f;
+  --muted: #68665f;
+  --border: #e2e0da;
+  --border-strong: #cbc8bf;
+  --accent: #1a1a1f;
   --accent-fg: #ffffff;
-  --ok: #15803d;
-  --danger: #b91c1c;
-  --warning-bg: #fef3c7;
-  --warning-fg: #78350f;
-  --nav-bg: #eeeef4;
-  --chart: #4f46e5;
-  --changed: #d97706;
-  --changed-bg: #fff7ed;
+  --signal: #cc3e1b;
+  --ok: #1d7a46;
+  --danger: #b42318;
+  --warning-bg: #fbf0d6;
+  --warning-fg: #6b4410;
+  --nav-bg: #efeee9;
+  --chart: #8c887e;
+  --track: #ecebe6;
+  --changed: #a0610a;
+  --changed-bg: #fdf5e6;
+  --focus: rgb(204 62 27 / 28%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17171d;
-    --card: #202028;
-    --fg: #ececf1;
-    --muted: #9d9daa;
-    --border: #34343f;
-    --accent: #818cf8;
-    --accent-fg: #11111a;
-    --ok: #4ade80;
-    --danger: #f87171;
-    --warning-bg: #3b2f12;
-    --warning-fg: #fde68a;
-    --nav-bg: #131318;
-    --chart: #6d72f0;
-    --changed: #f59e0b;
-    --changed-bg: #2d2412;
+    --bg: #141416;
+    --card: #1d1d20;
+    --fg: #edebe6;
+    --muted: #9c9a93;
+    --border: #2e2e32;
+    --border-strong: #46464b;
+    --accent: #edebe6;
+    --accent-fg: #141416;
+    --signal: #ff6a45;
+    --ok: #4cc38a;
+    --danger: #f47b7b;
+    --warning-bg: #33290f;
+    --warning-fg: #f3d58a;
+    --nav-bg: #101012;
+    --chart: #7a776f;
+    --track: #2a2a2e;
+    --changed: #f0a43a;
+    --changed-bg: #2e2410;
+    --focus: rgb(255 106 69 / 30%);
   }
 }
 
@@ -44,7 +55,23 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+/* Icônes (sprite Lucide en tête de app.html). */
+.sprite {
+  display: none;
+}
+
+svg.icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Mise en page : menu latéral + page. */
@@ -62,14 +89,48 @@ nav.main-nav {
 }
 
 nav.main-nav .brand {
-  margin: 0 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 8px 22px;
   font-weight: 700;
   font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.logo {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.logo-bg {
+  fill: #17171c;
+}
+
+.logo-wave {
+  fill: none;
+  stroke: #f1efe8;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.logo-cursor {
+  fill: #ff5b36;
+}
+
+/* Sur fond sombre, le carré d'encre se détache par un liseré. */
+@media (prefers-color-scheme: dark) {
+  .logo-bg {
+    stroke: #3a3a40;
+    stroke-width: 4;
+  }
 }
 
 nav.main-nav a {
   display: flex;
   align-items: center;
+  gap: 10px;
   margin-bottom: 2px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -81,10 +142,20 @@ nav.main-nav a:hover {
   background: var(--card);
 }
 
+nav.main-nav a .icon,
+.settings-nav a .icon {
+  color: var(--muted);
+}
+
 nav.main-nav a[aria-current="page"] {
   background: var(--card);
-  color: var(--accent);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+nav.main-nav a[aria-current="page"] .icon,
+.settings-nav a[aria-current="true"] .icon {
+  color: var(--signal);
 }
 
 main {
@@ -107,7 +178,10 @@ main {
 
 h1 {
   margin: 0 0 16px;
-  font-size: 20px;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 h2 {
@@ -182,6 +256,10 @@ button {
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
 button:disabled {
   opacity: 0.6;
   cursor: progress;
@@ -191,6 +269,27 @@ button.primary {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-fg);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: var(--accent);
+  opacity: 0.88;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--signal);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
 }
 
 button.danger {
@@ -274,37 +373,62 @@ summary {
 }
 
 /* Accueil */
+/* Une seule bande de chiffres plutôt que quatre cartes. */
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
   margin-bottom: 16px;
-}
-
-.tile {
-  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
 }
 
+.tile {
+  padding: 16px 18px;
+}
+
+.tile + .tile {
+  border-left: 1px solid var(--border);
+}
+
 .tile .value {
   white-space: nowrap;
-  font-size: 24px;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 26px;
   font-weight: 650;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
 .tile .label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tile .sub {
   color: var(--muted);
   font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tile:nth-child(3) {
+    border-left: 0;
+  }
+
+  .tile:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
 }
 
 .chart {
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: 3px;
   height: 160px;
   margin-top: 12px;
   border-bottom: 1px solid var(--border);
@@ -321,8 +445,13 @@ summary {
 .chart .bar span {
   width: 100%;
   min-height: 0;
-  border-radius: 4px 4px 0 0;
+  border-radius: 3px 3px 0 0;
   background: var(--chart);
+}
+
+/* Aujourd'hui (dernière barre) en vermillon. */
+.chart .bar.today span {
+  background: var(--signal);
 }
 
 .chart .bar:hover span,
@@ -412,16 +541,20 @@ summary {
   gap: 8px;
 }
 
+/* Piste entière visible : la barre se lit sur 100 %. */
 .share-bar .track {
   flex: 1;
-  height: 8px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--track);
 }
 
 .share-bar .fill {
   display: block;
   height: 100%;
   min-width: 2px;
-  border-radius: 0 4px 4px 0;
+  border-radius: 3px;
   background: var(--chart);
 }
 
@@ -458,18 +591,27 @@ summary {
   margin-left: 0;
 }
 
+/* Une liste à séparateurs plutôt qu'une carte par dictée. */
 ol.entries {
   margin: 12px 0 0;
   padding: 0;
-  list-style: none;
-}
-
-ol.entries li {
-  margin-bottom: 10px;
-  padding: 10px 14px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
+  list-style: none;
+}
+
+ol.entries:empty {
+  display: none;
+}
+
+ol.entries li {
+  padding: 12px 16px;
+}
+
+ol.entries li + li {
+  border-top: 1px solid var(--border);
 }
 
 .meta {
@@ -613,9 +755,10 @@ ol.entries li {
   gap: 12px;
   margin-bottom: 16px;
   padding: 12px 16px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
+  box-shadow: inset 3px 0 0 var(--signal);
 }
 
 .banner span {
@@ -674,11 +817,11 @@ ol.entries li {
 }
 
 .banner.live {
-  border-color: var(--danger);
+  border-color: var(--signal);
 }
 
 .banner.live strong {
-  color: var(--danger);
+  color: var(--signal);
 }
 
 .row.wrap {
@@ -708,8 +851,8 @@ ol.entries li {
 }
 
 .meeting-list button[aria-current="true"] {
-  border-color: var(--accent);
-  box-shadow: inset 3px 0 0 var(--accent);
+  border-color: var(--border-strong);
+  box-shadow: inset 3px 0 0 var(--signal);
 }
 
 .meeting-list .name {
@@ -786,10 +929,13 @@ ol.entries li {
   padding: 0 4px;
   border: none;
   background: none;
-  color: var(--accent);
+  color: var(--fg);
   font: inherit;
   font-size: 12px;
   text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
@@ -809,7 +955,7 @@ ol.entries li {
 }
 
 .turns li[data-track="eux"] .who {
-  color: var(--accent);
+  color: var(--signal);
 }
 
 .turns .text {
@@ -1114,14 +1260,8 @@ select.compact {
 
 .settings-nav a[aria-current="true"] {
   background: var(--card);
-  color: var(--accent);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.settings-nav .icon {
-  width: 1.4em;
-  text-align: center;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
 }
 
 /* Point « modifications non appliquées » (menu des réglages et menu principal). */
@@ -1215,11 +1355,8 @@ select.compact {
 
 .group h3 {
   margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 details.group > summary {
@@ -1306,7 +1443,7 @@ label.option input[type="checkbox"] {
   height: 20px;
   margin-top: 1px;
   border-radius: 10px;
-  background: var(--border);
+  background: var(--border-strong);
   appearance: none;
   cursor: pointer;
   transition: background 0.15s;
@@ -1330,12 +1467,13 @@ label.option input[type="checkbox"]:checked {
 }
 
 label.option input[type="checkbox"]:checked::before {
+  background: var(--accent-fg);
   transform: translateX(14px);
 }
 
 label.option input[type="checkbox"]:focus-visible,
 label.choice input[type="radio"]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
 
@@ -1406,8 +1544,8 @@ label.choice input[type="radio"] {
 .test-state[data-state="listening"],
 .test-state[data-state="handsfree"],
 .test-state[data-state="command"] {
-  background: var(--danger);
-  color: var(--card);
+  background: var(--signal);
+  color: #ffffff;
 }
 
 .test-state[data-state="processing"],
@@ -1441,7 +1579,7 @@ label.choice input[type="radio"] {
 }
 
 #test-input {
-  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
 .test-steps {

@@ -96,9 +96,11 @@ function renderChart(days, currency) {
   tooltip.className = "tooltip";
   tooltip.hidden = true;
 
-  const bars = days.map(({ day, totals }) => {
+  const bars = days.map(({ day, totals }, index) => {
     const bar = document.createElement("div");
     bar.className = "bar";
+    // Dernier jour = aujourd'hui (repère de l'axe), mis en avant.
+    bar.classList.toggle("today", index === days.length - 1);
     bar.tabIndex = 0;
     const label =
       `${dayFormat.format(parseDay(day))} : ${integer.format(totals.words)} mots, ` +

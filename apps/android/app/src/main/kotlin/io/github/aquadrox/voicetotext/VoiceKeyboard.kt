@@ -54,7 +54,7 @@ class VoiceKeyboard : InputMethodService() {
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
         }
         status = TextView(this).apply {
-            setTextColor(Color.parseColor("#C8C8D2"))
+            setTextColor(Color.parseColor("#C9C7C0"))
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, (8 * dp).toInt())
@@ -290,8 +290,9 @@ class VoiceKeyboard : InputMethodService() {
         const val TAP_MS = 300L
         const val IDLE = "Maintenez 🎤 pour dicter · ✨ consigne sur la sélection"
         const val IDLE_SHORT = "maintenez 🎤 pour dicter"
-        const val BACKGROUND = "#1E1E26"
-        const val KEY = "#2C2C38"
-        const val ACCENT = "#4F46E5"
+        // Couleurs du logo : encre, et vermillon (curseur) pour le micro.
+        const val BACKGROUND = "#17171C"
+        const val KEY = "#2A2A30"
+        const val ACCENT = "#FF5B36"
     }
 }
