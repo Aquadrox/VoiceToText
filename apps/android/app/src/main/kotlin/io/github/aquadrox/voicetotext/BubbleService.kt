@@ -10,6 +10,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +25,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.ImageView
 import android.widget.Toast
 import org.json.JSONObject
@@ -32,7 +34,8 @@ import kotlin.math.hypot
 /**
  * Bulle de dictée flottante, sans changer de clavier : elle apparaît quand un
  * champ de texte est actif. Toucher : dicter (toucher encore pour finir) ;
- * maintenir : consigne appliquée au texte sélectionné ; glisser : déplacer.
+ * maintenir : consigne appliquée au texte sélectionné ; glisser : déplacer ;
+ * double appui : passer au clavier VoiceToText.
  *
  * Service d'accessibilité : c'est le seul moyen offert par Android pour
  * savoir quel champ est actif et y écrire. Il regarde seulement si le champ
@@ -65,6 +68,10 @@ class BubbleService : AccessibilityService() {
     private var startX = 0
     private var startY = 0
     private var dragging = false
+    /** Fin (MotionEvent.eventTime) de l'appui qui a lancé la dictée ; 0 sinon. */
+    private var lastTap = 0L
+    /** Appui en cours = second appui rapide d'un double appui. */
+    private var doubleTap = false
 
     private val refresh = Runnable { update() }
     private val longPress = Runnable { startCommand() }
@@ -230,7 +237,13 @@ class BubbleService : AccessibilityService() {
                 startX = layout.x
                 startY = layout.y
                 dragging = false
-                if (state == IDLE) main.postDelayed(longPress, LONG_PRESS_MS)
+                // Second appui juste après celui qui a lancé la dictée : double
+                // appui. La dictée part dès le premier (aucune attente ajoutée)
+                // et sera annulée au relâchement.
+                doubleTap = lastTap > 0 && state != WORKING && !holding &&
+                    event.eventTime - lastTap <= ViewConfiguration.getDoubleTapTimeout()
+                lastTap = 0
+                if (state == IDLE && !doubleTap) main.postDelayed(longPress, LONG_PRESS_MS)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - downX
@@ -256,8 +269,12 @@ class BubbleService : AccessibilityService() {
                         holding = false
                         finish()
                     }
+                    doubleTap -> switchKeyboard()
                     state == LISTENING -> finish()
-                    state == IDLE -> start(if (store.translate) Native.TRANSLATE else Native.DICTATE)
+                    state == IDLE -> {
+                        lastTap = event.eventTime
+                        start(if (store.translate) Native.TRANSLATE else Native.DICTATE)
+                    }
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -269,6 +286,39 @@ class BubbleService : AccessibilityService() {
             }
         }
         return true
+    }
+
+    /**
+     * Double appui : la dictée lancée par le premier appui est abandonnée et
+     * le clavier VoiceToText remplace le clavier en cours (la bulle s'efface
+     * alors d'elle-même, comme chaque fois qu'il est ouvert). Android ne le
+     * permet à un service d'accessibilité qu'à partir de la version 11, et
+     * seulement vers un clavier déjà activé dans ses réglages.
+     */
+    private fun switchKeyboard() {
+        if (state == LISTENING) {
+            recorder.stop()
+            target = null
+            state = IDLE
+            paint()
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            say("Passer au clavier depuis la bulle demande Android 11 ou plus")
+            return
+        }
+        val keyboard = getSystemService(InputMethodManager::class.java).enabledInputMethodList
+            .firstOrNull { it.packageName == packageName }
+        if (keyboard == null) {
+            say("Activez d'abord le clavier VoiceToText dans l'application")
+            return
+        }
+        bubble?.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        if (!softKeyboardController.switchToInputMethod(keyboard.id)) {
+            say("Android refuse de changer de clavier")
+            return
+        }
+        main.removeCallbacks(refresh)
+        main.postDelayed(refresh, 300)
     }
 
     private fun startCommand() {

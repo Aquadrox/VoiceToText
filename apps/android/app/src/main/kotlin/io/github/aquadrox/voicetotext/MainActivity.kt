@@ -191,7 +191,7 @@ class MainActivity : Activity() {
             note("À droite du micro, la touche consigne (maintenue) : la consigne dictée s'applique au texte sélectionné (« rends ce texte plus formel », « traduis en anglais »).")
             note("À gauche du micro : le mode traduction. Tout à gauche : retour à votre clavier habituel.")
             if (BuildConfig.BUBBLE) {
-                note("Bulle : toucher pour dicter, toucher encore pour insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer.")
+                note("Bulle : toucher pour dicter, toucher encore pour insérer. Maintenir : consigne sur le texte sélectionné. Glisser : déplacer. Double appui : passer au clavier VoiceToText (Android 11 et plus).")
             }
         }
 
