@@ -47,24 +47,25 @@ Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : o
 1. Télécharger depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) sur le téléphone, l'ouvrir et autoriser l'installation (application hors Play Store). Android 10 ou plus récent, processeur 64 bits. Deux éditions, au choix (même application : on passe de l'une à l'autre en gardant ses réglages) :
    - `VoiceToText_x.y.z_android.apk` : **clavier** seul, s'installe normalement ;
    - `VoiceToText_x.y.z_android-bulle.apk` : clavier **et bulle**. Play Protect bloque l'installation de toute application hors Play Store qui contient un service d'accessibilité (« Appli bloquée pour protéger votre appareil ») : le couper le temps de l'installation (Play Store → icône du profil → Play Protect → ⚙ → décocher « Analyser les applis avec Play Protect »), installer, **puis le réactiver aussitôt** ; ou installer depuis un PC avec `adb install`.
-2. Ouvrir **VoiceToText** :
+2. Ouvrir **VoiceToText** : la carte **Mise en route** coche chaque étape faite (micro, modèle, clavier, bulle) et ouvre les écrans d'Android concernés.
    1. **Autoriser le micro** ;
    2. choisir un **modèle** et le **télécharger** (vérifié à l'arrivée) :
       - **Parakeet TDT v3** 8 bits (**recommandé**, 670 Mo) : le plus rapide et le plus fiable, ponctué, comme sur PC ; demande environ 1 Go de mémoire vive ;
       - **Whisper Small** 8 bits (264 Mo) ; **Base** pour un petit téléphone (82 Mo) ; **Large v3 Turbo** (574 Mo) ;
       - **Vosk Small** français (42 Mo) : ultra léger et instantané, sans ponctuation (le LLM la rajoute) ;
-   3. **Activer le clavier VoiceToText**, puis **Choisir le clavier** ; et/ou activer la **bulle** (ci-dessous).
-3. **Nettoyage du texte** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées).
+   3. Clavier VoiceToText : **Activer**, puis **Choisir** ; et/ou activer la **bulle** (ci-dessous).
+3. **Nettoyage du texte (LLM)** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées). Puis **Enregistrer les réglages** (bouton fixé en bas de l'écran).
 
 Au clavier :
-- **maintenir 🎤** pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ;
-- **🌍** : mode traduction (le texte dicté est traduit dans la langue choisie dans l'application), allumé tant qu'on ne le coupe pas ;
-- **maintenir ✨** : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
-- 🌐 revient au clavier habituel ; ⌫, espace et entrée pour les retouches.
+- **maintenir le micro** (au centre) pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ;
+- touche **traduction** (à gauche du micro) : mode traduction (le texte dicté est traduit dans la langue choisie dans l'application), allumé (touche claire) tant qu'on ne le coupe pas ;
+- **maintenir** la touche **consigne** (à droite du micro) : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
+- touche **clavier** (tout à gauche) : retour au clavier habituel ; effacer, espace et entrée pour les retouches.
+- pendant l'écoute, un disque vermillon autour du micro suit le niveau de la voix : s'il ne bouge pas, le micro ne capte rien.
 
-Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bulle 🎤 apparaît quand un clavier est ouvert sur un champ de texte.
+Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bulle ronde (icône micro) apparaît quand un clavier est ouvert sur un champ de texte.
 - **toucher** : dicter ; toucher encore : le texte s'insère au curseur ;
-- **maintenir** : consigne appliquée au texte sélectionné (comme ✨) ;
+- **maintenir** : consigne appliquée au texte sélectionné (comme la touche consigne du clavier) ;
 - **glisser** : déplacer (la position est gardée) ;
 - réglages : taille, affichage même clavier fermé, traduction, insertion en collant, historique (coupé par défaut).
 

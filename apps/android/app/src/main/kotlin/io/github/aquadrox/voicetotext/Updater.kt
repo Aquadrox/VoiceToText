@@ -362,7 +362,7 @@ object Updater {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("VoiceToText ${release.version} disponible")
             .setContentText("Version installée : ${BuildConfig.VERSION_NAME}. Nouveautés dans l'application ; rien n'est installé sans votre accord.")
             .setContentIntent(open)
@@ -383,7 +383,7 @@ object Updater {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Mise à jour de VoiceToText prête")
             .setContentText("Touchez pour l'installer.")
             .setContentIntent(pending)
@@ -405,7 +405,7 @@ object Updater {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("VoiceToText mis à jour : version ${BuildConfig.VERSION_NAME}")
             .setContentText("Touchez pour voir les nouveautés. Clavier, bulle et réglages sont gardés.")
             .setContentIntent(open)

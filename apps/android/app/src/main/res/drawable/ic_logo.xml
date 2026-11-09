@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Logo complet (apps/desktop/icons/icon.svg) pour l'en-tête de l'application.
+     Carré : @color/logo_square, un peu éclairci en mode sombre pour se détacher. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <path
+        android:fillColor="@color/logo_square"
+        android:pathData="M28,0H100A28,28 0,0 1,128 28V100A28,28 0,0 1,100 128H28A28,28 0,0 1,0 100V28A28,28 0,0 1,28 0Z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M28,56v16M43,44v40M58,31v66M73,50v28"
+        android:strokeColor="#F1EFE8"
+        android:strokeLineCap="round"
+        android:strokeWidth="10" />
+    <path
+        android:fillColor="#FF5B36"
+        android:pathData="M88,28h16a2,2 0,0 1,2 2v5a2,2 0,0 1,-2 2h-3.5v54H104a2,2 0,0 1,2 2v5a2,2 0,0 1,-2 2H88a2,2 0,0 1,-2 -2v-5a2,2 0,0 1,2 -2h3.5V37H88a2,2 0,0 1,-2 -2v-5a2,2 0,0 1,2 -2z" />
+</vector>

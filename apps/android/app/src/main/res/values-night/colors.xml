@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode sombre : mêmes noms que values/colors.xml. -->
+<resources>
+    <color name="bg">#141416</color>
+    <color name="card">#1D1D20</color>
+    <color name="fg">#EDEBE6</color>
+    <color name="muted">#9C9A93</color>
+    <color name="border">#2E2E32</color>
+    <color name="border_strong">#46464B</color>
+    <color name="accent">#EDEBE6</color>
+    <color name="accent_fg">#141416</color>
+    <color name="signal">#FF6A45</color>
+    <color name="ok">#4CC38A</color>
+    <color name="danger">#F47B7B</color>
+    <color name="warning_bg">#33290F</color>
+    <color name="warning_fg">#F3D58A</color>
+    <color name="ripple">#29EDEBE6</color>
+    <color name="logo_square">#26262B</color>
+</resources>

@@ -8,6 +8,15 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.24.0 — 2026-11-09
+
+- [Android] Nouvelle apparence aux couleurs du logo : en-tête avec le logo, réglages rangés en cartes, mode sombre soigné.
+- [Android] Carte « Mise en route » : chaque étape (micro, modèle, clavier, bulle) est cochée une fois faite, avec le bouton qui ouvre le bon écran d'Android.
+- [Android] « Enregistrer les réglages » reste visible en bas de l'écran ; les explications longues sont repliées sous « En savoir plus ».
+- [Android] Clavier : vraies icônes à la place des émojis, touches arrondies, et un disque autour du micro qui suit le niveau de la voix.
+- [Android] Bulle : icônes dessinées (micro, consigne, attente, terminé).
+- [Android] Historique en liste, dictionnaire en pastilles, logo dans les notifications.
+
 ## 0.23.0 — 2026-11-09
 
 - Nouveau logo : des barres de voix qui se terminent par un curseur de texte (icône de l'application).

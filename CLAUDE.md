@@ -4,6 +4,7 @@
 - Docs, commits et commentaires en français ; identifiants de code en anglais.
 - `docs/ROADMAP.md` est le suivi d'avancement : le mettre à jour à chaque étape livrée.
 - Dev sur un serveur Debian sans GPU ni Windows : tester sous Linux tout ce qui est portable (`vtt-core`), la CI Windows valide le reste. Garder `vtt-core` sans dépendance OS.
+- Android : le propriétaire a accepté la licence du SDK Android (09/11/2026) pour compiler sur le serveur (`sdkmanager "platforms;android-36" "build-tools;35.0.0"`, puis `./gradlew assembleClavierDebug assembleBulleDebug`). Maven Central renvoie souvent 429 : passer par le miroir `maven-central.storage-download.googleapis.com` (script d'init Gradle, hors dépôt). Captures d'écran possibles avec Robolectric (test et dépendances temporaires, jamais committés) et `cargo build -p vtt-android` pour le moteur.
 - Avant de livrer : `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 - **Version** : chaque PR qui change l'application monte `version` dans le Cargo.toml racine (l'installeur l'affiche) ; le tag `vX.Y.Z` doit correspondre, la CI refuse sinon.
 - **Publication** : après le merge, le propriétaire lance `./release.sh` (Git Bash) qui pose et envoie le tag `vX.Y.Z` de `main` ; ne jamais pousser de tag soi-même.
