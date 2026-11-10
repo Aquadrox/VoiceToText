@@ -8,6 +8,13 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.26.1 — 2026-11-10
+
+- [Android] Bulle arrêtée par le téléphone (elle disparaît et ne revient pas, même après être passé par le clavier VoiceToText) : le clavier et l'application le signalent et ouvrent directement son réglage. Il suffit de la désactiver puis de la réactiver, sans forcer l'arrêt de l'application.
+- [Android] Bulle : le modèle de transcription est libéré de la mémoire une minute après l'extinction de l'écran, puis rechargé dès que la bulle réapparaît, pour que le téléphone ait moins de raisons d'arrêter l'application.
+- [Android] Bulle : la cause de son dernier arrêt, donnée par Android, reste affichée dans la carte « Bulle de dictée », même après l'avoir relancée.
+- [Android] Bulle : conseils complétés pour Xiaomi, Samsung… (verrouiller VoiceToText dans les applications récentes) ; sur Xiaomi, un bouton de la carte « Bulle de dictée » ouvre le réglage « Démarrage automatique », absent des informations de l'application.
+
 ## 0.26.0 — 2026-11-10
 
 - [Android] Prompts système modifiables : dans la carte « Nettoyage du texte (LLM) », bouton « Prompts système » pour lire le prompt intégré, en créer une copie à votre goût (nettoyage et Command Mode) et choisir celui qui est utilisé ; les prompts importés du PC y apparaissent.

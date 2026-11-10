@@ -182,7 +182,7 @@ Dicter sans changer de clavier, comme Wispr Flow : une bulle flottante sur le ch
 - ✅ Un seul modèle en mémoire à la fois (l'ancien est libéré avant de charger le nouveau)
 - ✅ Essai sur le Xiaomi 17T Pro : Parakeet le plus rapide et le plus fiable → modèle conseillé et proposé par défaut (v0.18.1)
 - ✅ Bulle qui disparaissait (service « Ne fonctionne pas » dans l'accessibilité) : une erreur du moteur (panique Rust, exception Kotlin) ou du micro tuait tout le processus, et Android ne relançait pas le service. Erreurs désormais rattrapées et affichées ; bulle remise si Android retire sa fenêtre ; l'application signale une bulle activée mais arrêtée, avec la raison du dernier arrêt donnée par Android (v0.18.2)
-- À vérifier sur le téléphone : si la bulle s'arrête encore, la raison affichée (mémoire insuffisante, arrêtée par le système…) dira s'il faut libérer le modèle écran éteint
+- Suite en v0.26.1 : la bulle s'arrête encore (téléphone qui tue l'application) ; modèle libéré écran éteint, relance guidée
 
 ## v0.19 — Réglages clairs ✅
 
@@ -276,6 +276,18 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 - ✅ Écran « Prompts système » (bouton dans la carte Nettoyage du texte) : prompt intégré en lecture seule, copies modifiables (nom, texte), prompt utilisé au choix, pour le nettoyage et le Command Mode ; mêmes `[[prompts]]` et `llm.cleanup_prompt` / `command_prompt` que la page Prompts du PC, donc les prompts importés du PC y apparaissent ; vérifiés comme sur PC (`clean_prompts`), prompts de compte rendu gardés tels quels, profil LLM pointant vers un prompt supprimé ramené au prompt intégré
 - ✅ Champs multi-lignes : `minLines` posé après `minHeight` (Android ne garde que le dernier minimum)
 - À vérifier sur le téléphone : édition d'un long prompt au clavier, dictée nettoyée avec la copie
+
+## v0.26.1 — Android : bulle arrêtée par le téléphone ✅
+
+Sur le Xiaomi (HyperOS), la bulle disparaît ; le clavier VoiceToText refonctionne, mais la bulle ne revient qu'après un arrêt forcé et une réactivation. Cause : le téléphone tue l'application et refuse de la relancer ; le service d'accessibilité reste coché mais mort, et Android ne reconnecte jamais seul un service dans cet état, même quand le processus redémarre pour le clavier. Aucune API ne permet à l'application de le reconnecter : seul l'utilisateur le peut (désactiver puis réactiver).
+
+- ✅ Détection de la bulle « cochée mais morte » (`BubbleStatus`) depuis l'application (carte en haut de l'écran) et depuis le clavier (ligne à toucher) ; ouverture directe de la page de la bulle dans l'accessibilité (`ACCESSIBILITY_DETAILS_SETTINGS`, sinon la liste). Quatre secondes de grâce après le lancement du processus, le temps qu'Android reconnecte le service
+- ✅ Cause de l'arrêt : premier arrêt du processus depuis la dernière connexion de la bulle (`getHistoricalProcessExitReasons`), gardée dans les réglages et affichée dans la carte Bulle même après un arrêt forcé ou une relance (avant : seul le dernier arrêt, donc souvent l'arrêt forcé lui-même)
+- ✅ Modèle libéré une minute après l'extinction de l'écran (`Native.release`), rechargé quand la bulle réapparaît ou à la dictée suivante : une application de plusieurs centaines de Mo est la première visée par le ménage écran verrouillé
+- ✅ Appuis sur la bulle et insertion du texte protégés des exceptions (elles tuaient le processus)
+- ✅ Conseils constructeurs complétés (verrouillage dans les applications récentes) ; Xiaomi : bouton vers la liste « Démarrage automatique » de l'application Sécurité (`AutoStartManagementActivity`), le réglage n'étant pas dans les informations de l'application sur HyperOS. À vérifier sur le téléphone : le bouton ouvre bien cet écran
+- À vérifier sur le téléphone : ligne « Bulle arrêtée » du clavier et carte de l'application quand la bulle est morte ; relance par simple désactivation/réactivation ; cause affichée (à rapporter : elle dira si c'est le ménage de HyperOS, la mémoire ou une mise à jour) ; première dictée après l'écran éteint
+- Si cela ne suffit pas : relance automatique possible avec la permission `WRITE_SECURE_SETTINGS`, donnée une fois depuis un PC (`adb`), ou service au premier plan avec notification permanente
 
 ## Outillage ✅
 

@@ -175,6 +175,17 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_start<'a>(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_release(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    protect(|| {
+        engine::release();
+        String::new()
+    });
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_history<'a>(
     mut env: JNIEnv<'a>,
     _class: JClass<'a>,

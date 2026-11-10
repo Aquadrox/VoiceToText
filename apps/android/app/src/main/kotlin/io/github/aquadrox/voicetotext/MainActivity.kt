@@ -1,12 +1,8 @@
 package io.github.aquadrox.voicetotext
 
 import android.Manifest
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
-import android.app.ActivityManager
-import android.app.ApplicationExitInfo
 import android.app.NotificationManager
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -19,7 +15,6 @@ import android.graphics.Typeface
 import android.text.InputType
 import android.util.TypedValue
 import android.view.View
-import android.view.accessibility.AccessibilityManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
@@ -53,6 +48,10 @@ class MainActivity : Activity() {
     /** Édition bulle seulement. */
     private var bubbleStep: Step? = null
     private var bubbleButtons: View? = null
+    private var bubbleBanner: View? = null
+    private var bubbleBannerText: TextView? = null
+    private var bubbleStop: TextView? = null
+    private val bubbleCheck = Runnable { if (!isDestroyed) refreshStatus() }
     private lateinit var models: RadioGroup
     private lateinit var download: Button
     private lateinit var progress: ProgressBar
@@ -150,6 +149,13 @@ class MainActivity : Activity() {
             primary("Mettre à jour") { installUpdate() }
             visibility = View.GONE
         }
+        if (BuildConfig.BUBBLE) {
+            bubbleBanner = card("Bulle arrêtée par le téléphone", R.drawable.ic_message_circle).apply {
+                bubbleBannerText = note("")
+                primary("Relancer la bulle") { BubbleStatus.openSettings(this@MainActivity) }
+                visibility = View.GONE
+            }
+        }
 
         card("Mise en route", R.drawable.ic_list_checks).apply {
             micStep = step("Micro")
@@ -169,9 +175,7 @@ class MainActivity : Activity() {
                 bubbleRow.actions.secondary("Infos de l'appli") {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
                 }
-                bubbleRow.actions.secondary("Accessibilité") {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                }
+                bubbleRow.actions.secondary("Accessibilité") { BubbleStatus.openSettings(this@MainActivity) }
                 bubbleStep = bubbleRow
                 bubbleButtons = bubbleRow.actions
             }
@@ -311,9 +315,19 @@ class MainActivity : Activity() {
     private fun LinearLayout.bubbleOptions() {
         note("Gardez votre clavier habituel : une bulle apparaît quand vous écrivez. Clavier ou bulle, ou les deux : au choix.")
         more(
-            "Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction », sinon le téléphone coupe la bulle.",
+            "Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : autorisez le démarrage automatique de VoiceToText (Xiaomi : bouton ci-dessous, ou cherchez « démarrage automatique » dans les paramètres du téléphone) ; dans Infos de l'application, mettez la batterie sur « Pas de restriction » ; dans les applications récentes, verrouillez VoiceToText (appui long sur sa carte → cadenas). Sinon le téléphone arrête la bulle, et Android ne la relance pas seul.\n\nBulle arrêtée : désactivez-la puis réactivez-la dans l'accessibilité. Inutile de forcer l'arrêt de l'application.",
             "Comment l'activer",
         )
+        if (BubbleStatus.xiaomi) {
+            secondary("Démarrage automatique (Xiaomi)") {
+                if (BubbleStatus.openAutostart(this@MainActivity)) {
+                    say("Activez VoiceToText dans la liste « Démarrage automatique ».")
+                } else {
+                    say("Écran introuvable sur ce téléphone : cherchez « démarrage automatique » dans les paramètres.")
+                }
+            }
+        }
+        bubbleStop = note("").apply { visibility = View.GONE }
         option("Seulement quand le clavier est ouvert", store.bubbleWithKeyboard) { store.bubbleWithKeyboard = it }
         option("Insérer en collant (si le texte n'apparaît pas dans une application ; remplace le presse-papier)", store.bubblePaste) {
             store.bubblePaste = it
@@ -410,45 +424,31 @@ class MainActivity : Activity() {
         keyboardStep.set(enabled, if (enabled) "Activé ; « Choisir » pour passer d'un clavier à l'autre" else "À activer dans les réglages d'Android")
         keyboardActivate.visibility = if (enabled) View.GONE else View.VISIBLE
         val bubbleStep = bubbleStep ?: return
-        val bubble = ComponentName(this, BubbleService::class.java)
-        val bubbleEnabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-            .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == bubble }
-        // Le réglage ci-dessus reste coché quand le service est mort ; cette
-        // liste-ci ne contient que les services réellement en marche.
-        val running = getSystemService(AccessibilityManager::class.java)
-            .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-            .any { info -> info.resolveInfo.serviceInfo.let { ComponentName(it.packageName, it.name) } == bubble }
-        bubbleButtons?.visibility = if (running) View.GONE else View.VISIBLE
-        bubbleStep.set(running, when {
-            !bubbleEnabled -> "À activer : « Comment l'activer » dans la carte Bulle"
-            running -> "Activée"
-            else -> "Activée mais arrêtée par Android (« Ne fonctionne pas » dans l'accessibilité). " +
-                "Pour la relancer, sans forcer l'arrêt de l'application : désactivez-la puis réactivez-la " +
-                "(deux appuis sur le raccourci d'accessibilité suffisent)." + lastExit()
+        main.removeCallbacks(bubbleCheck)
+        val state = runCatching { BubbleStatus.state(this) }.getOrDefault(BubbleStatus.State.DISABLED)
+        val stopped = state == BubbleStatus.State.STOPPED
+        if (stopped) BubbleStatus.recordStop(this, store)
+        // Application tout juste lancée : Android reconnecte peut-être encore la bulle.
+        if (state == BubbleStatus.State.STARTING) main.postDelayed(bubbleCheck, BubbleStatus.SETTLE_MS)
+        val running = state == BubbleStatus.State.RUNNING
+        bubbleButtons?.visibility = if (running || state == BubbleStatus.State.STARTING) View.GONE else View.VISIBLE
+        bubbleStep.set(running, when (state) {
+            BubbleStatus.State.DISABLED -> "À activer : « Comment l'activer » dans la carte Bulle"
+            BubbleStatus.State.RUNNING -> "Activée"
+            BubbleStatus.State.STARTING -> "Démarrage…"
+            BubbleStatus.State.STOPPED -> "Activée mais arrêtée par le téléphone : voir en haut de l'écran"
         })
-    }
-
-    /** Dernier arrêt du processus vu par Android (11 et plus) : pourquoi la bulle s'est arrêtée. */
-    private fun lastExit(): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return ""
-        val exit = getSystemService(ActivityManager::class.java)
-            .getHistoricalProcessExitReasons(packageName, 0, 1).firstOrNull() ?: return ""
-        val reason = when (exit.reason) {
-            ApplicationExitInfo.REASON_CRASH -> "plantage de l'application"
-            ApplicationExitInfo.REASON_CRASH_NATIVE -> "plantage du moteur de dictée"
-            ApplicationExitInfo.REASON_ANR -> "application bloquée (ANR)"
-            ApplicationExitInfo.REASON_LOW_MEMORY -> "mémoire insuffisante"
-            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "consommation jugée excessive"
-            ApplicationExitInfo.REASON_SIGNALED -> "tuée par le système (signal ${exit.status})"
-            ApplicationExitInfo.REASON_OTHER -> "arrêtée par le système"
-            ApplicationExitInfo.REASON_USER_REQUESTED -> "arrêt forcé"
-            ApplicationExitInfo.REASON_USER_STOPPED -> "arrêtée par l'utilisateur"
-            ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission modifiée"
-            else -> "code ${exit.reason}"
+        val last = store.bubbleStop.takeIf { it.isNotEmpty() }
+        bubbleBanner?.visibility = if (stopped) View.VISIBLE else View.GONE
+        bubbleBannerText?.text = "La bulle est activée, mais le téléphone a arrêté l'application et Android ne relance pas la bulle tout seul, " +
+            "même quand le clavier VoiceToText refonctionne.\n\n" +
+            "Pour la relancer : « Relancer la bulle », puis désactivez-la et réactivez-la. Inutile de forcer l'arrêt de l'application." +
+            last?.let { "\n\nCause donnée par Android : $it." }.orEmpty() +
+            "\n\nPour que cela n'arrive plus : étape 3 de « Comment l'activer », dans la carte Bulle."
+        bubbleStop?.apply {
+            text = last?.let { "Dernier arrêt de la bulle par le téléphone : $it." }.orEmpty()
+            visibility = if (last == null) View.GONE else View.VISIBLE
         }
-        val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(exit.timestamp))
-        val detail = exit.description?.takeIf { it.isNotBlank() }?.let { " : $it" }.orEmpty()
-        return "\nDernier arrêt de l'application : $reason$detail ($date)."
     }
 
     private fun selectedModel(): String =
@@ -650,6 +650,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(bubbleCheck)
         worker.shutdown()
         updates.shutdown()
         super.onDestroy()
