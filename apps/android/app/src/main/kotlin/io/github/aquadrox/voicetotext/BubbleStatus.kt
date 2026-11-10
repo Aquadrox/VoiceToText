@@ -79,6 +79,22 @@ object BubbleStatus {
         }
     }
 
+    /** Xiaomi, Redmi, POCO : le démarrage automatique se règle dans l'application Sécurité du téléphone. */
+    val xiaomi: Boolean
+        get() = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
+
+    /**
+     * Xiaomi : ouvre la liste « Démarrage automatique » (absente des
+     * informations de l'application sur HyperOS). Faux si le téléphone n'a
+     * pas cet écran.
+     */
+    fun openAutostart(context: Context): Boolean {
+        val intent = Intent()
+            .setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching { context.startActivity(intent) }.isSuccess
+    }
+
     /** La bulle vient de se connecter : l'arrêt précédent est noté, puis une nouvelle période commence. */
     fun connected(context: Context, store: Store) {
         recordStop(context, store, recovered = true)

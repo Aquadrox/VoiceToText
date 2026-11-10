@@ -315,9 +315,18 @@ class MainActivity : Activity() {
     private fun LinearLayout.bubbleOptions() {
         note("Gardez votre clavier habituel : une bulle apparaît quand vous écrivez. Clavier ou bulle, ou les deux : au choix.")
         more(
-            "Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : dans Infos de l'application, autorisez le démarrage automatique et mettez la batterie sur « Pas de restriction » ; dans les applications récentes, verrouillez VoiceToText (appui long sur sa carte → cadenas). Sinon le téléphone arrête la bulle, et Android ne la relance pas seul.\n\nBulle arrêtée : désactivez-la puis réactivez-la dans l'accessibilité. Inutile de forcer l'arrêt de l'application.",
+            "Activation (une seule fois) :\n1. Android 13 et plus : Infos de l'application → ⋮ (en haut à droite) → « Autoriser les paramètres restreints » (obligatoire pour une application installée hors Play Store).\n2. Accessibilité → Applications installées → « VoiceToText : bulle de dictée » → activer.\n3. Xiaomi, Samsung… : autorisez le démarrage automatique de VoiceToText (Xiaomi : bouton ci-dessous, ou cherchez « démarrage automatique » dans les paramètres du téléphone) ; dans Infos de l'application, mettez la batterie sur « Pas de restriction » ; dans les applications récentes, verrouillez VoiceToText (appui long sur sa carte → cadenas). Sinon le téléphone arrête la bulle, et Android ne la relance pas seul.\n\nBulle arrêtée : désactivez-la puis réactivez-la dans l'accessibilité. Inutile de forcer l'arrêt de l'application.",
             "Comment l'activer",
         )
+        if (BubbleStatus.xiaomi) {
+            secondary("Démarrage automatique (Xiaomi)") {
+                if (BubbleStatus.openAutostart(this@MainActivity)) {
+                    say("Activez VoiceToText dans la liste « Démarrage automatique ».")
+                } else {
+                    say("Écran introuvable sur ce téléphone : cherchez « démarrage automatique » dans les paramètres.")
+                }
+            }
+        }
         bubbleStop = note("").apply { visibility = View.GONE }
         option("Seulement quand le clavier est ouvert", store.bubbleWithKeyboard) { store.bubbleWithKeyboard = it }
         option("Insérer en collant (si le texte n'apparaît pas dans une application ; remplace le presse-papier)", store.bubblePaste) {

@@ -285,7 +285,7 @@ Sur le Xiaomi (HyperOS), la bulle disparaît ; le clavier VoiceToText refonction
 - ✅ Cause de l'arrêt : premier arrêt du processus depuis la dernière connexion de la bulle (`getHistoricalProcessExitReasons`), gardée dans les réglages et affichée dans la carte Bulle même après un arrêt forcé ou une relance (avant : seul le dernier arrêt, donc souvent l'arrêt forcé lui-même)
 - ✅ Modèle libéré une minute après l'extinction de l'écran (`Native.release`), rechargé quand la bulle réapparaît ou à la dictée suivante : une application de plusieurs centaines de Mo est la première visée par le ménage écran verrouillé
 - ✅ Appuis sur la bulle et insertion du texte protégés des exceptions (elles tuaient le processus)
-- ✅ Conseils constructeurs complétés (verrouillage dans les applications récentes)
+- ✅ Conseils constructeurs complétés (verrouillage dans les applications récentes) ; Xiaomi : bouton vers la liste « Démarrage automatique » de l'application Sécurité (`AutoStartManagementActivity`), le réglage n'étant pas dans les informations de l'application sur HyperOS. À vérifier sur le téléphone : le bouton ouvre bien cet écran
 - À vérifier sur le téléphone : ligne « Bulle arrêtée » du clavier et carte de l'application quand la bulle est morte ; relance par simple désactivation/réactivation ; cause affichée (à rapporter : elle dira si c'est le ménage de HyperOS, la mémoire ou une mise à jour) ; première dictée après l'écran éteint
 - Si cela ne suffit pas : relance automatique possible avec la permission `WRITE_SECURE_SETTINGS`, donnée une fois depuis un PC (`adb`), ou service au premier plan avec notification permanente
 

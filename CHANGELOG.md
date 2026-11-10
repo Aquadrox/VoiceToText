@@ -13,7 +13,7 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - [Android] Bulle arrêtée par le téléphone (elle disparaît et ne revient pas, même après être passé par le clavier VoiceToText) : le clavier et l'application le signalent et ouvrent directement son réglage. Il suffit de la désactiver puis de la réactiver, sans forcer l'arrêt de l'application.
 - [Android] Bulle : le modèle de transcription est libéré de la mémoire une minute après l'extinction de l'écran, puis rechargé dès que la bulle réapparaît, pour que le téléphone ait moins de raisons d'arrêter l'application.
 - [Android] Bulle : la cause de son dernier arrêt, donnée par Android, reste affichée dans la carte « Bulle de dictée », même après l'avoir relancée.
-- [Android] Bulle : conseils complétés pour Xiaomi, Samsung… (verrouiller VoiceToText dans les applications récentes).
+- [Android] Bulle : conseils complétés pour Xiaomi, Samsung… (verrouiller VoiceToText dans les applications récentes) ; sur Xiaomi, un bouton de la carte « Bulle de dictée » ouvre le réglage « Démarrage automatique », absent des informations de l'application.
 
 ## 0.26.0 — 2026-11-10
 
