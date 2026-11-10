@@ -67,8 +67,31 @@ object Dictation {
         }
     }
 
+    /**
+     * Libère le modèle (plusieurs centaines de Mo de mémoire vive) : le
+     * prochain [prepare] le recharge. La bulle le demande écran éteint, pour
+     * que le téléphone ait moins de raisons d'arrêter l'application. Fil
+     * principal.
+     */
+    fun release() {
+        if (loaded < 0 || loading) return
+        loaded = -1
+        worker.execute { runCatching { Native.release() } }
+    }
+
     /** Dicte en arrière-plan ; réponse JSON de [Native.dictate] sur le fil principal. */
-    fun run(samples: FloatArray, app: String, mode: Int, selection: String, privacy: Int, done: (JSONObject) -> Unit) {
+    fun run(
+        store: Store,
+        samples: FloatArray,
+        app: String,
+        mode: Int,
+        selection: String,
+        privacy: Int,
+        done: (JSONObject) -> Unit,
+    ) {
+        // Modèle libéré ou réglages modifiés pendant l'enregistrement :
+        // rechargé d'abord, sur la même file d'attente.
+        if (stale(store)) prepare(store) {}
         worker.execute {
             val result = try {
                 JSONObject(Native.dictate(samples, app, mode, selection, privacy))

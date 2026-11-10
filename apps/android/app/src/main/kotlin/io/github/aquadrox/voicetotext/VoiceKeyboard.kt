@@ -27,6 +27,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import org.json.JSONObject
 
 /**
@@ -41,6 +42,8 @@ class VoiceKeyboard : InputMethodService() {
     private val recorder = Recorder()
 
     private lateinit var status: TextView
+    /** Édition bulle : bulle activée mais arrêtée par le téléphone. */
+    private lateinit var bubbleAlert: TextView
     private lateinit var mic: ImageButton
     private lateinit var command: ImageButton
     private lateinit var translate: ImageButton
@@ -82,6 +85,18 @@ class VoiceKeyboard : InputMethodService() {
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(4))
+        }
+        bubbleAlert = TextView(this).apply {
+            text = "Bulle arrêtée par le téléphone · touchez ici pour la relancer"
+            setTextColor(Color.parseColor(ACCENT))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(4), dp(8), dp(8))
+            visibility = View.GONE
+            setOnClickListener {
+                Toast.makeText(context, "Désactivez la bulle puis réactivez-la : elle repart", Toast.LENGTH_LONG).show()
+                BubbleStatus.openSettings(context)
+            }
         }
         mic = ImageButton(this).apply {
             setImageResource(R.drawable.ic_mic)
@@ -129,6 +144,7 @@ class VoiceKeyboard : InputMethodService() {
             side(key(R.drawable.ic_corner_down_left, "Entrée").apply { setOnClickListener { enter() } })
         }
         val wide = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        root.addView(bubbleAlert, wide)
         root.addView(status, wide)
         root.addView(top, wide)
         root.addView(bottom, wide)
@@ -182,6 +198,7 @@ class VoiceKeyboard : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lastInserted = 0
+        checkBubble()
         if (!hasMicPermission()) {
             show("Autorisez le micro dans l'application VoiceToText")
             return
@@ -196,6 +213,23 @@ class VoiceKeyboard : InputMethodService() {
         handsFree = false
         super.onFinishInputView(finishingInput)
     }
+
+    /**
+     * La bulle a été arrêtée par le téléphone : on se rabat alors sur ce
+     * clavier, qui le dit et mène à l'écran où la relancer (Android ne la
+     * relance pas seul, même si ce clavier vient de redémarrer l'application).
+     */
+    private fun checkBubble() {
+        if (!::bubbleAlert.isInitialized) return
+        bubbleAlert.removeCallbacks(bubbleCheck)
+        val state = runCatching { BubbleStatus.state(this) }.getOrDefault(BubbleStatus.State.DISABLED)
+        bubbleAlert.visibility = if (state == BubbleStatus.State.STOPPED) View.VISIBLE else View.GONE
+        if (state == BubbleStatus.State.STOPPED) BubbleStatus.recordStop(this, store)
+        // Application tout juste lancée : Android reconnecte peut-être encore la bulle.
+        if (state == BubbleStatus.State.STARTING) bubbleAlert.postDelayed(bubbleCheck, BubbleStatus.SETTLE_MS)
+    }
+
+    private val bubbleCheck = Runnable { checkBubble() }
 
     /** Mode traduction allumé : touche inversée (papier, icône d'encre). */
     private fun showTranslate() {
@@ -251,7 +285,8 @@ class VoiceKeyboard : InputMethodService() {
             return
         }
         if (!Dictation.ready) {
-            show("Modèle pas encore prêt")
+            // Modèle libéré entre-temps (bulle, écran éteint) : rechargé.
+            if (Dictation.stale(store)) loadEngine() else show("Modèle pas encore prêt")
             return
         }
         if (!recorder.start()) {
@@ -283,7 +318,7 @@ class VoiceKeyboard : InputMethodService() {
         }
         val current = mode
         val privacy = privacy(currentInputEditorInfo)
-        Dictation.run(samples, app, current, selection, privacy) { apply(it, current) }
+        Dictation.run(store, samples, app, current, selection, privacy) { apply(it, current) }
     }
 
     private fun apply(result: JSONObject, kind: Int) {

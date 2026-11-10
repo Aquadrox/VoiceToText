@@ -159,6 +159,15 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
     Ok(())
 }
 
+/// Libère le modèle (plusieurs centaines de Mo de mémoire vive) : le
+/// prochain [`start`] le recharge. Sert à la bulle quand l'écran est éteint,
+/// pour que le téléphone ait moins de raisons d'arrêter l'application.
+pub fn release() {
+    if lock(&ENGINE).take().is_some() {
+        log::info!("modèle libéré");
+    }
+}
+
 /// Résultat d'une dictée pour l'application.
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct Dictation {

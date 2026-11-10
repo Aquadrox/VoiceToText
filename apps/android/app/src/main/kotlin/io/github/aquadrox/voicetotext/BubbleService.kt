@@ -3,8 +3,12 @@ package io.github.aquadrox.voicetotext
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -74,7 +78,28 @@ class BubbleService : AccessibilityService() {
     private var doubleTap = false
 
     private val refresh = Runnable { update() }
-    private val longPress = Runnable { startCommand() }
+    private val longPress = Runnable { safely("consigne") { startCommand() } }
+
+    /**
+     * Écran éteint depuis une minute : le modèle (plusieurs centaines de Mo)
+     * est libéré, puis rechargé quand la bulle sert à nouveau. Les téléphones
+     * qui font le ménage écran verrouillé visent d'abord les applications
+     * les plus lourdes.
+     */
+    private val unload = Runnable {
+        if (state == IDLE) {
+            Dictation.release()
+            released = true
+        }
+    }
+    /** Modèle libéré écran éteint : à recharger quand la bulle sert à nouveau. */
+    private var released = false
+    private val screen = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            main.removeCallbacks(unload)
+            if (intent.action == Intent.ACTION_SCREEN_OFF) main.postDelayed(unload, UNLOAD_MS)
+        }
+    }
     private val pulse = object : Runnable {
         override fun run() {
             val view = bubble ?: return
@@ -89,6 +114,15 @@ class BubbleService : AccessibilityService() {
         super.onServiceConnected()
         manager = getSystemService(WindowManager::class.java)
         runCatching { Updater.schedule(this) }
+        runCatching { BubbleStatus.connected(this, store) }
+        runCatching {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_SCREEN_ON) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screen, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screen, filter)
+            }
+        }
         update()
     }
 
@@ -107,6 +141,9 @@ class BubbleService : AccessibilityService() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        runCatching { unregisterReceiver(screen) }
+        // Désactivée par l'utilisateur : pas un arrêt à expliquer.
+        runCatching { BubbleStatus.disconnected(store) }
         if (recorder.recording) recorder.stop()
         hide()
         super.onDestroy()
@@ -120,8 +157,37 @@ class BubbleService : AccessibilityService() {
      */
     private fun update() {
         if (!::manager.isInitialized || state != IDLE) return
-        runCatching { if (field() == null) hide() else show() }
-            .onFailure { Log.w("VoiceToText", "Bulle non mise à jour", it) }
+        runCatching {
+            if (field() == null) {
+                hide()
+            } else {
+                val appeared = bubble == null
+                show()
+                // Modèle chargé dès l'apparition de la bulle (ou rechargé
+                // après l'écran éteint) : la première dictée part sans attendre.
+                if ((appeared || released) && Dictation.stale(store)) Dictation.prepare(store) {}
+                released = false
+            }
+        }.onFailure { Log.w("VoiceToText", "Bulle non mise à jour", it) }
+    }
+
+    /**
+     * Même protection pour les appuis et l'insertion du texte : une exception
+     * sur le fil principal tuerait le processus, donc la bulle. Elle est
+     * notée dans le journal et la bulle revient au repos.
+     */
+    private inline fun safely(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            Log.w("VoiceToText", "Bulle : $what", e)
+            runCatching { if (recorder.recording) recorder.stop() }
+            main.removeCallbacks(longPress)
+            target = null
+            holding = false
+            state = IDLE
+            runCatching { paint() }
+        }
     }
 
     private fun field(): AccessibilityNodeInfo? {
@@ -158,7 +224,10 @@ class BubbleService : AccessibilityService() {
             imageTintList = ColorStateList.valueOf(Color.WHITE)
             elevation = dp(4).toFloat()
             contentDescription = "Dicter avec VoiceToText"
-            setOnTouchListener { view, event -> onTouch(view, event) }
+            setOnTouchListener { view, event ->
+                safely("appui") { onTouch(view, event) }
+                true
+            }
             // Fenêtre retirée par Android (et non par hide()) : la bulle est
             // oubliée puis remise au prochain passage, au lieu de rester
             // invisible jusqu'à un changement de taille.
@@ -197,8 +266,6 @@ class BubbleService : AccessibilityService() {
         bubble = view
         params = layout
         paint()
-        // Modèle chargé dès l'apparition : la première dictée part sans attendre.
-        if (Dictation.stale(store)) Dictation.prepare(store) {}
     }
 
     private fun hide() {
@@ -228,8 +295,8 @@ class BubbleService : AccessibilityService() {
         main.post(pulse)
     }
 
-    private fun onTouch(view: View, event: MotionEvent): Boolean {
-        val layout = params ?: return false
+    private fun onTouch(view: View, event: MotionEvent) {
+        val layout = params ?: return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.rawX
@@ -285,7 +352,6 @@ class BubbleService : AccessibilityService() {
                 }
             }
         }
-        return true
     }
 
     /**
@@ -367,11 +433,13 @@ class BubbleService : AccessibilityService() {
         // Pas de bulle sur les mots de passe. La navigation privée est
         // invisible d'ici : historique de la bulle coupable à part.
         val privacy = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
-        Dictation.run(samples, app, current, selection, privacy) { result ->
+        Dictation.run(store, samples, app, current, selection, privacy) { result ->
             state = IDLE
-            val ok = apply(result, current)
-            paint(done = ok)
-            if (ok) main.postDelayed({ paint() }, 800)
+            safely("insertion") {
+                val ok = apply(result, current)
+                paint(done = ok)
+                if (ok) main.postDelayed({ paint() }, 800)
+            }
             update()
         }
     }
@@ -490,6 +558,8 @@ class BubbleService : AccessibilityService() {
         const val WORKING = 2
         /** Au-delà : appui long (consigne). */
         const val LONG_PRESS_MS = 450L
+        /** Écran éteint depuis ce délai : modèle libéré. */
+        const val UNLOAD_MS = 60_000L
         /** Diamètre de la bulle (dp) : petite, moyenne, grande. */
         val SIZES = intArrayOf(44, 56, 68)
         // Couleurs du logo : bulle d'encre au repos, vermillon (curseur) à l'écoute.

@@ -64,6 +64,19 @@ class Store(private val context: Context) {
         get() = prefs.getInt("bubble_y", -1)
         set(value) = prefs.edit().putInt("bubble_y", value).apply()
 
+    /**
+     * Bulle : heure (ms) de sa dernière connexion à Android, 0 si elle a été
+     * désactivée proprement. Sert à retrouver l'arrêt qui l'a emportée.
+     */
+    var bubbleStartedAt: Long
+        get() = prefs.getLong("bubble_started_at", 0)
+        set(value) = prefs.edit().putLong("bubble_started_at", value).apply()
+
+    /** Bulle : cause et date de son dernier arrêt par le téléphone (vide : jamais vu). */
+    var bubbleStop: String
+        get() = prefs.getString("bubble_stop", "").orEmpty()
+        set(value) = prefs.edit().putString("bubble_stop", value).apply()
+
     /** Mises à jour : vérification automatique (au lancement puis toutes les 6 h). */
     var updatesEnabled: Boolean
         get() = prefs.getBoolean("updates_enabled", true)

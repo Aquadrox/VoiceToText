@@ -35,6 +35,9 @@ object Native {
     /** Charge le modèle (si besoin) et applique les réglages. */
     external fun start(modelsDir: String, historyFile: String, toml: String): String
 
+    /** Libère le modèle de la mémoire ; le prochain [start] le recharge. */
+    external fun release()
+
     /**
      * Dicte (16 kHz mono) : `{"kind": "text|undo|skip|error", "text", "error", "ms"}`.
      * `mode` : [DICTATE], [TRANSLATE] ou [COMMAND] (consigne appliquée à `selection`).
