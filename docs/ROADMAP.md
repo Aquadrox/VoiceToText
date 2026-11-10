@@ -271,6 +271,12 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 - ✅ Double appui sur la bulle : passage au clavier VoiceToText (`SoftKeyboardController.switchToInputMethod`, Android 11 et plus, clavier activé) ; la bulle s'efface tant qu'il est ouvert. Aucune attente ajoutée au simple appui : la dictée part dès le premier et le second appui l'abandonne
 - À vérifier sur le téléphone : double appui sur la bulle (clavier VoiceToText activé ou non), retour par la touche clavier
 
+## v0.26 — Android : prompts système ✅
+
+- ✅ Écran « Prompts système » (bouton dans la carte Nettoyage du texte) : prompt intégré en lecture seule, copies modifiables (nom, texte), prompt utilisé au choix, pour le nettoyage et le Command Mode ; mêmes `[[prompts]]` et `llm.cleanup_prompt` / `command_prompt` que la page Prompts du PC, donc les prompts importés du PC y apparaissent ; vérifiés comme sur PC (`clean_prompts`), prompts de compte rendu gardés tels quels, profil LLM pointant vers un prompt supprimé ramené au prompt intégré
+- ✅ Champs multi-lignes : `minLines` posé après `minHeight` (Android ne garde que le dernier minimum)
+- À vérifier sur le téléphone : édition d'un long prompt au clavier, dictée nettoyée avec la copie
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

@@ -39,6 +39,11 @@
             android:exported="false"
             android:label="Dictionnaire et snippets"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".PromptsActivity"
+            android:exported="false"
+            android:label="Prompts système"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- Mises à jour : vérification périodique et résultat de l'installation. -->
         <service

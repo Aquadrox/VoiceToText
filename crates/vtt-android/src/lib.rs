@@ -228,6 +228,36 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_saveVocabulary
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_prompts<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let json = protect(|| reply(settings::prompts(&toml)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_savePrompts<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+    prompts: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let prompts = text(&mut env, &prompts);
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<settings::Prompts>(&prompts)
+                .map_err(|e| e.to_string())
+                .and_then(|p| settings::save_prompts(&toml, &p)),
+        )
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     mut env: JNIEnv<'a>,
     _class: JClass<'a>,

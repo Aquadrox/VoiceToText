@@ -65,6 +65,7 @@ class MainActivity : Activity() {
     private lateinit var language: Spinner
     private lateinit var history: Switch
     private lateinit var vocabularyStatus: TextView
+    private lateinit var promptsStatus: TextView
     private lateinit var message: TextView
     private lateinit var updateBanner: LinearLayout
     private lateinit var updateBannerText: TextView
@@ -116,7 +117,7 @@ class MainActivity : Activity() {
         super.onResume()
         Updater.visible = true
         Updater.listener = { refreshUpdate() }
-        // Retour du dictionnaire : compteurs à jour.
+        // Retour du dictionnaire ou des prompts : compteurs à jour.
         if (::message.isInitialized) refresh()
         // Retour de l'autorisation « applis inconnues » : l'installation reprend.
         if (pendingInstall) {
@@ -217,6 +218,11 @@ class MainActivity : Activity() {
                 if (host.isNotEmpty()) store.deleteKey(host)
                 refresh()
                 say("Clé supprimée.")
+            }
+            divider()
+            promptsStatus = note("")
+            secondary("Prompts système") {
+                startActivity(Intent(this@MainActivity, PromptsActivity::class.java))
             }
             divider()
             voiceCommands = option("Commandes vocales (« nouvelle ligne », « annule la dernière dictée »)")
@@ -356,6 +362,9 @@ class MainActivity : Activity() {
         voiceCommands.isChecked = view.getBoolean("voice_commands")
         history.isChecked = view.getBoolean("history")
         vocabularyStatus.text = "${view.getInt("dictionary")} mot(s), ${view.getInt("snippets")} snippet(s)"
+        val prompt = { name: String -> if (name.isEmpty()) "intégré" else "« $name »" }
+        promptsStatus.text = "Prompt de nettoyage : ${prompt(view.getString("cleanup_prompt"))} · " +
+            "Command Mode : ${prompt(view.getString("command_prompt"))}"
         val languages = view.getJSONArray("languages").let { array -> List(array.length()) { array.getString(it) } }
             .let { list -> if (view.getString("translation") in list) list else list + view.getString("translation") }
         language.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, languages)

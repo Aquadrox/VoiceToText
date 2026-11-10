@@ -53,6 +53,15 @@ object Native {
     external fun saveVocabulary(toml: String, vocabulary: String): String
 
     /**
+     * Prompts système : `{"ok": {"cleanup": {...}, "command": {...}}}`, chacun
+     * `{"active", "presets": [{"name", "text"}], "builtin"}` (`active` vide : intégré).
+     */
+    external fun prompts(toml: String): String
+
+    /** Enregistre les prompts (même forme, sans `builtin`) : `{"ok": "<config.toml>"}` ou erreur. */
+    external fun savePrompts(toml: String, prompts: String): String
+
+    /**
      * Notes de version pour le téléphone : `{"ok": [{"version", "date"?, "items": [...]}]}`,
      * la plus récente d'abord. `changelog` vide : notes embarquées dans l'application
      * (CHANGELOG.md) ; sinon champ `changelog` du manifeste. Versions après `after`
