@@ -55,6 +55,7 @@ Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : o
       - **Vosk Small** français (42 Mo) : ultra léger et instantané, sans ponctuation (le LLM la rajoute) ;
    3. Clavier VoiceToText : **Activer**, puis **Choisir** ; et/ou activer la **bulle** (ci-dessous).
 3. **Nettoyage du texte (LLM)** : adresse de l'API, modèle et clé (rangée chiffrée par le Keystore Android, jamais affichée), ou **Importer un fichier de réglages** exporté depuis le PC (dictionnaire, snippets, styles, fournisseur ; les clés ne sont jamais exportées). Puis **Enregistrer les réglages** (bouton fixé en bas de l'écran).
+   **Prompts système** (même carte) : les consignes données au LLM pour le nettoyage et le Command Mode. Le prompt intégré est affiché en lecture seule ; **Créer une copie** en fait une version modifiable (nom et texte), choisie dans **Prompt utilisé** ; **Supprimer** revient au prompt intégré. Les prompts importés du PC apparaissent ici. **Enregistrer** : appliqué à la prochaine ouverture du clavier ou de la bulle.
 
 Au clavier :
 - **maintenir le micro** (au centre) pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ;

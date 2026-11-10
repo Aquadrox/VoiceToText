@@ -5,7 +5,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use vtt_core::Config;
-use vtt_core::config::{self, Snippet, TRANSLATION_LANGUAGES, TranslationConfig};
+use vtt_core::config::{
+    self, PromptKind, PromptPreset, Snippet, TRANSLATION_LANGUAGES, TranslationConfig,
+};
 
 use crate::models;
 
@@ -63,6 +65,9 @@ struct View<'a> {
     translation: &'a str,
     languages: &'static [&'static str],
     history: bool,
+    /// Prompts actifs (nom ; vide : prompt intégré).
+    cleanup_prompt: &'a str,
+    command_prompt: &'a str,
 }
 
 /// Réglages affichés par l'application (JSON).
@@ -83,6 +88,8 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         translation: &config.translation.language,
         languages: TRANSLATION_LANGUAGES,
         history: config.history.enabled,
+        cleanup_prompt: active_prompt(&config, PromptKind::Nettoyage, &config.llm.cleanup_prompt),
+        command_prompt: active_prompt(&config, PromptKind::Commande, &config.llm.command_prompt),
     };
     serde_json::to_string(&view).map_err(|e| e.to_string())
 }
@@ -148,6 +155,116 @@ pub fn save_vocabulary(toml: &str, vocabulary: &Vocabulary) -> Result<String, St
     let (mut config, _) = parse(toml)?;
     config.dictionary = config::clean_dictionary(&vocabulary.dictionary)?;
     config.snippets = config::clean_snippets(&vocabulary.snippets)?;
+    to_toml(&config)
+}
+
+/// Nom du prompt réellement utilisé : vide si c'est le prompt intégré (nom
+/// vide, ou prompt supprimé entre-temps).
+fn active_prompt<'a>(config: &'a Config, kind: PromptKind, name: &'a str) -> &'a str {
+    if config.prompt_text(kind, name).is_some() {
+        name.trim()
+    } else {
+        ""
+    }
+}
+
+/// Prompt système enregistré sous un nom.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedPrompt {
+    pub name: String,
+    pub text: String,
+}
+
+/// Prompts d'un usage (nettoyage ou Command Mode), comme la page Prompts du
+/// PC : prompts personnalisés et celui qui est utilisé.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PromptChoice {
+    /// Nom du prompt utilisé ; vide : prompt intégré.
+    pub active: String,
+    pub presets: Vec<NamedPrompt>,
+    /// Prompt intégré, en référence : envoyé à l'application, jamais relu.
+    #[serde(default, skip_deserializing)]
+    pub builtin: String,
+}
+
+/// Prompts système modifiables sur le téléphone.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Prompts {
+    pub cleanup: PromptChoice,
+    pub command: PromptChoice,
+}
+
+const PROMPT_KINDS: [PromptKind; 2] = [PromptKind::Nettoyage, PromptKind::Commande];
+
+fn builtin_prompt(kind: PromptKind) -> &'static str {
+    match kind {
+        PromptKind::Commande => vtt_llm::DEFAULT_COMMAND_PROMPT,
+        _ => vtt_llm::DEFAULT_CLEANUP_PROMPT,
+    }
+}
+
+pub fn prompts(toml: &str) -> Result<Prompts, String> {
+    let (config, _) = parse(toml)?;
+    let choice = |kind: PromptKind, active: &str| PromptChoice {
+        active: active_prompt(&config, kind, active).to_owned(),
+        presets: config
+            .prompts
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(|p| NamedPrompt {
+                name: p.name.clone(),
+                text: p.text.clone(),
+            })
+            .collect(),
+        builtin: builtin_prompt(kind).to_owned(),
+    };
+    Ok(Prompts {
+        cleanup: choice(PromptKind::Nettoyage, &config.llm.cleanup_prompt),
+        command: choice(PromptKind::Commande, &config.llm.command_prompt),
+    })
+}
+
+/// Enregistre les prompts de nettoyage et du Command Mode (vérifiés comme
+/// sur PC) ; ceux de compte rendu, venus du PC, sont gardés tels quels.
+pub fn save_prompts(toml: &str, prompts: &Prompts) -> Result<String, String> {
+    let (mut config, _) = parse(toml)?;
+    let mut all: Vec<PromptPreset> = config
+        .prompts
+        .iter()
+        .filter(|p| !PROMPT_KINDS.contains(&p.kind))
+        .cloned()
+        .collect();
+    for (kind, choice) in PROMPT_KINDS
+        .into_iter()
+        .zip([&prompts.cleanup, &prompts.command])
+    {
+        all.extend(choice.presets.iter().map(|p| PromptPreset {
+            name: p.name.clone(),
+            kind,
+            text: p.text.clone(),
+        }));
+    }
+    config.prompts = config::clean_prompts(&all)?;
+    config.llm.cleanup_prompt = prompts.cleanup.active.trim().to_owned();
+    config.llm.command_prompt = prompts.command.active.trim().to_owned();
+    config.check_prompt_refs(&config.llm)?;
+    // Profils LLM venus du PC : un prompt supprimé ici redevient le prompt
+    // intégré, pour que la configuration reste valide (export, import).
+    let names: Vec<(PromptKind, String)> = config
+        .prompts
+        .iter()
+        .map(|p| (p.kind, p.name.clone()))
+        .collect();
+    let exists = |kind: PromptKind, name: &str| names.iter().any(|(k, n)| *k == kind && n == name);
+    for profile in &mut config.llm_profiles {
+        let llm = &mut profile.llm;
+        if !exists(PromptKind::Nettoyage, llm.cleanup_prompt.trim()) {
+            llm.cleanup_prompt.clear();
+        }
+        if !exists(PromptKind::Commande, llm.command_prompt.trim()) {
+            llm.command_prompt.clear();
+        }
+    }
     to_toml(&config)
 }
 
@@ -232,6 +349,110 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn named(name: &str, text: &str) -> NamedPrompt {
+        NamedPrompt {
+            name: name.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn builtin_prompts_are_shown_by_default() {
+        let prompts = prompts("").unwrap();
+        assert_eq!(prompts.cleanup.active, "");
+        assert!(prompts.cleanup.presets.is_empty());
+        assert_eq!(prompts.cleanup.builtin, vtt_llm::DEFAULT_CLEANUP_PROMPT);
+        assert_eq!(prompts.command.builtin, vtt_llm::DEFAULT_COMMAND_PROMPT);
+        let json = view("", Path::new("/nulle-part")).unwrap();
+        assert!(json.contains("\"cleanup_prompt\":\"\""), "{json}");
+    }
+
+    #[test]
+    fn prompts_are_saved_and_used() {
+        let mut pc = Config::default();
+        pc.prompts.push(PromptPreset {
+            name: "Réunion".into(),
+            kind: PromptKind::CompteRendu,
+            text: "Résume.".into(),
+        });
+        pc.prompts.push(PromptPreset {
+            name: "Ancien".into(),
+            kind: PromptKind::Nettoyage,
+            text: "Vieux prompt.".into(),
+        });
+        pc.llm_profiles.push(config::LlmProfile {
+            name: "Local".into(),
+            llm: config::LlmConfig {
+                cleanup_prompt: "Ancien".into(),
+                ..pc.llm.clone()
+            },
+        });
+        let toml = pc.to_toml().unwrap();
+        let edit = Prompts {
+            cleanup: PromptChoice {
+                active: " Sobre ".into(),
+                presets: vec![named(" Sobre ", " Corrige seulement l'orthographe. ")],
+                builtin: String::new(),
+            },
+            command: PromptChoice {
+                active: String::new(),
+                presets: vec![named("Anglais", "Réponds en anglais.")],
+                builtin: String::new(),
+            },
+        };
+        let saved = save_prompts(&toml, &edit).unwrap();
+        let (config, _) = parse(&saved).unwrap();
+        assert_eq!(config.llm.cleanup_prompt, "Sobre");
+        assert_eq!(
+            config.prompt_text(PromptKind::Nettoyage, "Sobre"),
+            Some("Corrige seulement l'orthographe.")
+        );
+        assert_eq!(config.llm.command_prompt, "");
+        // Compte rendu gardé ; prompt supprimé retiré du profil.
+        assert!(
+            config
+                .prompt_text(PromptKind::CompteRendu, "Réunion")
+                .is_some()
+        );
+        assert_eq!(config.llm_profiles[0].llm.cleanup_prompt, "");
+        config.checked().unwrap();
+        let back = prompts(&saved).unwrap();
+        assert_eq!(back.cleanup.active, "Sobre");
+        assert_eq!(
+            back.command.presets,
+            [named("Anglais", "Réponds en anglais.")]
+        );
+        let json = view(&saved, Path::new("/nulle-part")).unwrap();
+        assert!(json.contains("\"cleanup_prompt\":\"Sobre\""), "{json}");
+    }
+
+    #[test]
+    fn invalid_prompts_are_refused() {
+        let choice = |active: &str, presets: Vec<NamedPrompt>| PromptChoice {
+            active: active.into(),
+            presets,
+            builtin: String::new(),
+        };
+        let edit = |cleanup| Prompts {
+            cleanup,
+            command: choice("", Vec::new()),
+        };
+        // Nom vide, texte vide, doublon, prompt actif absent.
+        for cleanup in [
+            choice("", vec![named(" ", "texte")]),
+            choice("", vec![named("A", "  ")]),
+            choice("", vec![named("A", "x"), named("a", "y")]),
+            choice("B", vec![named("A", "x")]),
+        ] {
+            assert!(save_prompts("", &edit(cleanup)).is_err());
+        }
+        // Le prompt intégré envoyé par l'application n'est jamais relu.
+        let json = r#"{"cleanup":{"active":"","presets":[],"builtin":"x"},
+                       "command":{"active":"","presets":[]}}"#;
+        let parsed: Prompts = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.cleanup.builtin, "");
     }
 
     #[test]

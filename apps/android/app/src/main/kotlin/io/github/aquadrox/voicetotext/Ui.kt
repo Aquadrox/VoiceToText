@@ -237,10 +237,11 @@ fun LinearLayout.field(hint: String, lines: Int = 1): EditText {
     val bg = ctx.getColor(R.color.bg)
     return EditText(ctx).apply {
         this.hint = hint
-        if (lines == 1) isSingleLine = true else minLines = lines
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         // Même hauteur que les boutons, pour les aligner sur une rangée.
+        // Avant `minLines` : Android ne garde que le dernier minimum posé.
         minHeight = ctx.dp(48)
+        if (lines == 1) isSingleLine = true else minLines = lines
         setTextColor(ctx.getColor(R.color.fg))
         setHintTextColor(ctx.getColor(R.color.muted))
         background = StateListDrawable().apply {

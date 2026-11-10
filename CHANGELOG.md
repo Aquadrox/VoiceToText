@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.26.0 — 2026-11-10
+
+- [Android] Prompts système modifiables : dans la carte « Nettoyage du texte (LLM) », bouton « Prompts système » pour lire le prompt intégré, en créer une copie à votre goût (nettoyage et Command Mode) et choisir celui qui est utilisé ; les prompts importés du PC y apparaissent.
+- [Android] Les champs de texte sur plusieurs lignes (zone d'essai, texte d'un snippet) ont retrouvé leur hauteur.
+
 ## 0.25.0 — 2026-11-09
 
 - [Android] Bulle : un double appui passe au clavier VoiceToText (Android 11 et plus) ; sa touche clavier ramène ensuite à votre clavier habituel.
