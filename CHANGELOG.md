@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.27.0 — 2026-11-11
+
+- [PC] Le menu principal se replie en une colonne d'icônes (nom de la page au survol) : automatiquement dans les Réglages, qui ont leur propre menu, pour laisser plus de place aux réglages. Le bouton « Réduire le menu » / « Déplier le menu », en bas du menu, change ce choix ; il est retenu d'une fois sur l'autre.
+
 ## 0.26.1 — 2026-11-10
 
 - [Android] Bulle arrêtée par le téléphone (elle disparaît et ne revient pas, même après être passé par le clavier VoiceToText) : le clavier et l'application le signalent et ouvrent directement son réglage. Il suffit de la désactiver puis de la réactiver, sans forcer l'arrêt de l'application.

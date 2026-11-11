@@ -264,6 +264,8 @@ La pastille et l'encre n'apparaissent jamais sur les captures. Écran principal 
 
 Icône → **Ouvrir VoiceToText** (ou **Historique…**, **Réglages…** pour aller directement à la page).
 
+Le menu de gauche se replie en une colonne d'icônes (le nom de la page s'affiche au survol) : automatiquement dans les **Réglages**, qui ont leur propre menu, pour laisser plus de place. **Réduire le menu** / **Déplier le menu**, tout en bas, change ce choix ; il est retenu d'une fois sur l'autre (séparément pour les Réglages et pour les autres pages).
+
 ### Accueil
 
 Mots dictés, temps gagné (comparé à une frappe à 40 mots/min), vitesse de parole, coût LLM du mois, et un graphique des mots dictés par jour sur 30 jours (détail au survol, tableau des valeurs dans « Voir les données »). Un bandeau signale les nouvelles versions.

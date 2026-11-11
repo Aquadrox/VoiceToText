@@ -269,7 +269,7 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 ## v0.25 — Android : de la bulle au clavier ✅
 
 - ✅ Double appui sur la bulle : passage au clavier VoiceToText (`SoftKeyboardController.switchToInputMethod`, Android 11 et plus, clavier activé) ; la bulle s'efface tant qu'il est ouvert. Aucune attente ajoutée au simple appui : la dictée part dès le premier et le second appui l'abandonne
-- À vérifier sur le téléphone : double appui sur la bulle (clavier VoiceToText activé ou non), retour par la touche clavier
+- ✅ Validé sur le téléphone : double appui sur la bulle (clavier VoiceToText activé ou non), retour par la touche clavier
 
 ## v0.26 — Android : prompts système ✅
 
@@ -288,6 +288,15 @@ Sur le Xiaomi (HyperOS), la bulle disparaît ; le clavier VoiceToText refonction
 - ✅ Conseils constructeurs complétés (verrouillage dans les applications récentes) ; Xiaomi : bouton vers la liste « Démarrage automatique » de l'application Sécurité (`AutoStartManagementActivity`), le réglage n'étant pas dans les informations de l'application sur HyperOS. À vérifier sur le téléphone : le bouton ouvre bien cet écran
 - À vérifier sur le téléphone : ligne « Bulle arrêtée » du clavier et carte de l'application quand la bulle est morte ; relance par simple désactivation/réactivation ; cause affichée (à rapporter : elle dira si c'est le ménage de HyperOS, la mémoire ou une mise à jour) ; première dictée après l'écran éteint
 - Si cela ne suffit pas : relance automatique possible avec la permission `WRITE_SECURE_SETTINGS`, donnée une fois depuis un PC (`adb`), ou service au premier plan avec notification permanente
+
+## v0.27 — PC : menu principal repliable ✅
+
+Dans les Réglages, deux menus côte à côte (menu principal + sections) prenaient plus de 400 px sur une fenêtre de 980 px.
+
+- ✅ Menu principal replié en colonne d'icônes (63 px au lieu de 190) : libellé en bulle au survol et au focus clavier, toujours lu par les lecteurs d'écran ; point « modifications non appliquées » gardé sur l'icône Réglages ; icônes immobiles d'un état à l'autre (la souris reste sur l'icône cliquée)
+- ✅ Replié d'office sur les pages qui ont leur propre menu (`data-sub-nav` : Réglages), déplié ailleurs ; bouton « Réduire le menu » / « Déplier le menu » en bas du menu pour inverser ce choix, retenu par genre de page (`localStorage`, comme la dernière section des réglages) ; repli animé, sauf à l'ouverture et si Windows demande moins d'animations
+- ✅ Vérifié sur le serveur (captures Playwright, interface seule) : clair et sombre, fenêtre par défaut (980 × 720) et minimale (720 × 480)
+- À vérifier sur le PC : rendu dans WebView2, bulles au survol
 
 ## Outillage ✅
 
