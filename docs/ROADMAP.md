@@ -269,7 +269,7 @@ Même identité que le PC (v0.23), toujours sans bibliothèque :
 ## v0.25 — Android : de la bulle au clavier ✅
 
 - ✅ Double appui sur la bulle : passage au clavier VoiceToText (`SoftKeyboardController.switchToInputMethod`, Android 11 et plus, clavier activé) ; la bulle s'efface tant qu'il est ouvert. Aucune attente ajoutée au simple appui : la dictée part dès le premier et le second appui l'abandonne
-- À vérifier sur le téléphone : double appui sur la bulle (clavier VoiceToText activé ou non), retour par la touche clavier
+- ✅ Validé sur le téléphone : double appui sur la bulle (clavier VoiceToText activé ou non), retour par la touche clavier
 
 ## v0.26 — Android : prompts système ✅
 
