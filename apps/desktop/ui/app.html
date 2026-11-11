@@ -23,25 +23,28 @@
       <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></symbol>
       <symbol id="i-app-window" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M10 4v4" /><path d="M2 8h20" /><path d="M6 4v4" /></symbol>
+      <symbol id="i-panel-left-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" /><path d="m16 15-3-3 3-3" /></symbol>
+      <symbol id="i-panel-left-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" /><path d="m14 9 3 3-3 3" /></symbol>
     </svg>
     <div class="layout">
-      <nav class="main-nav" aria-label="Navigation principale">
+      <nav class="main-nav" id="main-nav" aria-label="Navigation principale">
         <div class="brand">
           <svg class="logo" viewBox="0 0 128 128" aria-hidden="true">
             <rect width="128" height="128" rx="28" class="logo-bg" />
             <path class="logo-wave" d="M28 56v16M43 44v40M58 31v66M73 50v28" />
             <path class="logo-cursor" d="M88 28h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-3.5v54H104a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h3.5V37H88a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
           </svg>
-          VoiceToText
+          <span class="label">VoiceToText</span>
         </div>
-        <a href="#accueil"><svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>Accueil</a>
-        <a href="#historique"><svg class="icon" aria-hidden="true"><use href="#i-history" /></svg>Historique</a>
-        <a href="#reunions"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg>Réunions</a>
-        <a href="#dictionnaire"><svg class="icon" aria-hidden="true"><use href="#i-book-a" /></svg>Dictionnaire</a>
-        <a href="#snippets"><svg class="icon" aria-hidden="true"><use href="#i-clipboard-paste" /></svg>Snippets</a>
-        <a href="#styles"><svg class="icon" aria-hidden="true"><use href="#i-palette" /></svg>Styles</a>
-        <a href="#prompts"><svg class="icon" aria-hidden="true"><use href="#i-message-square-text" /></svg>Prompts</a>
-        <a href="#reglages"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>Réglages<span class="dot" id="nav-settings-dot" title="Modifications non appliquées"></span></a>
+        <a href="#accueil"><svg class="icon" aria-hidden="true"><use href="#i-house" /></svg><span class="label">Accueil</span></a>
+        <a href="#historique"><svg class="icon" aria-hidden="true"><use href="#i-history" /></svg><span class="label">Historique</span></a>
+        <a href="#reunions"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg><span class="label">Réunions</span></a>
+        <a href="#dictionnaire"><svg class="icon" aria-hidden="true"><use href="#i-book-a" /></svg><span class="label">Dictionnaire</span></a>
+        <a href="#snippets"><svg class="icon" aria-hidden="true"><use href="#i-clipboard-paste" /></svg><span class="label">Snippets</span></a>
+        <a href="#styles"><svg class="icon" aria-hidden="true"><use href="#i-palette" /></svg><span class="label">Styles</span></a>
+        <a href="#prompts"><svg class="icon" aria-hidden="true"><use href="#i-message-square-text" /></svg><span class="label">Prompts</span></a>
+        <a href="#reglages"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg><span class="label">Réglages</span><span class="dot" id="nav-settings-dot" title="Modifications non appliquées"></span></a>
+        <button type="button" class="nav-toggle" id="nav-toggle" aria-controls="main-nav"><svg class="icon" aria-hidden="true"><use href="#i-panel-left-close" /></svg><span class="label">Réduire le menu</span></button>
       </nav>
 
       <main>
@@ -335,7 +338,7 @@
         </section>
 
         <!-- Réglages -->
-        <section class="page settings-page" id="page-reglages" hidden>
+        <section class="page settings-page" id="page-reglages" data-sub-nav hidden>
           <div class="settings-layout">
             <nav class="settings-nav" aria-label="Sections des réglages">
               <h1>Réglages</h1>

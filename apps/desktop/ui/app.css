@@ -80,19 +80,38 @@ svg.icon {
   height: 100vh;
 }
 
+/* Le menu principal se replie en colonne d'icônes (classe .compact, posée
+   par app.js) : les icônes ne bougent pas d'un état à l'autre, les libellés
+   deviennent des bulles au survol. Largeur repliée : 12 + 10 + 18 + 10 + 12
+   (marges, icône) + 1 (bordure). */
 nav.main-nav {
+  position: relative;
+  z-index: 5;
+  display: flex;
   flex: none;
+  flex-direction: column;
   width: 190px;
   padding: 20px 12px;
+  overflow-x: clip;
   background: var(--nav-bg);
   border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+nav.main-nav.animated {
+  transition: width 0.15s ease-out;
+}
+
+nav.main-nav.compact {
+  width: 63px;
+  overflow-x: visible;
 }
 
 nav.main-nav .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 8px 22px;
+  margin: 0 6px 22px;
   font-weight: 700;
   font-size: 16px;
   letter-spacing: -0.01em;
@@ -127,10 +146,13 @@ nav.main-nav .brand {
   }
 }
 
-nav.main-nav a {
+nav.main-nav a,
+.nav-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 37px;
   margin-bottom: 2px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -140,6 +162,73 @@ nav.main-nav a {
 
 nav.main-nav a:hover {
   background: var(--card);
+}
+
+/* Bouton « Réduire le menu », en bas du menu. */
+.nav-toggle {
+  width: 100%;
+  margin: auto 0 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+
+.nav-toggle:hover {
+  background: var(--card);
+  color: var(--fg);
+}
+
+/* Menu replié : libellés hors du flux, lus par les lecteurs d'écran et
+   montrés en bulle au survol ou au focus clavier. */
+nav.main-nav.compact .brand .label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+nav.main-nav.compact a .label,
+nav.main-nav.compact .nav-toggle .label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 14px);
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--fg);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  color: var(--bg);
+  font-size: 12.5px;
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+nav.main-nav.compact a:hover .label,
+nav.main-nav.compact a:focus-visible .label,
+nav.main-nav.compact .nav-toggle:hover .label,
+nav.main-nav.compact .nav-toggle:focus-visible .label {
+  opacity: 1;
+}
+
+nav.main-nav.compact .dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  box-shadow: 0 0 0 2px var(--nav-bg);
+}
+
+nav.main-nav.compact a:is(:hover, [aria-current="page"]) .dot {
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  nav.main-nav.animated {
+    transition: none;
+  }
 }
 
 nav.main-nav a .icon,
