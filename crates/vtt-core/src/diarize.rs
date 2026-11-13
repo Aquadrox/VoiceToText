@@ -7,8 +7,10 @@
 //!    d'empreinte vocale (WeSpeaker, 3D-Speaker) résume ce qu'elle dit en un
 //!    vecteur ; deux vecteurs proches = même voix.
 //! 3. **Regroupement** : classification hiérarchique ascendante (lien moyen,
-//!    distance cosinus) ; on s'arrête à un seuil, ou à un nombre de
-//!    locuteurs imposé.
+//!    distance cosinus) des empreintes sûres (au moins 2 s de parole seule),
+//!    coupée à un seuil ; un petit groupe resté proche d'un locuteur le
+//!    rejoint (même voix, autres conditions), les empreintes peu sûres aussi.
+//!    Nombre de locuteurs imposé : les plus grands groupes.
 //! 4. **Reconstruction** : les voix locales deviennent des locuteurs
 //!    globaux ; chaque trame garde autant de locuteurs que la segmentation en
 //!    entendait ; on en tire des tours de parole.
@@ -53,9 +55,9 @@ const POWERSET: [[bool; LOCAL_SPEAKERS]; CLASSES] = [
 const FRAME_OFFSET: usize = (FRAME_SIZE - FRAME_STEP) / 2;
 /// Parole minimale pour calculer une empreinte : 0,5 s.
 const MIN_EMBEDDING_SAMPLES: usize = SAMPLE_RATE as usize / 2;
-/// Empreintes regroupées au plus (mémoire en n² : ≈ 36 Mo, soit environ une
-/// heure et demie d'audio) ; au-delà, les autres rejoignent le groupe le plus
-/// proche.
+/// Empreintes (sûres) regroupées au plus (mémoire en n² : ≈ 36 Mo, soit
+/// environ deux heures de réunion) ; au-delà, les autres rejoignent le groupe
+/// le plus proche.
 const MAX_CLUSTERED: usize = 3_000;
 /// Écart toléré entre deux morceaux consécutifs (arrondis à la
 /// milliseconde) : 2 ms.
@@ -81,14 +83,30 @@ pub struct Options {
     /// plus rapide ; 5 s confond des voix).
     pub step: usize,
     /// Distance cosinus au-delà de laquelle deux groupes de voix restent
-    /// séparés. Dépend du modèle d'empreinte : 0,55 pour WeSpeaker
-    /// ResNet34-LM (mesuré sur des enregistrements de 2 et 4 voix).
+    /// séparés. Dépend du modèle d'empreinte : 0,5 pour WeSpeaker
+    /// ResNet34-LM (mesuré sur 26 appels français à 2 voix et 6 réunions à
+    /// 4 voix ; à 0,55, deux voix proches au téléphone sont confondues).
     pub threshold: f32,
-    /// Nombre de locuteurs imposé (`None` : déduit du seuil).
+    /// Nombre de locuteurs imposé (`None` : déduit des voix).
     pub speakers: Option<usize>,
-    /// Un groupe de moins d'empreintes est rattaché au groupe le plus proche
-    /// (bruit, rires, quelques mots isolés).
+    /// Un groupe de moins d'empreintes n'est jamais un locuteur : il est
+    /// rattaché au groupe le plus proche (bruit, rires, quelques mots).
     pub min_cluster_size: usize,
+    /// Un groupe d'au moins autant d'empreintes est un locuteur à coup sûr
+    /// (à défaut, le plus grand groupe).
+    pub large_cluster_size: usize,
+    /// Un groupe plus petit n'est un locuteur que si son centre est au moins
+    /// à cette distance cosinus du centre de chaque locuteur déjà retenu ;
+    /// plus près, c'est la même voix dans d'autres conditions (émotion,
+    /// bruit, micro), et il le rejoint. Mesuré : les faux locuteurs sont
+    /// entre 0,3 et 0,6 d'une grande voix, les vrais entre 0,63 et 0,98.
+    pub absorb_threshold: f32,
+    /// Parole seule (sans chevauchement) qu'il faut à une voix dans une
+    /// fenêtre pour que son empreinte serve au regroupement. En dessous,
+    /// l'empreinte est trop imprécise : elle créerait de faux locuteurs, et
+    /// rejoint donc après coup le groupe le plus proche (pyannote : 20 % de
+    /// la fenêtre, soit 2 s).
+    pub min_clean_ms: u64,
     /// Tour de parole plus court ignoré.
     pub min_on_ms: u64,
     /// Silence plus court entre deux tours d'un même locuteur : comblé.
@@ -99,9 +117,12 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             step: SAMPLE_RATE as usize * 2,
-            threshold: 0.55,
+            threshold: 0.5,
             speakers: None,
             min_cluster_size: 3,
+            large_cluster_size: 15,
+            absorb_threshold: 0.6,
+            min_clean_ms: 2_000,
             min_on_ms: 300,
             min_off_ms: 500,
         }
@@ -208,15 +229,12 @@ fn nearest(embedding: &[f32], centroids: &[Vec<f32>]) -> usize {
         .unwrap_or(0)
 }
 
-/// Classification hiérarchique ascendante, lien moyen, sur des vecteurs
-/// normés. Algorithme de la « chaîne des plus proches voisins » : O(n²).
-/// Renvoie un numéro de groupe par vecteur.
-pub fn cluster(
-    embeddings: &[Vec<f32>],
-    threshold: f32,
-    speakers: Option<usize>,
-    min_cluster_size: usize,
-) -> Vec<usize> {
+/// Regroupe des empreintes (vecteurs normés) par locuteur : classification
+/// hiérarchique ascendante, lien moyen (algorithme de la « chaîne des plus
+/// proches voisins », O(n²)), coupée au seuil ; puis les petits groupes
+/// proches d'un locuteur le rejoignent. Renvoie un numéro de groupe par
+/// vecteur.
+pub fn cluster(embeddings: &[Vec<f32>], options: &Options) -> Vec<usize> {
     let n = embeddings.len();
     if n <= 1 {
         return vec![0; n];
@@ -277,12 +295,43 @@ pub fn cluster(
     }
 
     // Le lien moyen est « réductible » : trier les fusions par distance
-    // redonne l'arbre ; on le coupe au seuil ou au nombre voulu.
+    // redonne l'arbre ; on le coupe au seuil.
     merges.sort_by(|x, y| x.0.total_cmp(&y.0));
-    let keep = match speakers {
-        Some(k) => n.saturating_sub(k.clamp(1, n)),
-        None => merges.iter().take_while(|m| m.0 <= threshold).count(),
+    let mut keep = merges
+        .iter()
+        .take_while(|m| m.0 <= options.threshold)
+        .count();
+    let (mut kept, mut rest) =
+        speakers_among(embeddings, groups_after(n, &merges[..keep]), options);
+    let Some(wanted) = options.speakers else {
+        return assign(embeddings, kept, rest);
     };
+
+    // Nombre imposé. (Couper l'arbre en autant de groupes isolerait d'abord
+    // les empreintes atypiques, pas les voix : mesuré, 9 appels à 2 voix sur
+    // 26 mal partagés.)
+    let wanted = wanted.clamp(1, n);
+    if kept.len() >= wanted {
+        // Trop de locuteurs trouvés : les plus grands restent.
+        rest.extend(kept.split_off(wanted));
+        return assign(embeddings, kept, rest);
+    }
+    // Pas assez : la coupe descend jusqu'à compter assez de groupes de taille
+    // suffisante, dont les plus grands sont gardés.
+    let min_size = options.min_cluster_size.max(1);
+    let mut groups = groups_after(n, &merges[..keep]);
+    while keep > 0 && groups.iter().filter(|g| g.len() >= min_size).count() < wanted {
+        keep -= 1;
+        groups = groups_after(n, &merges[..keep]);
+    }
+    groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+    let rest = groups.split_off(wanted.min(groups.len()));
+    assign(embeddings, groups, rest)
+}
+
+/// Groupes obtenus en appliquant `merges` (membres dans l'ordre ; groupes
+/// dans l'ordre de leur premier membre).
+fn groups_after(n: usize, merges: &[(f32, usize, usize)]) -> Vec<Vec<usize>> {
     let mut parent: Vec<usize> = (0..n).collect();
     fn root(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
@@ -291,47 +340,76 @@ pub fn cluster(
         }
         i
     }
-    for &(_, a, b) in &merges[..keep] {
+    for &(_, a, b) in merges {
         let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
         parent[rb] = ra;
     }
-    let roots: Vec<usize> = (0..n).map(|i| root(&mut parent, i)).collect();
+    let mut slot = vec![usize::MAX; n];
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for i in 0..n {
+        let r = root(&mut parent, i);
+        if slot[r] == usize::MAX {
+            slot[r] = groups.len();
+            groups.push(Vec::new());
+        }
+        groups[slot[r]].push(i);
+    }
+    groups
+}
 
-    // Petits groupes rattachés au grand groupe le plus proche (centroïde).
-    let mut members: Vec<(usize, Vec<usize>)> = Vec::new();
-    for (i, &r) in roots.iter().enumerate() {
-        match members.iter_mut().find(|(root, _)| *root == r) {
-            Some((_, list)) => list.push(i),
-            None => members.push((r, vec![i])),
+/// Centre (normé) d'un groupe.
+fn center(embeddings: &[Vec<f32>], members: &[usize]) -> Vec<f32> {
+    let mut sum = vec![0.0f32; embeddings.first().map_or(0, Vec::len)];
+    for &i in members {
+        sum.iter_mut()
+            .zip(&embeddings[i])
+            .for_each(|(s, x)| *s += x);
+    }
+    normalize(sum)
+}
+
+/// Tri des groupes après la coupe : les grands sont des locuteurs ; un petit
+/// n'en est un que s'il est loin de tous ceux déjà retenus (sinon c'est une
+/// voix déjà connue, dans d'autres conditions). Renvoie les locuteurs, du
+/// plus grand groupe au plus petit, et les groupes à rattacher.
+fn speakers_among(
+    embeddings: &[Vec<f32>],
+    mut groups: Vec<Vec<usize>>,
+    options: &Options,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    // Du plus grand au plus petit (à taille égale, le premier entendu).
+    groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+    let mut kept: Vec<Vec<usize>> = Vec::new();
+    let mut centers: Vec<Vec<f32>> = Vec::new();
+    let mut rest: Vec<Vec<usize>> = Vec::new();
+    for group in groups {
+        let own = center(embeddings, &group);
+        let far = centers
+            .iter()
+            .all(|c| cosine_distance(&own, c) >= options.absorb_threshold);
+        let speaker = kept.is_empty()
+            || group.len() >= options.large_cluster_size
+            || (group.len() >= options.min_cluster_size.max(1) && far);
+        if speaker {
+            centers.push(own);
+            kept.push(group);
+        } else {
+            rest.push(group);
         }
     }
-    let (large, small): (Vec<_>, Vec<_>) = members
-        .into_iter()
-        .partition(|(_, list)| list.len() >= min_cluster_size);
-    let mut labels = vec![0usize; n];
-    if large.is_empty() || speakers.is_some() {
-        // Rien d'assez grand, ou nombre imposé : groupes gardés tels quels.
-        let mut all = large;
-        all.extend(small);
-        for (label, (_, list)) in all.iter().enumerate() {
-            list.iter().for_each(|&i| labels[i] = label);
-        }
-        return labels;
+    (kept, rest)
+}
+
+/// Numéros de groupe : `kept` dans l'ordre, et chaque empreinte de `rest`
+/// avec le groupe gardé dont le centre est le plus proche.
+fn assign(embeddings: &[Vec<f32>], kept: Vec<Vec<usize>>, rest: Vec<Vec<usize>>) -> Vec<usize> {
+    let centers: Vec<Vec<f32>> = kept.iter().map(|g| center(embeddings, g)).collect();
+    let mut labels = vec![0usize; embeddings.len()];
+    for (label, group) in kept.iter().enumerate() {
+        group.iter().for_each(|&i| labels[i] = label);
     }
-    let mut large_labels = Vec::new();
-    let mut large_embeddings = Vec::new();
-    for (label, (_, list)) in large.iter().enumerate() {
-        for &i in list {
-            labels[i] = label;
-            large_labels.push(label);
-            large_embeddings.push(embeddings[i].clone());
-        }
-    }
-    let centers = centroids(&large_embeddings, &large_labels);
-    for (_, list) in &small {
-        for &i in list {
-            labels[i] = nearest(&embeddings[i], &centers);
-        }
+    for &i in rest.iter().flatten() {
+        labels[i] = nearest(&embeddings[i], &centers);
     }
     labels
 }
@@ -489,37 +567,59 @@ impl Analysis {
         samples_to_ms(self.end)
     }
 
+    /// Parole seule (sans chevauchement) de la voix d'une empreinte, en
+    /// échantillons.
+    fn clean_samples(&self, embedding: usize) -> usize {
+        let (w, s) = self.owners[embedding];
+        let frames = self.windows[w]
+            .activity
+            .iter()
+            .filter(|voices| voices[s] && voices.iter().filter(|&&v| v).count() == 1)
+            .count();
+        frames * FRAME_STEP
+    }
+
+    /// Groupe (locuteur) de chaque empreinte. Seules les empreintes sûres
+    /// (assez de parole seule) sont regroupées ; les autres rejoignent le
+    /// groupe le plus proche.
+    fn labels(&self, options: &Options) -> Vec<usize> {
+        let n = self.embeddings.len();
+        let min_clean = ms_to_samples(options.min_clean_ms);
+        let mut sure: Vec<usize> = (0..n)
+            .filter(|&i| self.clean_samples(i) >= min_clean)
+            .collect();
+        if sure.len() < options.speakers.unwrap_or(1).max(2) {
+            // Trop peu d'empreintes sûres (audio très court) : toutes.
+            sure = (0..n).collect();
+        }
+        if sure.len() > MAX_CLUSTERED {
+            // Échantillon régulier.
+            let all = sure;
+            sure = (0..MAX_CLUSTERED)
+                .map(|i| all[i * all.len() / MAX_CLUSTERED])
+                .collect();
+        }
+        let picked: Vec<Vec<f32>> = sure.iter().map(|&i| self.embeddings[i].clone()).collect();
+        let picked_labels = cluster(&picked, options);
+        let centers = centroids(&picked, &picked_labels);
+        let mut labels: Vec<usize> = self
+            .embeddings
+            .iter()
+            .map(|e| nearest(e, &centers))
+            .collect();
+        for (&i, &label) in sure.iter().zip(&picked_labels) {
+            labels[i] = label;
+        }
+        labels
+    }
+
     /// Tours de parole d'après l'analyse (`options.step` ne sert pas ici).
     pub fn turns(&self, options: &Options) -> Vec<Turn> {
         let n = self.embeddings.len();
         if n == 0 {
             return Vec::new();
         }
-        let labels = if n > MAX_CLUSTERED {
-            // Échantillon régulier regroupé ; les autres empreintes
-            // rejoignent le groupe le plus proche.
-            let picked: Vec<Vec<f32>> = (0..MAX_CLUSTERED)
-                .map(|i| self.embeddings[i * n / MAX_CLUSTERED].clone())
-                .collect();
-            let picked_labels = cluster(
-                &picked,
-                options.threshold,
-                options.speakers,
-                options.min_cluster_size,
-            );
-            let centers = centroids(&picked, &picked_labels);
-            self.embeddings
-                .iter()
-                .map(|e| nearest(e, &centers))
-                .collect()
-        } else {
-            cluster(
-                &self.embeddings,
-                options.threshold,
-                options.speakers,
-                options.min_cluster_size,
-            )
-        };
+        let labels = self.labels(options);
         let clusters = labels.iter().max().map_or(0, |m| m + 1);
         let mut local_to_global = vec![[None; LOCAL_SPEAKERS]; self.windows.len()];
         for (&(w, s), &label) in self.owners.iter().zip(&labels) {
@@ -1114,12 +1214,18 @@ mod tests {
     fn clustering_stops_at_the_threshold() {
         let e = |x: f32, y: f32| normalize(vec![x, y]);
         let embeddings = vec![e(1.0, 0.0), e(0.99, 0.05), e(0.0, 1.0), e(0.05, 0.99)];
-        let labels = cluster(&embeddings, 0.3, None, 1);
+        let options = |threshold, speakers| Options {
+            threshold,
+            speakers,
+            min_cluster_size: 1,
+            ..Options::default()
+        };
+        let labels = cluster(&embeddings, &options(0.3, None));
         assert_eq!(labels[0], labels[1]);
         assert_eq!(labels[2], labels[3]);
         assert_ne!(labels[0], labels[2]);
-        assert_eq!(cluster(&embeddings, 1.5, None, 1), vec![0; 4]);
-        assert_eq!(cluster(&embeddings, 0.3, Some(1), 1), vec![0; 4]);
+        assert_eq!(cluster(&embeddings, &options(1.5, None)), vec![0; 4]);
+        assert_eq!(cluster(&embeddings, &options(0.3, Some(1))), vec![0; 4]);
     }
 
     #[test]
@@ -1135,9 +1241,120 @@ mod tests {
             // Isolé, plus proche du premier groupe.
             e(1.0, 0.6),
         ];
-        let labels = cluster(&embeddings, 0.1, None, 2);
+        let options = Options {
+            threshold: 0.1,
+            min_cluster_size: 2,
+            ..Options::default()
+        };
+        let labels = cluster(&embeddings, &options);
         assert_eq!(labels[6], labels[0]);
         assert_ne!(labels[0], labels[3]);
+    }
+
+    /// `count` empreintes autour de `direction` (un peu de variété).
+    fn voices(direction: [f32; 4], count: usize) -> Vec<Vec<f32>> {
+        (0..count)
+            .map(|i| {
+                let mut v = direction.to_vec();
+                v[i % 4] += 0.02 * (i % 3) as f32;
+                normalize(v)
+            })
+            .collect()
+    }
+
+    fn groups(labels: &[usize]) -> usize {
+        labels.iter().max().map_or(0, |m| m + 1)
+    }
+
+    #[test]
+    fn a_small_group_close_to_a_speaker_is_the_same_voice() {
+        // Deux voix (20 empreintes chacune), et 4 empreintes de la première
+        // dans d'autres conditions : à 0,55 d'elle, donc séparées par la
+        // coupe (0,5), mais trop proches pour être quelqu'un d'autre (0,6).
+        let mut embeddings = voices([1.0, 0.0, 0.0, 0.0], 20);
+        embeddings.extend(voices([0.0, 1.0, 0.0, 0.0], 20));
+        embeddings.extend(voices([0.45, 0.0, 0.893, 0.0], 4));
+        let labels = cluster(&embeddings, &Options::default());
+        assert_eq!(groups(&labels), 2, "{labels:?}");
+        assert!(labels[40..].iter().all(|&l| l == labels[0]), "{labels:?}");
+        assert_ne!(labels[0], labels[20]);
+    }
+
+    #[test]
+    fn a_small_group_far_from_everyone_is_a_speaker() {
+        // Un participant qui parle peu (4 empreintes), loin des deux autres.
+        let mut embeddings = voices([1.0, 0.0, 0.0, 0.0], 20);
+        embeddings.extend(voices([0.0, 1.0, 0.0, 0.0], 20));
+        embeddings.extend(voices([0.0, 0.0, 0.0, 1.0], 4));
+        let labels = cluster(&embeddings, &Options::default());
+        assert_eq!(groups(&labels), 3, "{labels:?}");
+        // Deux empreintes isolées (bruit) : jamais un locuteur.
+        embeddings.truncate(42);
+        assert_eq!(groups(&cluster(&embeddings, &Options::default())), 2);
+    }
+
+    #[test]
+    fn imposed_count_keeps_the_largest_groups() {
+        // Deux voix et 4 empreintes atypiques, plus loin de tout que les
+        // voix entre elles : couper l'arbre en deux isolerait ces 4-là.
+        let mut embeddings = voices([1.0, 0.15, 0.0, 0.0], 20);
+        embeddings.extend(voices([0.15, 1.0, 0.0, 0.0], 20));
+        embeddings.extend(voices([0.0, 0.0, 0.0, 1.0], 4));
+        let options = |speakers| Options {
+            speakers: Some(speakers),
+            ..Options::default()
+        };
+        let labels = cluster(&embeddings, &options(2));
+        assert_eq!(groups(&labels), 2, "{labels:?}");
+        assert!(labels[..20].iter().all(|&l| l == labels[0]), "{labels:?}");
+        assert!(
+            labels[20..40].iter().all(|&l| l == labels[20]),
+            "{labels:?}"
+        );
+        assert_ne!(labels[0], labels[20]);
+        // Plus de locuteurs que la coupe n'en trouve : la coupe descend.
+        assert_eq!(groups(&cluster(&embeddings, &options(3))), 3);
+        assert_eq!(groups(&cluster(&embeddings, &options(1))), 1);
+        // Plus que d'empreintes : autant que possible.
+        let few = voices([1.0, 0.0, 0.0, 0.0], 2);
+        assert_eq!(cluster(&few, &options(5)).len(), 2);
+    }
+
+    #[test]
+    fn short_speech_does_not_create_a_speaker() {
+        // Deux voix qui parlent 5 s seules par fenêtre ; et, dans 4
+        // fenêtres, 1 s de parole dont l'empreinte (imprécise) ne ressemble
+        // à personne : rattachée à la voix la plus proche, pas un locuteur.
+        let frames = |seconds: usize| seconds * SECOND / FRAME_STEP;
+        let mut analysis = Analysis::new(2 * SECOND);
+        let mut window = |voice: [f32; 4], seconds: usize| {
+            let w = analysis.windows.len();
+            analysis.windows.push(Window {
+                start: w * 10 * SECOND,
+                activity: vec![[true, false, false]; frames(seconds)],
+            });
+            analysis.owners.push((w, 0));
+            analysis.embeddings.push(normalize(voice.to_vec()));
+        };
+        for _ in 0..10 {
+            window([1.0, 0.0, 0.0, 0.0], 5);
+            window([0.0, 1.0, 0.0, 0.0], 5);
+        }
+        for _ in 0..4 {
+            window([0.3, 0.0, 1.0, 0.0], 1);
+        }
+        analysis.end = analysis.windows.len() * 10 * SECOND;
+        let speakers = |options: &Options| {
+            let turns = analysis.turns(options);
+            turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0)
+        };
+        assert_eq!(speakers(&Options::default()), 2);
+        // Sans ce filtre, c'était un troisième locuteur.
+        let unfiltered = Options {
+            min_clean_ms: 0,
+            ..Options::default()
+        };
+        assert_eq!(speakers(&unfiltered), 3);
     }
 
     #[test]

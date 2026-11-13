@@ -213,7 +213,7 @@ Distinguer les participants dans la piste « Eux » des réunions et dans les co
 - ✅ « Distinguer les intervenants » après coup pour un enregistrement fait sans le réglage (audio conservé ou fichier importé toujours présent)
 - ✅ Empreintes vocales chiffrées par Windows (`voix.bin`, DPAPI) dans le dossier de la réunion, pour changer le nombre d'intervenants sans l'audio ; jamais écrites pour une réunion « en mémoire seulement » ; effacées avec la réunion
 - ✅ Crédits dans Réglages → Application : pytranscribe, pyannote.audio, WeSpeaker (CC BY 4.0), sherpa-onnx, et les autres composants
-- Limites : seuil (0,55) calé sur peu d'exemples ; pas d'intervenants en direct (à la fin de la réunion seulement)
+- Limites : seuil calé sur peu d'exemples (recalé en v0.27.1, sur des enregistrements annotés) ; pas d'intervenants en direct (à la fin de la réunion seulement)
 - À vérifier sur le PC : vraies réunions Teams / Meet en français (seuil), vitesse pendant un appel avec Whisper sur la carte graphique, rendu Windows du bloc Intervenants
 
 ## v0.21 — Android : mises à jour ✅
@@ -297,6 +297,25 @@ Dans les Réglages, deux menus côte à côte (menu principal + sections) prenai
 - ✅ Replié d'office sur les pages qui ont leur propre menu (`data-sub-nav` : Réglages), déplié ailleurs ; bouton « Réduire le menu » / « Déplier le menu » en bas du menu pour inverser ce choix, retenu par genre de page (`localStorage`, comme la dernière section des réglages) ; repli animé, sauf à l'ouverture et si Windows demande moins d'animations
 - ✅ Vérifié sur le serveur (captures Playwright, interface seule) : clair et sombre, fenêtre par défaut (980 × 720) et minimale (720 × 480)
 - À vérifier sur le PC : rendu dans WebView2, bulles au survol
+
+## v0.27.1 — PC : intervenants en trop ✅
+
+Retour du propriétaire après une vraie réunion : 2 participants, 5 intervenants trouvés. Reproduit sur le serveur, mesuré, corrigé dans le regroupement des voix (`vtt_core::diarize`).
+
+- ✅ Mesure sur des enregistrements annotés (qui parle quand), analysés comme pendant une réunion (blocs de 6 à 15 s), puis analyses rejouées avec le code réel pour chaque réglage : appels téléphoniques français à 2 voix (corpus Simsamu, 8 kHz, 1 à 7 min) et réunions anglaises à 4 voix (corpus AMI, micros-casques mélangés, 13 à 39 min). Outils de mesure temporaires, non committés
+- ✅ Cause : tout groupe de 3 empreintes devenait un locuteur. Or les fenêtres de 10 s avancent de 2 s : quelques secondes de voix « différente » (rire, mots isolés, changement de ton, bruit) donnent à elles seules 3 à 5 empreintes voisines. Les vraies voix étaient bien séparées ; s'y ajoutaient de petits groupes, d'autant plus nombreux que l'enregistrement est long (jusqu'à 61 « intervenants » pour 4 sur 29 min)
+- ✅ Empreintes sûres seulement : une voix doit parler seule au moins 2 s dans la fenêtre pour que son empreinte serve au regroupement (règle de pyannote ; avant : 0,5 s) ; les autres rejoignent ensuite le groupe le plus proche
+- ✅ Petit groupe proche d'un locuteur = même voix : un groupe de moins de 15 empreintes n'est un locuteur que si son centre est à plus de 0,6 (distance cosinus) du centre de chaque locuteur déjà retenu. Mesuré : faux locuteurs entre 0,3 et 0,6 d'une grande voix, vrais participants discrets entre 0,63 et 0,98
+- ✅ Seuil de coupe 0,5 au lieu de 0,55 (deux voix proches au téléphone étaient confondues une fois les empreintes peu sûres écartées)
+- ✅ Nombre d'intervenants imposé : les plus grands groupes sont gardés (la coupe descend s'il en manque), au lieu de couper l'arbre en autant de groupes, ce qui isolait d'abord les empreintes atypiques (9 appels à 2 voix sur 26 mal partagés, erreur moyenne 14 %)
+- ✅ Format de `voix.bin` inchangé : une réunion déjà enregistrée se recalcule en changeant « Nombre d'intervenants » (un nombre, puis « Selon les voix »)
+- ✅ Résultat, réglages choisis sur 26 appels et vérifiés sur 18 autres jamais utilisés pour régler, et sur 6 réunions :
+  - 44 appels (43 à 2 voix, 1 à 3) : bon nombre d'intervenants dans 41 cas au lieu de 7 ; trop d'intervenants dans 0 cas au lieu de 37 (jusqu'à 11 pour 2) ; 3 fois un de moins (dont le troisième de l'appel à 3 voix, qui ne parle que 6 s). Sur les 18 appels de vérification seuls : 17 justes au lieu de 2
+  - 6 réunions à 4 voix : 3 à 6 intervenants trouvés, au lieu de 9 à 61 ; les intervenants en trop qui restent sont un seul passage de quelques secondes
+  - parole attribuée à la mauvaise personne : 2,3 % au lieu de 5,2 % (appels), 3,5 % au lieu de 7,2 % (réunions)
+  - nombre imposé (2 ou 4) : partage juste dans tous les enregistrements (2,5 % et 3,2 % de parole mal attribuée)
+- Limites : un participant qui ne dit que quelques mots (moins de 3 empreintes sûres) n'est pas distingué ; deux voix très proches au téléphone peuvent encore être confondues (nombre à imposer) ; entre 0,6 et 0,7 de distance, vrais et faux petits locuteurs se recouvrent (réglé pour ne pas perdre de vrais participants)
+- À vérifier sur le PC : vraies réunions Teams / Meet en français
 
 ## Outillage ✅
 

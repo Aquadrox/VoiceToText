@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.27.1 — 2026-11-13
+
+- [PC] Réunions : fini les intervenants en trop. Une même voix n'est plus comptée plusieurs fois (quelques mots, un rire, un changement de ton suffisaient à créer un « Intervenant » de plus, d'autant plus souvent que la réunion était longue).
+- [PC] Réunions : « Nombre d'intervenants » imposé plus juste. Les voix principales sont gardées ; avant, quelques secondes atypiques pouvaient prendre la place d'une vraie voix.
+- [PC] Réunions déjà enregistrées : pour refaire le calcul, dans le bloc Intervenants, choisissez un nombre puis revenez à « Selon les voix » (ou gardez le bon nombre).
+
 ## 0.27.0 — 2026-11-11
 
 - [PC] Le menu principal se replie en une colonne d'icônes (nom de la page au survol) : automatiquement dans les Réglages, qui ont leur propre menu, pour laisser plus de place aux réglages. Le bouton « Réduire le menu » / « Déplier le menu », en bas du menu, change ce choix ; il est retenu d'une fois sur l'autre.
