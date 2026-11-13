@@ -182,8 +182,7 @@ impl Fft {
 
     fn run(&self, re: &mut [f32], im: &mut [f32]) {
         let n = re.len();
-        for i in 0..n {
-            let j = self.reversed[i];
+        for (i, &j) in self.reversed.iter().enumerate().take(n) {
             if i < j {
                 re.swap(i, j);
                 im.swap(i, j);
