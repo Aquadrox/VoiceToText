@@ -436,6 +436,8 @@ Accélérer la CI sans baisser la garde :
 - ✅ Mise à jour proposée seulement aux plateformes concernées : à chaque tag, `.github/scripts/platforms.py` liste ce qui change depuis la version que chaque manifeste annonce (doc, CI et simple montée de version ignorées ; `vtt-core`, `vtt-asr`, `vtt-llm`, dépendances ou fichier non classé → les deux). Plateforme non touchée : manifeste précédent repris tel quel (`latest.json` ou `latest-android.json`), l'application ne voit rien à installer ; les installeurs restent publiés pour les nouvelles installations. Notes de la release : plateformes mises à jour ou non
 - ✅ Publication par `./release.sh` (Git Bash, sur le PC) : version lue dans le `Cargo.toml` de `main` sur GitHub, refus si déjà publiée, plus ancienne que la dernière ou sans notes de version, nouveautés affichées et confirmation, puis tag `vX.Y.Z` posé sur le dernier commit de `main` et envoyé ; dossier local inchangé, tag local d'un envoi échoué repris ; `.gitattributes` garde les `.sh` en LF sous Windows
 - ✅ Actions GitHub sur Node.js 24 : checkout v7, upload-artifact v7, download-artifact v8 (contrôle d'empreinte des artefacts désormais bloquant)
+- ✅ Délai maximal par job (30 à 60 min au lieu des 6 h par défaut de GitHub) : un téléchargement ou une compilation bloqués ne monopolisent plus la CI ; artefacts de test gardés 14 jours (ceux d'une release sont publiés avec elle)
+- ⬜ AppImage : l'image `ubuntu-22.04` de GitHub est en fin de vie (dépréciation depuis septembre 2026, coupures programmées, retrait le 17/04/2027). La compiler dans un conteneur `ubuntu:22.04` sur `ubuntu-latest` garde la même glibc (compatibilité avec les vieux systèmes) sans dépendre de l'image
 
 ## Plus tard
 

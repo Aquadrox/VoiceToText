@@ -22,11 +22,16 @@ env:
   # produisait un programme qui plantait (SIGILL, instruction illégale) sur
   # le Steam Deck. OFF : jeu d'instructions fixe (AVX2, FMA, F16C), présent
   # sur tous les PC depuis 2013 environ, Deck compris.
+  # Changer une variable GGML_* ne recompile pas whisper.cpp déjà en cache :
+  # changer aussi les `prefix-key` des jobs windows et appimage.
   GGML_NATIVE: "OFF"
 
 jobs:
   linux:
     runs-on: ubuntu-latest
+    # Un outil bloqué (téléchargement, compilation) ne doit pas occuper la CI
+    # 6 h (délai par défaut de GitHub) : chaque job a un plafond large.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,6 +80,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 60
     env:
       # La compilation de ggml-vulkan imbrique des dossiers profonds : avec le
       # chemin par défaut, MSBuild dépasse la limite de 260 caractères.
@@ -147,6 +153,9 @@ jobs:
             D:\t\release\bundle\nsis\*.exe
             D:\t\release\bundle\nsis\*.exe.sig
           if-no-files-found: error
+          # Artefacts de test gardés 14 jours (ceux d'un tag sont publiés dans
+          # la release par le job release, dans la même exécution).
+          retention-days: 14
 
   # Application Linux (Steam Deck en mode Bureau, PC sous X11) : AppImage,
   # un seul fichier, rien à installer (SteamOS ne garde pas les paquets
@@ -157,6 +166,7 @@ jobs:
     # La plus ancienne image disponible : une AppImage ne démarre qu'avec une
     # glibc au moins aussi récente que celle de la compilation.
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -216,12 +226,14 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
+          retention-days: 14
 
   # Application Android : moteur Rust (vtt-android) compilé pour ARM64, puis
   # APK. PR et `main` : APK de test (identifiant .test, installable à côté de
   # la version publiée) ; tags : APK de release signé avec la clé du projet.
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NDK_VERSION: "29.0.14206865"
       CMAKE_VERSION: "3.31.6"
@@ -298,11 +310,13 @@ jobs:
           name: VoiceToText-android
           path: apps/android/dist/*.apk
           if-no-files-found: error
+          retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, appimage, android]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
