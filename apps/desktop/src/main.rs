@@ -52,6 +52,12 @@ use crate::updates::Updates;
 const OVERLAY_MARGIN: f64 = 24.0;
 
 fn main() {
+    // Steam Deck, mode Jeu : sonde de diagnostic, sans interface (voir
+    // vtt_platform::run_game_mode_probe).
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|arg| arg == "--sonde-mode-jeu") {
+        game_mode_probe();
+    }
     #[cfg(target_os = "linux")]
     crash::prepare_session();
     let paths = Paths::resolve();
@@ -261,4 +267,40 @@ fn show_overlay(overlay: &WebviewWindow) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     overlay.set_ignore_cursor_events(true)?;
     Ok(())
+}
+
+/// Sonde du mode Jeu : journal à part (`logs/sonde-mode-jeu.log`), touche
+/// de dictée lue dans la configuration, puis observation sans fin.
+#[cfg(target_os = "linux")]
+fn game_mode_probe() -> ! {
+    use std::io::Write;
+
+    let paths = Paths::resolve();
+    let _ = paths.create_dirs();
+    let path = paths.logs_dir.join("sonde-mode-jeu.log");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path);
+    let file = Arc::new(Mutex::new(file.ok()));
+    let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+    let note: vtt_platform::Note = Arc::new(move |message: String| {
+        let now =
+            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let stamp = now.format(&format).unwrap_or_default();
+        let line = format!("{stamp} {message}\n");
+        eprint!("{line}");
+        if let Some(file) = file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            let _ = file.write_all(line.as_bytes());
+            let _ = file.flush();
+        }
+    });
+    note(format!(
+        "VoiceToText {} : sonde du mode Jeu ({})",
+        env!("CARGO_PKG_VERSION"),
+        path.display()
+    ));
+    let (config, _) = paths.load_config();
+    let trigger = vtt_platform::key_code(&config.hotkey.key).unwrap_or(0);
+    vtt_platform::run_game_mode_probe(note, trigger, &config.hotkey.key)
 }
