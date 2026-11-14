@@ -644,6 +644,7 @@ extra_body = {}
 | Linux : le raccourci ne marche que dans certaines fenêtres | Session **Wayland** : choisir une session X11 à la connexion (`echo $XDG_SESSION_TYPE` doit afficher `x11`). |
 | Linux : « trousseau de la session introuvable » | Aucun KWallet ni GNOME Keyring actif : l'activer (KDE : Paramètres → Portefeuille KDE), ou utiliser Ollama / le nettoyage désactivé. |
 | Steam Deck : la gâchette arrière ne fait rien | Steam doit être ouvert en mode Bureau (c'est lui qui transforme la manette en clavier) ; vérifier que la touche choisie dans Steam Input (F13, Pause…) est la même que dans **Réglages → Raccourcis**. |
+| Linux : « Whisper demande un pilote Vulkan » | Pas de pilote Vulkan pour la carte graphique (machine virtuelle, NVIDIA sans pilote propriétaire) : installer le pilote (Mesa, NVIDIA), ou choisir **Parakeet** (rapide sans carte graphique) ou **Vosk** dans **Réglages → Micro et transcription**. Le Steam Deck a son pilote. |
 | Linux : l'AppImage ne se lance pas | La rendre exécutable (Propriétés → Droits) ; sur une distribution sans FUSE 2, installer `libfuse2` ou lancer avec `--appimage-extract-and-run`. |
 
 ## Développement

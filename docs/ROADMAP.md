@@ -393,10 +393,11 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
   - démarrage avec la session : `~/.config/autostart/voicetotext.desktop`, qui lance le fichier AppImage lui-même
 - ✅ Styles par application : `slack.exe` vaut aussi pour `Slack` (le `.exe` est ignoré des deux côtés)
 - ✅ Whisper sur la carte graphique par Vulkan (AMD du Deck, Mesa, NVIDIA) dans l'AppImage (`--features vulkan`)
+- ✅ Corrigé : sans pilote Vulkan (machine virtuelle, NVIDIA sans pilote), whisper.cpp arrêtait tout le programme par une exception C++, même GPU décoché. Une instance Vulkan de test (API C, qui renvoie un code d'erreur) est créée avant : Whisper refusé avec un message clair (« choisir Parakeet ou Vosk »), l'application reste ouverte
 - ✅ Corrigé : la pastille plantait au démarrage sous GTK (clics traversants demandés avant l'affichage)
 - ✅ Textes de l'interface sans « Windows » codé en dur (trousseau, micro par défaut, démarrage avec la session)
 - ✅ CI : job `appimage` (Ubuntu 22.04 pour une glibc ancienne, SDK Vulkan) ; AppImage de test sur les PR, signée sur les tags ; `latest.json` annonce aussi `linux-x86_64` : mise à jour automatique sur Linux, avec la même signature
-- ✅ Vérifié sur le serveur (Xvfb, openbox, PulseAudio, GNOME Keyring) : dictée complète touche → micro → Vosk → texte collé dans une fenêtre ; collage avec accents et presse-papier remis ; Command Mode avec et sans sélection ; touches enfoncées ; clés API (enregistrer, remplacer, lister, supprimer) ; chiffrement ; démarrage avec la session ; application lancée jusqu'à « prêt »
+- ✅ Vérifié sur le serveur (Xvfb, openbox, PulseAudio, GNOME Keyring) : dictée complète touche → micro → Vosk → texte collé dans une fenêtre ; collage avec accents et presse-papier remis ; Command Mode avec et sans sélection ; touches enfoncées ; clés API (enregistrer, remplacer, lister, supprimer) ; chiffrement ; démarrage avec la session ; AppImage construite (91 Mo, chargeur Vulkan inclus) et lancée jusqu'à « prêt » ; Whisper sans pilote Vulkan → message au lieu du plantage
 - ⬜ À valider sur le Steam Deck : AppImage, icône dans la zone de notification de KDE, pastille, gâchette arrière (Steam Input → F13), KWallet, vitesse de Whisper Vulkan, mise à jour automatique
 - Pas encore sous Linux : session Wayland (le raccourci n'est vu que dans les applications X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
 
