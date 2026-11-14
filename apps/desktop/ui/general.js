@@ -9,8 +9,43 @@ const KEY_LABELS = {
   CapsLock: "Verr. Maj",
   ScrollLock: "Arrêt défil.",
   Insert: "Inser",
+  Home: "Début",
+  End: "Fin",
+  PageUp: "Page préc.",
+  PageDown: "Page suiv.",
+  NumLock: "Verr. Num",
 };
-const keyLabel = (key) => KEY_LABELS[key] ?? key;
+const keyLabel = (key) =>
+  KEY_LABELS[key] ?? (key.startsWith("#") ? `Touche détectée (code ${key.slice(1)})` : key);
+
+/** Ajoute à la liste une touche qui n'y est pas (touche détectée, `#183`). */
+function ensureKeyOption(select, key) {
+  if (key && ![...select.options].some((o) => o.value === key)) {
+    select.append(option(key, keyLabel(key)));
+  }
+}
+
+/** « Détecter » : attend l'appui sur une touche, puis la choisit dans la liste. */
+for (const button of document.querySelectorAll("button[data-detect]")) {
+  button.addEventListener("click", async () => {
+    const select = $(button.dataset.detect);
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = "Appuyez sur la touche…";
+    try {
+      const key = await invoke("capture_hotkey");
+      ensureKeyOption(select, key);
+      select.value = key;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      SettingsUI.showResult("raccourcis", `Touche détectée : ${keyLabel(key)}. Cliquez sur « Appliquer ».`, false);
+    } catch (e) {
+      SettingsUI.showResult("raccourcis", String(e), true);
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+  });
+}
 
 function option(value, label) {
   const element = document.createElement("option");
@@ -51,11 +86,14 @@ $("asr-model").addEventListener("change", showEngineNote);
 function fillGeneral(view) {
   const keys = view.keys.map((k) => option(k, keyLabel(k)));
   $("hk-key").replaceChildren(...keys);
+  ensureKeyOption($("hk-key"), view.hotkey.key);
   $("hk-key").value = view.hotkey.key;
+  $("hk-wayland").hidden = !view.wayland;
   $("hk-command").replaceChildren(
     option("", "Désactivé"),
     ...view.keys.map((k) => option(k, keyLabel(k))),
   );
+  ensureKeyOption($("hk-command"), view.hotkey.command_key);
   $("hk-command").value = view.hotkey.command_key;
   $("hk-paste").value = view.hotkey.paste_raw;
   $("hk-retry").value = view.hotkey.retry;

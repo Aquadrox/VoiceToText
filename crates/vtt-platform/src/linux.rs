@@ -12,8 +12,12 @@
 //! Les codes de touche de la plateforme sont ceux du noyau Linux (evdev,
 //! `KEY_*` de `linux/input-event-codes.h`) : X11 les décale de 8.
 //!
-//! Wayland n'autorise pas l'écoute globale du clavier : une session Wayland
-//! ne voit que les touches tapées dans les applications X11 (XWayland).
+//! Session Wayland (mode Bureau de SteamOS 3.8 et plus, Plasma 6) : tout
+//! passe par XWayland, sauf les frappes simulées, envoyées par un clavier
+//! virtuel du noyau (uinput) pour atteindre aussi les applications Wayland.
+//! Wayland n'autorise pas l'écoute globale du clavier : XWayland ne reçoit les
+//! touches tapées ailleurs que si KDE l'y autorise (Configuration du système →
+//! prise en charge des applications X11 historiques → « Toujours »).
 
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
@@ -54,6 +58,11 @@ mod key {
     pub const RIGHTCTRL: u32 = 97;
     pub const RIGHTALT: u32 = 100;
     pub const INSERT: u32 = 110;
+    pub const NUMLOCK: u32 = 69;
+    pub const HOME: u32 = 102;
+    pub const PAGEUP: u32 = 104;
+    pub const END: u32 = 107;
+    pub const PAGEDOWN: u32 = 109;
     pub const PAUSE: u32 = 119;
     pub const LEFTMETA: u32 = 125;
     pub const RIGHTMETA: u32 = 126;
@@ -75,6 +84,9 @@ mod keysym {
 
 /// Nom de touche de la configuration → code evdev.
 pub fn key_code(name: &str) -> Option<u32> {
+    if let Some(code) = vtt_core::config::raw_key_code(name) {
+        return Some(code);
+    }
     let name = name.trim().to_ascii_lowercase();
     let code = match name.as_str() {
         "altgr" | "rightalt" | "ralt" => key::RIGHTALT,
@@ -84,6 +96,11 @@ pub fn key_code(name: &str) -> Option<u32> {
         "scrolllock" => key::SCROLLLOCK,
         "pause" => key::PAUSE,
         "insert" => key::INSERT,
+        "home" => key::HOME,
+        "end" => key::END,
+        "pageup" => key::PAGEUP,
+        "pagedown" => key::PAGEDOWN,
+        "numlock" => key::NUMLOCK,
         "menu" | "apps" => key::COMPOSE,
         "escape" | "esc" => key::ESC,
         _ => {
@@ -130,10 +147,11 @@ fn root(conn: &RustConnection, screen: usize) -> Window {
 /// Suit le clavier dans un thread dédié. Rien n'est intercepté : les
 /// événements sont seulement recopiés.
 pub fn spawn_keyboard_hook(tx: Sender<KeyEvent>) -> Result<(), String> {
-    if std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland")) {
+    if wayland_session() {
         log::warn!(
-            "session Wayland : le raccourci ne sera vu que dans les applications X11 ; \
-             choisir une session X11 (Plasma X11) pour dicter partout"
+            "session Wayland : le raccourci n'est vu hors des applications X11 que si KDE \
+             l'autorise (Configuration du système → prise en charge des applications X11 \
+             historiques → « Toujours »)"
         );
     }
     let (conn, screen) = connect()?;
@@ -177,12 +195,15 @@ pub fn spawn_keyboard_hook(tx: Sender<KeyEvent>) -> Result<(), String> {
                     Event::XinputRawKeyRelease(raw) => (raw, false),
                     _ => continue,
                 };
-                // Nos propres Ctrl+V simulés ne doivent pas perturber le raccourci.
-                if injected.contains(&raw.sourceid) {
+                let key = raw.detail.saturating_sub(X_KEYCODE_OFFSET);
+                // Nos propres Ctrl+V simulés ne doivent pas perturber le
+                // raccourci : périphérique XTEST, ou touches du clavier
+                // virtuel (uinput) que XWayland ne distingue pas d'un vrai.
+                if injected.contains(&raw.sourceid) || recently_injected(key) {
                     continue;
                 }
                 let sent = tx.send(KeyEvent {
-                    key: raw.detail.saturating_sub(X_KEYCODE_OFFSET),
+                    key,
                     down,
                     at_ms: now_ms(),
                 });
@@ -218,6 +239,17 @@ fn xtest_devices(conn: &RustConnection) -> Vec<xinput::DeviceId> {
 fn keymap() -> Option<[u8; 32]> {
     let (conn, _) = display()?;
     Some(conn.query_keymap().ok()?.reply().ok()?.keys)
+}
+
+/// Touches du clavier enfoncées, en codes evdev (détection d'une touche dans
+/// les réglages).
+pub fn pressed_keys() -> Vec<u32> {
+    keymap().map_or_else(Vec::new, |keys| {
+        (X_KEYCODE_OFFSET..256)
+            .map(|keycode| keycode - X_KEYCODE_OFFSET)
+            .filter(|&code| is_down(&keys, code))
+            .collect()
+    })
 }
 
 fn is_down(keys: &[u8; 32], code: u32) -> bool {
@@ -269,8 +301,54 @@ fn keycode_for(conn: &RustConnection, sym: Keysym, fallback: u32) -> Keycode {
     found.unwrap_or((fallback + X_KEYCODE_OFFSET) as Keycode)
 }
 
-/// Ctrl + la touche qui produit `sym` (C, V ou Z), simulés avec XTest.
+/// Session Wayland (les applications X11 passent par XWayland).
+pub(crate) fn wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"))
+        || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())
+}
+
+/// Touches simulées par le clavier virtuel, ignorées par le suivi du clavier
+/// jusqu'à l'heure indiquée (`now_ms`).
+static INJECTED: Mutex<(Vec<u32>, u64)> = Mutex::new((Vec::new(), 0));
+/// Les frappes simulées reviennent par XWayland en quelques millisecondes.
+const INJECTED_ECHO_MS: u64 = 400;
+
+fn recently_injected(key: u32) -> bool {
+    let injected = INJECTED.lock().unwrap_or_else(|e| e.into_inner());
+    now_ms() <= injected.1 && injected.0.contains(&key)
+}
+
+/// Ctrl + la touche qui produit `sym` (C, V ou Z). Sous Wayland, par le
+/// clavier virtuel (uinput) s'il est accessible, sinon par XTest.
 fn send_ctrl(sym: Keysym, fallback: u32) -> Result<(), String> {
+    if wayland_session() {
+        // La disposition active est aussi celle de XWayland.
+        let letter = display().map_or(fallback, |(conn, _)| {
+            u32::from(keycode_for(conn, sym, fallback)).saturating_sub(X_KEYCODE_OFFSET)
+        });
+        let keys = [key::LEFTCTRL, letter];
+        {
+            let mut injected = INJECTED.lock().unwrap_or_else(|e| e.into_inner());
+            *injected = (keys.to_vec(), now_ms() + INJECTED_ECHO_MS);
+        }
+        match crate::uinput::send_chord(&keys) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                static WARNED: std::sync::Once = std::sync::Once::new();
+                WARNED.call_once(|| {
+                    log::warn!(
+                        "clavier virtuel indisponible ({e}) : frappes par XTest, qui \
+                         n'atteignent que les applications X11"
+                    );
+                });
+            }
+        }
+    }
+    send_ctrl_xtest(sym, fallback)
+}
+
+/// Ctrl + la touche qui produit `sym`, simulés avec XTest.
+fn send_ctrl_xtest(sym: Keysym, fallback: u32) -> Result<(), String> {
     let (conn, screen) = display().ok_or("affichage X11 introuvable")?;
     let ctrl = keycode_for(conn, keysym::CONTROL_L, key::LEFTCTRL);
     let letter = keycode_for(conn, sym, fallback);
@@ -508,6 +586,60 @@ pub fn fullscreen_app_running() -> bool {
         .unwrap_or(false)
 }
 
+/// Description de la session pour le journal (diagnostic à distance) :
+/// système, type de session, affichage, accès au clavier virtuel.
+pub fn session_report() -> Vec<String> {
+    let var = |name: &str| std::env::var(name).unwrap_or_else(|_| "—".into());
+    let os = std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|release| {
+            release.lines().find_map(|line| {
+                line.strip_prefix("PRETTY_NAME=")
+                    .map(|v| v.trim_matches('"').to_owned())
+            })
+        })
+        .unwrap_or_else(|| "inconnu".into());
+    let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|k| k.trim().to_owned())
+        .unwrap_or_else(|_| "inconnu".into());
+    let x11 = match connect() {
+        Ok((conn, _)) => match conn
+            .xinput_xi_query_version(2, 2)
+            .map_err(|e| e.to_string())
+            .and_then(|c| c.reply().map_err(|e| e.to_string()))
+        {
+            Ok(v) => format!("connecté, XInput {}.{}", v.major_version, v.minor_version),
+            Err(e) => format!("connecté, XInput indisponible ({e})"),
+        },
+        Err(e) => e,
+    };
+    let uinput = match std::fs::OpenOptions::new().write(true).open("/dev/uinput") {
+        Ok(_) => "accessible".to_owned(),
+        Err(e) => format!("inaccessible ({e})"),
+    };
+    vec![
+        format!("système : {os}, noyau {kernel}"),
+        format!(
+            "session : {} ({}), bureau {}",
+            var("XDG_SESSION_TYPE"),
+            if wayland_session() { "Wayland" } else { "X11" },
+            var("XDG_CURRENT_DESKTOP")
+        ),
+        format!(
+            "affichage : DISPLAY={}, WAYLAND_DISPLAY={}, GDK_BACKEND={}",
+            var("DISPLAY"),
+            var("WAYLAND_DISPLAY"),
+            var("GDK_BACKEND")
+        ),
+        format!("X11 : {x11}"),
+        format!("clavier virtuel (/dev/uinput) : {uinput}"),
+        format!(
+            "AppImage : {}",
+            std::env::var_os("APPIMAGE").map_or("non".into(), |p| p.to_string_lossy().into_owned())
+        ),
+    ]
+}
+
 /// Sous Linux, les bibliothèques ouvrent les chemins tels quels (UTF-8).
 pub fn ascii_path(path: &std::path::Path) -> std::path::PathBuf {
     path.to_owned()
@@ -528,6 +660,8 @@ mod tests {
         assert_eq!(key_code("F13"), Some(183));
         assert_eq!(key_code("F24"), Some(194));
         assert_eq!(key_code("F25"), None);
+        assert_eq!(key_code("#183"), Some(183));
+        assert_eq!(key_code("PageDown"), Some(109));
         assert_eq!(key_code("F0"), None);
         assert_eq!(key_code("nimportequoi"), None);
     }

@@ -39,6 +39,8 @@ pub struct AppSettingsView {
     microphones: Vec<String>,
     models: Vec<ModelChoice>,
     autostart: bool,
+    /// Session Wayland (Linux) : réglage de KDE à signaler pour le raccourci.
+    wayland: bool,
 }
 
 #[tauri::command(async)]
@@ -69,6 +71,9 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         microphones: vtt_platform::audio::input_devices(),
         models: model::catalog(&paths.models_dir),
         autostart: vtt_platform::autostart_enabled(),
+        wayland: cfg!(target_os = "linux")
+            && (std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"))
+                || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())),
     })
 }
 
@@ -211,4 +216,22 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
     vtt_platform::set_autostart(enabled)?;
     log::info!("démarrage avec la session : {enabled}");
     Ok(())
+}
+
+/// Temps laissé pour appuyer sur la touche à détecter.
+const CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Détection de la touche de dictée : attend le prochain appui (touche du
+/// clavier, ou bouton de manette changé en touche par Steam Input) et
+/// renvoie son nom pour la configuration (« F13 », ou `#183` pour une
+/// touche sans nom).
+#[tauri::command]
+pub async fn capture_hotkey() -> Result<String, String> {
+    let code = tauri::async_runtime::spawn_blocking(|| vtt_platform::capture_key(CAPTURE_TIMEOUT))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("aucune touche détectée en 10 secondes")?;
+    let name = vtt_platform::key_name(code);
+    log::info!("touche détectée : {name} (code {code})");
+    Ok(name)
 }

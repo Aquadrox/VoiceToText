@@ -9,8 +9,12 @@ use crate::KeyEvent;
 
 const MESSAGE: &str = "pas encore pris en charge sur cet OS";
 
-pub fn key_code(_name: &str) -> Option<u32> {
-    None
+pub fn key_code(name: &str) -> Option<u32> {
+    vtt_core::config::raw_key_code(name)
+}
+
+pub fn pressed_keys() -> Vec<u32> {
+    Vec::new()
 }
 
 pub fn companion_keys(_trigger: u32) -> Vec<u32> {

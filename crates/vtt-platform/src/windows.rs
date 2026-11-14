@@ -40,6 +40,9 @@ static HOOK_SENDER: OnceLock<Sender<KeyEvent>> = OnceLock::new();
 
 /// Nom de touche de la configuration → code virtual-key.
 pub fn key_code(name: &str) -> Option<u32> {
+    if let Some(code) = vtt_core::config::raw_key_code(name) {
+        return Some(code);
+    }
     let name = name.trim().to_ascii_lowercase();
     let code = match name.as_str() {
         "altgr" | "rightalt" | "ralt" => VK_RMENU.0,
@@ -49,6 +52,11 @@ pub fn key_code(name: &str) -> Option<u32> {
         "scrolllock" => 0x91,
         "pause" => 0x13,
         "insert" => 0x2D,
+        "home" => 0x24,
+        "end" => 0x23,
+        "pageup" => 0x21,
+        "pagedown" => 0x22,
+        "numlock" => 0x90,
         "menu" | "apps" => 0x5D,
         "escape" | "esc" => 0x1B,
         _ => {
@@ -126,6 +134,16 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 /// État physique de la touche, indépendamment du hook.
 pub fn key_is_down(key: u32) -> bool {
     unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 }
+}
+
+/// Touches du clavier enfoncées (détection d'une touche dans les réglages).
+/// Sans les boutons de la souris ni les codes génériques Maj / Ctrl / Alt,
+/// doublons de leurs versions gauche et droite.
+pub fn pressed_keys() -> Vec<u32> {
+    (0x08..=0xFE)
+        .filter(|vk| !matches!(vk, 0x10..=0x12))
+        .filter(|&vk| key_is_down(vk))
+        .collect()
 }
 
 /// Une touche de modification (Ctrl, Maj, Alt, Windows) est enfoncée.
@@ -591,6 +609,8 @@ mod tests {
         assert_eq!(key_code(" altgr "), Some(0xA5));
         assert_eq!(key_code("F13"), Some(0x7C));
         assert_eq!(key_code("F25"), None);
+        assert_eq!(key_code("#183"), Some(183));
+        assert_eq!(key_code("PageDown"), Some(0x22));
         assert_eq!(key_code("nimportequoi"), None);
     }
 

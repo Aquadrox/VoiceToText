@@ -10,8 +10,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 
 ## 0.32.0 — 2026-11-14
 
-- [PC] VoiceToText fonctionne sous Linux, Steam Deck compris (mode Bureau) : un seul fichier AppImage à télécharger depuis la page des versions, à rendre exécutable puis à lancer, sans rien installer. Il faut une session X11.
-- [PC] Steam Deck : une gâchette arrière peut servir de touche de dictée. Dans Steam, associez-la à la touche F13, puis choisissez F13 dans Réglages → Raccourcis : maintenir la gâchette dicte, la relâcher colle le texte.
+- [PC] VoiceToText fonctionne sous Linux, Steam Deck compris (mode Bureau) : un seul fichier AppImage à télécharger depuis la page des versions, à rendre exécutable puis à lancer, sans rien installer. Sessions X11 et Wayland (KDE) ; sous Wayland, un réglage de KDE rappelé dans Réglages → Raccourcis permet à la touche de dictée de marcher partout.
+- [PC] Touche de dictée détectée : dans Réglages → Raccourcis, cliquez sur « Détecter » puis appuyez sur la touche voulue, même si elle n'est pas dans la liste.
+- [PC] Steam Deck : une gâchette arrière peut servir de touche de dictée. Dans Steam, associez-la à une touche du clavier, puis « Détecter » dans VoiceToText et appuyez sur la gâchette : maintenir la gâchette dicte, la relâcher colle le texte.
+- [PC] Linux : si l'application se ferme toute seule, la cause est notée dans les journaux (~/.local/share/VoiceToText/logs/).
 - [PC] Sous Linux, les clés API sont rangées dans le trousseau de la session (KWallet, GNOME Keyring), Whisper utilise la carte graphique, et les mises à jour s'installent comme sur Windows, signées.
 - [PC] Pas encore sous Linux : la capture commentée, la pause de la musique pendant la dictée et la détection des appels.
 - [PC] Styles par application : un style prévu pour « slack.exe » s'applique aussi à Slack sous Linux, et inversement.

@@ -398,8 +398,13 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
 - ✅ Textes de l'interface sans « Windows » codé en dur (trousseau, micro par défaut, démarrage avec la session)
 - ✅ CI : job `appimage` (Ubuntu 22.04 pour une glibc ancienne, SDK Vulkan) ; AppImage de test sur les PR, signée sur les tags ; `latest.json` annonce aussi `linux-x86_64` : mise à jour automatique sur Linux, avec la même signature
 - ✅ Vérifié sur le serveur (Xvfb, openbox, PulseAudio, GNOME Keyring) : dictée complète touche → micro → Vosk → texte collé dans une fenêtre ; collage avec accents et presse-papier remis ; Command Mode avec et sans sélection ; touches enfoncées ; clés API (enregistrer, remplacer, lister, supprimer) ; chiffrement ; démarrage avec la session ; AppImage construite (91 Mo, chargeur Vulkan inclus) et lancée jusqu'à « prêt » ; Whisper sans pilote Vulkan → message au lieu du plantage
-- ⬜ À valider sur le Steam Deck : AppImage, icône dans la zone de notification de KDE, pastille, gâchette arrière (Steam Input → F13), KWallet, vitesse de Whisper Vulkan, mise à jour automatique
-- Pas encore sous Linux : session Wayland (le raccourci n'est vu que dans les applications X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
+- ✅ Premier essai sur le Steam Deck : l'application se fermait presque aussitôt, sans trace. SteamOS 3.8 (juin 2026) est passé à **Wayland** en mode Bureau (Plasma 6.4), contrairement à ce qui était supposé. Réponse :
+  - contournement recommandé par Tauri du plantage de WebKitGTK sous Wayland et sur certains pilotes (« Could not create default EGL display », « Error 71 ») : `WEBKIT_DISABLE_DMABUF_RENDERER=1`, et `GDK_BACKEND=x11` (nos fenêtres passent par XWayland, comme le reste) ; une valeur posée par l'utilisateur est respectée
+  - **journal de plantage** : sortie d'erreur recopiée dans `logs/stderr.log` (celle du lancement précédent dans `stderr.precedent.log`), signal fatal noté (une seule ligne, même si WebKit chaîne son gestionnaire), et au lancement suivant la fin de la sortie recopiée dans `voicetotext.log` ; rapport de session au démarrage (système, X11 / Wayland, variables d'affichage, XInput, accès à `/dev/uinput`, AppImage). Vérifié sur le serveur avec un SIGSEGV provoqué
+  - **Wayland** : frappes simulées (Ctrl+V, Ctrl+C, Ctrl+Z) par un clavier virtuel du noyau (uinput, ouvert à l'utilisateur par la règle udev de Steam sur SteamOS), qui atteint toutes les applications ; leur écho par XWayland ignoré par le suivi du clavier ; repli sur XTest. Presse-papier par le protocole « data control » (arboard). Raccourci par XWayland : réglage KDE « Prise en charge des anciennes applications X11 → Toujours », rappelé dans les réglages
+- ✅ **Détection de la touche** (Windows et Linux) : bouton « Détecter » à côté de la touche de dictée et de la touche de commande ; on appuie sur la touche, ou sur le bouton de manette que Steam Input transforme en touche. Indépendant du suivi du clavier (marche même pendant le téléchargement du modèle). Touche sans nom gardée par son code (`#183`, propre au système) ; nouveaux noms : Début, Fin, Page préc., Page suiv., Verr. Num. Vérifié sous Xvfb (Page préc. → `PageUp`, lettre → `#48`)
+- ⬜ À valider sur le Steam Deck : démarrage (journal), icône dans la zone de notification de KDE, pastille, gâchette arrière détectée, réglage X11 de KDE, collage par uinput, KWallet, vitesse de Whisper Vulkan, mise à jour automatique
+- Pas encore sous Linux : styles par application pour les applications Wayland (fenêtre active vue seulement si elle est X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
 
 ## v0.33 — Linux : confort ⬜
 
@@ -407,7 +412,7 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
 - ⬜ Capture commentée : capture d'écran, clics, collage d'image (X11)
 - ⬜ Détection des appels : programmes qui utilisent le micro (PipeWire / PulseAudio)
 - ⬜ Steam Deck : conseils dans l'application (choisir F13, configurer une gâchette arrière dans Steam Input)
-- ⬜ Session Wayland : raccourci par le portail « raccourcis globaux » de KDE, collage par le portail « bureau à distance » ou `uinput`
+- ⬜ Session Wayland sans réglage KDE : raccourci par le portail « raccourcis globaux » (appui et relâchement) ; fenêtre active des applications Wayland (styles par application)
 
 ## Outillage ✅
 
@@ -428,5 +433,6 @@ Accélérer la CI sans baisser la garde :
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Épeler un mot : « A Q U A D R O X » dicté lettre par lettre, distinctement, donne « aquadrox » (lettres isolées regroupées en un mot, par règles locales comme les commandes vocales ; à étudier : Whisper écrit souvent « A, Q, U… » ou « AQUADROX », le LLM peut aussi recoller les lettres ; noms propres et sigles, majuscule si demandée).
 - Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain), à étudier une fois le mode Bureau éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).

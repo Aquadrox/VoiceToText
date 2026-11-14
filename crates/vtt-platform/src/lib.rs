@@ -28,8 +28,8 @@ mod windows;
 pub use windows::{
     ClickRecorder, ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text,
     exclude_from_capture, foreground_rect, foreground_target, fullscreen_app_running, key_code,
-    key_is_down, modifiers_down, paste_image, play_sound, screenshot, spawn_keyboard_hook,
-    suppress_menu_activation,
+    key_is_down, modifiers_down, paste_image, play_sound, pressed_keys, screenshot,
+    spawn_keyboard_hook, suppress_menu_activation,
 };
 
 #[cfg(target_os = "linux")]
@@ -41,11 +41,13 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_target,
-    fullscreen_app_running, key_code, key_is_down, modifiers_down, spawn_keyboard_hook,
-    suppress_menu_activation,
+    fullscreen_app_running, key_code, key_is_down, modifiers_down, pressed_keys, session_report,
+    spawn_keyboard_hook, suppress_menu_activation,
 };
 #[cfg(target_os = "linux")]
 mod secrets_linux;
+#[cfg(target_os = "linux")]
+mod uinput;
 #[cfg(target_os = "linux")]
 pub use secrets_linux::{
     delete_secret, list_secrets, load_secret, protect, store_secret, unprotect,
@@ -70,12 +72,12 @@ pub use unsupported::{
     ClickRecorder, ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys,
     copy_selection, copy_text, delete_secret, exclude_from_capture, foreground_rect,
     foreground_target, fullscreen_app_running, key_code, key_is_down, list_secrets, load_secret,
-    microphone_apps, modifiers_down, paste_image, play_sound, protect, screenshot, set_autostart,
-    spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
+    microphone_apps, modifiers_down, paste_image, play_sound, pressed_keys, protect, screenshot,
+    set_autostart, spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
 };
 
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Appui ou relâchement d'une touche physique.
 #[derive(Debug, Clone, Copy)]
@@ -92,4 +94,60 @@ pub struct KeyEvent {
 pub fn now_ms() -> u64 {
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// Attend qu'une touche du clavier soit enfoncée (détection de la touche de
+/// dictée dans les réglages) et renvoie son code, ou `None` après `timeout`.
+/// Les touches déjà enfoncées au départ ne comptent qu'une fois relâchées
+/// puis enfoncées de nouveau. Fonctionne sans le suivi du clavier : la
+/// détection marche même si le modèle n'est pas encore chargé.
+pub fn capture_key(timeout: Duration) -> Option<u32> {
+    let started = Instant::now();
+    let mut held = pressed_keys();
+    while started.elapsed() < timeout {
+        std::thread::sleep(Duration::from_millis(15));
+        let now = pressed_keys();
+        let new: Vec<u32> = now.iter().copied().filter(|k| !held.contains(k)).collect();
+        if !new.is_empty() {
+            // AltGr sous Windows : Ctrl gauche + Alt droit d'un coup ; on
+            // garde la touche qui a un nom.
+            return Some(
+                new.iter()
+                    .copied()
+                    .find(|&k| named_key(k).is_some())
+                    .unwrap_or(new[0]),
+            );
+        }
+        held = now;
+    }
+    None
+}
+
+/// Nom de la configuration pour un code de touche : « AltGr », « F13 »… ou
+/// le code brut (`#183`) pour une touche sans nom.
+pub fn key_name(code: u32) -> String {
+    named_key(code).map_or_else(|| format!("#{code}"), str::to_owned)
+}
+
+fn named_key(code: u32) -> Option<&'static str> {
+    vtt_core::config::HOTKEY_NAMES
+        .iter()
+        .copied()
+        .find(|name| key_code(name) == Some(code))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_names_round_trip() {
+        for name in vtt_core::config::HOTKEY_NAMES {
+            if let Some(code) = key_code(name) {
+                assert_eq!(key_name(code), *name);
+            }
+        }
+        assert_eq!(key_name(1000), "#1000");
+        assert_eq!(key_code(&key_name(1000)), Some(1000));
+    }
 }

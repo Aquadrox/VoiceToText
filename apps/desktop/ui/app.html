@@ -369,11 +369,23 @@
                   <div class="fields">
                     <div class="field">
                       <label for="hk-key">Touche de dictée (maintenir)</label>
-                      <select id="hk-key"></select>
+                      <div class="row key-row">
+                        <select id="hk-key"></select>
+                        <button type="button" id="hk-key-detect" data-detect="hk-key">Détecter</button>
+                      </div>
+                      <p class="hint">« Détecter », puis appuyez sur la touche voulue (ou sur le bouton de la manette associé à une touche dans Steam Input).</p>
+                      <p class="hint warning" id="hk-wayland" hidden>
+                        Session Wayland : pour que la touche marche dans toutes les applications, autorisez-la dans
+                        KDE : Configuration du système → Autorisations des applications → Prise en charge des
+                        anciennes applications X11 → « Toujours ».
+                      </p>
                     </div>
                     <div class="field">
                       <label for="hk-command">Command Mode (avec la touche de dictée)</label>
-                      <select id="hk-command"></select>
+                      <div class="row key-row">
+                        <select id="hk-command"></select>
+                        <button type="button" id="hk-command-detect" data-detect="hk-command">Détecter</button>
+                      </div>
                       <p class="hint">Consigne dictée appliquée au texte sélectionné.</p>
                     </div>
                     <div class="field">

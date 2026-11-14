@@ -43,7 +43,7 @@ Pour la lancer à chaque ouverture de session : **Réglages → Application → 
 
 ### Sur Linux et Steam Deck
 
-Une **AppImage** : un seul fichier, rien à installer, ce qui convient au Steam Deck (SteamOS efface à chaque mise à jour les paquets ajoutés au système). Il faut une **session X11** : c'est le cas du mode Bureau du Steam Deck et de la plupart des bureaux Linux au choix « X11 » à la connexion. Pour le vérifier, dans un terminal (Konsole) : `echo $XDG_SESSION_TYPE` doit afficher `x11`.
+Une **AppImage** : un seul fichier, rien à installer, ce qui convient au Steam Deck (SteamOS efface à chaque mise à jour les paquets ajoutés au système). Elle fonctionne en session **X11** et en session **Wayland** de KDE Plasma, celle du mode Bureau depuis SteamOS 3.8. Sous Wayland, un réglage de KDE est nécessaire pour que la touche de dictée marche dans toutes les applications (voir ci-dessous).
 
 1. Steam Deck : passer en **mode Bureau** (bouton Steam → Alimentation → Passer au bureau).
 2. Télécharger `VoiceToText_x.y.z_amd64.AppImage` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) et le ranger dans un dossier personnel, par exemple `~/Applications` (le fichier doit rester modifiable : la mise à jour automatique le remplace sur place).
@@ -54,16 +54,20 @@ L'icône apparaît dans la zone de notification (en bas à droite sur le Deck) ;
 
 **Clés API** : rangées dans le trousseau de la session (**KWallet** sur le Deck et KDE, **GNOME Keyring** ailleurs). À la première clé, KWallet peut proposer de créer un portefeuille : l'accepter. Sans trousseau actif, la clé ne peut pas être enregistrée ; un modèle local (Ollama) ou le nettoyage désactivé fonctionnent quand même.
 
+**Session Wayland (SteamOS 3.8 et plus, Plasma 6)** : Wayland ne laisse pas une application écouter le clavier quand une autre est au premier plan. Pour que la touche de dictée soit vue partout : **Configuration du système → Autorisations des applications → Prise en charge des anciennes applications X11 → « Toujours »** (selon la version de KDE, ce réglage peut s'appeler un peu autrement : chercher « X11 » dans la Configuration du système). Le texte est collé par un clavier virtuel, ce qui marche dans toutes les applications ; la page **Réglages → Raccourcis** rappelle ce réglage quand la session est Wayland.
+
 **Dicter sans clavier sur le Steam Deck** : le Deck n'a pas de touche AltGr. Faire d'une **gâchette arrière** une touche de clavier :
 1. dans Steam (ouvert en mode Bureau) : **Paramètres → Contrôleur → Disposition du bureau** (*Desktop Layout*) **→ Modifier** ;
-2. choisir **L4** (ou R4) → **Clavier** → **F13** (ou, si elle n'est pas proposée, une touche inutilisée comme **Pause** ou **Arrêt défil**) ;
-3. dans VoiceToText : **Réglages → Raccourcis → Dictée** → la même touche.
+2. choisir **L4** (ou R4) → **Clavier** → une touche inutilisée (**F13** si elle est proposée, sinon **Pause**, **Arrêt défil**, **Inser**…) ;
+3. dans VoiceToText : **Réglages → Raccourcis → Dictée → Détecter**, puis appuyer sur la gâchette : la touche qu'elle envoie est reconnue toute seule ; **Appliquer**.
 
 Maintenir L4 dicte, relâcher colle le texte, exactement comme AltGr. Avec un clavier branché, AltGr fonctionne aussi.
 
 Démarrage automatique : **Réglages → Application → Lancer VoiceToText à l'ouverture de session** (crée `~/.config/autostart/voicetotext.desktop`).
 
-Pas encore sous Linux : la **capture commentée**, la **pause de la musique** pendant la dictée, la **détection des appels** (proposition d'enregistrer la réunion), la **session Wayland** (le raccourci n'y est vu que dans les applications X11) et le **mode Jeu** du Steam Deck.
+Pas encore sous Linux : la **capture commentée**, la **pause de la musique** pendant la dictée, la **détection des appels** (proposition d'enregistrer la réunion), les **styles par application** pour les applications Wayland (ils marchent pour les applications X11) et le **mode Jeu** du Steam Deck.
+
+**Si l'application se ferme toute seule** : les journaux sont dans `~/.local/share/VoiceToText/logs/` (dossier caché : dans Dolphin, **Ctrl+H** pour l'afficher). `voicetotext.log` décrit la session au démarrage (système, X11 ou Wayland…) et, après un plantage, recopie au lancement suivant la fin de `stderr.precedent.log`, où les bibliothèques (GTK, WebKit, pilote graphique) écrivent leurs erreurs. Ce sont ces fichiers à envoyer.
 
 ### Sur Android
 
@@ -631,6 +635,7 @@ extra_body = {}
 
 | Problème | Piste |
 |---|---|
+| La touche de dictée n'est pas dans la liste | **Réglages → Raccourcis → Détecter**, puis appuyer sur la touche (ou le bouton de manette associé à une touche) : elle est reconnue, même sans nom (« Touche détectée (code 183) »). |
 | Rien n'est collé dans une application | Application lancée **en administrateur** : Windows bloque l'insertion depuis une application normale. La relancer sans droits administrateur, ou copier le texte depuis l'**Historique**. |
 | La pastille affiche une erreur | Message complet dans le journal (menu **Ouvrir les journaux**). |
 | Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Nettoyage par LLM → Tester ces réglages** affiche la cause et des pistes. |
@@ -641,7 +646,9 @@ extra_body = {}
 | Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
 | Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
 | Téléchargement du modèle échoué | Vérifier la connexion puis cliquer **Appliquer** dans **Réglages** (le téléchargement recommence). |
-| Linux : le raccourci ne marche que dans certaines fenêtres | Session **Wayland** : choisir une session X11 à la connexion (`echo $XDG_SESSION_TYPE` doit afficher `x11`). |
+| Linux : le raccourci ne marche que dans certaines fenêtres | Session **Wayland** : autoriser les anciennes applications X11 à lire le clavier (**Configuration du système → Autorisations des applications → Prise en charge des anciennes applications X11 → « Toujours »**). |
+| Linux : rien n'est collé sous Wayland | Le clavier virtuel (`/dev/uinput`) est inaccessible : le journal l'indique au démarrage. Sur le Steam Deck, Steam l'ouvre à l'utilisateur ; ailleurs, ajouter l'utilisateur au groupe `input`. Le texte reste dans le presse-papier (Ctrl+V). |
+| Linux : l'application se ferme au démarrage | Voir les journaux (`~/.local/share/VoiceToText/logs/`) : `voicetotext.log`, puis `stderr.log` / `stderr.precedent.log`. |
 | Linux : « trousseau de la session introuvable » | Aucun KWallet ni GNOME Keyring actif : l'activer (KDE : Paramètres → Portefeuille KDE), ou utiliser Ollama / le nettoyage désactivé. |
 | Steam Deck : la gâchette arrière ne fait rien | Steam doit être ouvert en mode Bureau (c'est lui qui transforme la manette en clavier) ; vérifier que la touche choisie dans Steam Input (F13, Pause…) est la même que dans **Réglages → Raccourcis**. |
 | Linux : « Whisper demande un pilote Vulkan » | Pas de pilote Vulkan pour la carte graphique (machine virtuelle, NVIDIA sans pilote propriétaire) : installer le pilote (Mesa, NVIDIA), ou choisir **Parakeet** (rapide sans carte graphique) ou **Vosk** dans **Réglages → Micro et transcription**. Le Steam Deck a son pilote. |
