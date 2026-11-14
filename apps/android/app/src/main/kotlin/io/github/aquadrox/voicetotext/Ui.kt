@@ -389,3 +389,153 @@ fun Context.iconButton(icon: Int, description: String, action: () -> Unit): Imag
     contentDescription = description
     setOnClickListener { action() }
 }
+
+/** Intitulé de groupe au-dessus d'une carte (« Réglages »…). */
+fun LinearLayout.groupLabel(label: String): TextView = text(label, 13f, R.color.muted, bold = true).apply {
+    isAllCaps = true
+    letterSpacing = 0.06f
+    setPadding(context.dp(4), context.dp(20), 0, 0)
+}
+
+/**
+ * Réglage marche/arrêt : titre, explication en gris et interrupteur à
+ * droite ; toute la ligne est touchable. `change` : appelé quand
+ * l'utilisateur bascule (pas quand le code pose la valeur avec `quietly`).
+ */
+fun LinearLayout.toggle(title: String, description: String = "", checked: Boolean = false, change: ((Boolean) -> Unit)? = null): Switch {
+    val ctx = context
+    val line = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = ctx.dp(56)
+        setPadding(0, ctx.dp(8), 0, ctx.dp(8))
+        background = ctx.pressable(null, 8f)
+    }
+    val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+    texts.text(title, 16f)
+    if (description.isNotEmpty()) texts.text(description, 13.5f, R.color.muted).setPadding(0, ctx.dp(2), 0, 0)
+    line.addView(texts, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = ctx.dp(12) })
+    val switch = Switch(ctx).apply {
+        isChecked = checked
+        contentDescription = title
+        val listener = android.widget.CompoundButton.OnCheckedChangeListener { _, value -> change?.invoke(value) }
+        tag = listener
+        setOnCheckedChangeListener(listener)
+    }
+    line.addView(switch, LinearLayout.LayoutParams(WRAP, WRAP))
+    // Le texte est lu avec l'interrupteur : une seule cible pour TalkBack.
+    texts.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    line.setOnClickListener { switch.toggle() }
+    addView(line, LinearLayout.LayoutParams(MATCH, WRAP))
+    return switch
+}
+
+/** Pose la valeur d'un interrupteur de `toggle` sans déclencher l'enregistrement. */
+fun Switch.quietly(value: Boolean) {
+    setOnCheckedChangeListener(null)
+    isChecked = value
+    setOnCheckedChangeListener(tag as? android.widget.CompoundButton.OnCheckedChangeListener)
+}
+
+/**
+ * Ligne qui ouvre une page : icône, titre, résumé de l'état actuel en gris,
+ * chevron. Renvoie le résumé, mis à jour par l'écran.
+ */
+fun LinearLayout.navRow(title: String, summary: String = "", icon: Int = 0, open: () -> Unit): TextView {
+    val ctx = context
+    val line = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = ctx.dp(60)
+        setPadding(ctx.dp(4), ctx.dp(10), 0, ctx.dp(10))
+        background = ctx.pressable(null, 10f)
+        setOnClickListener { open() }
+    }
+    if (icon != 0) {
+        line.addView(
+            ImageView(ctx).apply {
+                setImageResource(icon)
+                imageTintList = ColorStateList.valueOf(ctx.getColor(R.color.signal))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            },
+            LinearLayout.LayoutParams(ctx.dp(22), ctx.dp(22)).apply { marginEnd = ctx.dp(14) },
+        )
+    }
+    val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+    texts.text(title, 16f, bold = true)
+    val sub = texts.text(summary, 13.5f, R.color.muted)
+    if (summary.isEmpty()) sub.visibility = View.GONE
+    line.addView(texts, LinearLayout.LayoutParams(0, WRAP, 1f))
+    line.addView(
+        ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_chevron_right)
+            imageTintList = ColorStateList.valueOf(ctx.getColor(R.color.muted))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        },
+        LinearLayout.LayoutParams(ctx.dp(20), ctx.dp(20)).apply { marginStart = ctx.dp(8) },
+    )
+    addView(line, LinearLayout.LayoutParams(MATCH, WRAP))
+    return sub
+}
+
+/** Résumé d'une `navRow` : caché quand il est vide. */
+fun TextView.summary(value: String) {
+    text = value
+    visibility = if (value.isEmpty()) View.GONE else View.VISIBLE
+}
+
+/** Partie repliée (réglages avancés) : un appui sur l'intitulé la déplie. */
+class Fold(val toggle: TextView, val body: LinearLayout) {
+    val isOpen get() = body.visibility == View.VISIBLE
+
+    fun open() = show(true)
+
+    fun flip() = show(!isOpen)
+
+    private fun show(open: Boolean) {
+        body.visibility = if (open) View.VISIBLE else View.GONE
+        toggle.stateDescription = if (open) "Déplié" else "Replié"
+    }
+}
+
+fun LinearLayout.fold(label: String, content: LinearLayout.() -> Unit): Fold {
+    val ctx = context
+    val toggle = text(label, 14f, R.color.fg, bold = true).apply {
+        setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, R.drawable.ic_chevron_down, 0)
+        compoundDrawableTintList = ColorStateList.valueOf(ctx.getColor(R.color.muted))
+        compoundDrawablePadding = ctx.dp(6)
+        gravity = Gravity.CENTER_VERTICAL
+        minHeight = ctx.dp(44)
+        setPadding(0, ctx.dp(6), 0, ctx.dp(6))
+        background = ctx.pressable(null, 8f)
+        stateDescription = "Replié"
+    }
+    (toggle.layoutParams as LinearLayout.LayoutParams).width = WRAP
+    val body = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+        content()
+    }
+    addView(body, LinearLayout.LayoutParams(MATCH, WRAP))
+    val fold = Fold(toggle, body)
+    toggle.setOnClickListener { fold.flip() }
+    return fold
+}
+
+/**
+ * Réglage trouvé par la recherche : la page défile jusqu'à lui et il
+ * s'éclaire un instant (bord vermillon), pour que l'œil le trouve.
+ */
+fun View.reveal() {
+    // Position dans la page : décalages cumulés jusqu'à la zone défilante.
+    var scroll: View? = parent as? View
+    var top = top
+    while (scroll != null && scroll !is ScrollView) {
+        top += scroll.top
+        scroll = scroll.parent as? View
+    }
+    (scroll as? ScrollView)?.smoothScrollTo(0, maxOf(0, top - context.dp(16)))
+    val before = foreground
+    foreground = context.rounded(0x00000000, 12f, context.getColor(R.color.signal), 2)
+    postDelayed({ foreground = before }, 1600)
+}

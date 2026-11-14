@@ -8,6 +8,14 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.30.0 — 2026-11-14
+
+- [Android] Réglages repensés : l'accueil n'est plus une longue page. Les réglages sont rangés en catégories (Dictée, Nettoyage du texte, Dictionnaire et snippets, Bulle de dictée, Historique, Mises à jour, Aide), les plus utilisées en premier, chacune avec son état actuel en un coup d'œil (modèle prêt, fournisseur, clé manquante, nouvelle version…).
+- [Android] Recherche dans les réglages : tapez « clé », « traduction » ou « taille » ; le résultat ouvre la bonne page et montre le réglage.
+- [Android] En haut de l'accueil, seulement ce qui demande votre attention : nouvelle version, bulle arrêtée par le téléphone, et la mise en route tant qu'il manque quelque chose pour dicter.
+- [Android] Les interrupteurs et les choix s'enregistrent dès qu'on les touche, avec une confirmation qui dit ce que cela change. Seul le fournisseur du LLM (adresse, modèle et clé, à tester ensemble) garde un bouton « Enregistrer » ; en quittant la page sans l'avoir fait, l'application demande quoi faire.
+- [Android] Libellés plus courts, avec une explication sous chaque réglage. Nettoyage du texte : l'adresse et le modèle passent dans « Adresse et modèle (avancé) », ouvert d'office pour un serveur à vous.
+
 ## 0.29.0 — 2026-11-14
 
 - [Android] Clés API par fournisseur, comme sur PC : une clé par fournisseur (DeepSeek, GLM, OpenAI, Mistral, OpenRouter…). Changer de fournisseur ne fait plus perdre la clé du précédent, et la clé d'un fournisseur n'est jamais envoyée à un autre.
