@@ -268,7 +268,13 @@ pub async fn capture_shortcut(app: AppHandle) -> Result<String, String> {
 pub fn overlay_visible(window: tauri::WebviewWindow, visible: bool) {
     #[cfg(target_os = "linux")]
     {
-        if visible {
+        // Capture commentée : sous Linux, une fenêtre ne peut pas être
+        // exclue des captures d'écran ; la pastille resterait sur chaque
+        // image. Elle est masquée le temps de l'enregistrement.
+        let annotating = window
+            .try_state::<crate::annotate::AnnotatorState>()
+            .is_some_and(|annotator| annotator.is_recording());
+        if visible && !annotating {
             let _ = window.show();
             // Les clics traversent la pastille (à refaire après affichage sous GTK).
             let _ = window.set_ignore_cursor_events(true);

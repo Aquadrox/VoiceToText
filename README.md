@@ -9,27 +9,40 @@ Dictée vocale pour Windows et Linux (Steam Deck compris), inspirée de Wispr Fl
 
 ## Sommaire
 
-1. [Installation](#installation)
+1. [Démarrage rapide](#démarrage-rapide)
+2. [Installation](#installation)
    - [Sur Linux et Steam Deck](#sur-linux-et-steam-deck)
    - [Sur Android](#sur-android)
-2. [Premiers pas](#premiers-pas)
-3. [Dicter](#dicter)
-4. [Commandes vocales](#commandes-vocales)
-5. [Command Mode](#command-mode)
-6. [Coller la version brute](#coller-la-version-brute)
-7. [Réessayer une dictée](#réessayer-une-dictée)
-8. [Mode traduction](#mode-traduction)
-9. [Réunions](#réunions)
-10. [Capture commentée](#capture-commentée)
-11. [La fenêtre principale](#la-fenêtre-principale)
-12. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-13. [Mises à jour](#mises-à-jour)
-14. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-15. [Fichiers et emplacements](#fichiers-et-emplacements)
-16. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-17. [Dépannage](#dépannage)
-18. [Développement](#développement)
-19. [Licence](#licence)
+3. [Premiers pas](#premiers-pas)
+4. [Dicter](#dicter)
+5. [Commandes vocales](#commandes-vocales)
+6. [Command Mode](#command-mode)
+7. [Coller la version brute](#coller-la-version-brute)
+8. [Réessayer une dictée](#réessayer-une-dictée)
+9. [Mode traduction](#mode-traduction)
+10. [Réunions](#réunions)
+11. [Capture commentée](#capture-commentée)
+12. [La fenêtre principale](#la-fenêtre-principale)
+13. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+14. [Mises à jour](#mises-à-jour)
+15. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+16. [Fichiers et emplacements](#fichiers-et-emplacements)
+17. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+18. [Dépannage](#dépannage)
+19. [Développement](#développement)
+20. [Licence](#licence)
+
+## Démarrage rapide
+
+Pour dicter en dix secondes, sans lire la suite :
+
+1. **Installer et lancer** : `VoiceToText_x.y.z_x64-setup.exe` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) (Windows), ou l'AppImage sous Linux et sur le Steam Deck ([détails](#sur-linux-et-steam-deck)). Une icône apparaît près de l'horloge.
+2. **Modèle local** : il se télécharge tout seul au premier lancement (Whisper ; Parakeet sur le Steam Deck), la progression s'affiche dans la pastille en bas de l'écran. Pour en choisir un autre : icône → **Réglages → Micro et transcription** (Whisper avec une carte graphique, Parakeet sans, Vosk pour un vieux PC). La transcription se fait sur votre ordinateur.
+3. **Dicter** : cliquer là où le texte doit aller, **maintenir AltGr**, parler, **relâcher** : le texte est collé.
+4. **Commande** : sélectionner un texte, maintenir **AltGr + Ctrl droit**, dire la consigne (« traduis en anglais », « rends ça plus formel »), relâcher : la sélection est remplacée. Demande un LLM (étape 5).
+5. **Nettoyage par LLM (facultatif)** : icône → **Réglages → Nettoyage par LLM**, choisir un fournisseur (DeepSeek, OpenAI, Mistral…) et coller sa clé API, ou un modèle local Ollama : ponctuation, majuscules et hésitations corrigées. Sans LLM, le texte transcrit est collé tel quel.
+
+Sur le Steam Deck, sans touche AltGr : une gâchette arrière fait office de touche (voir [Sur Linux et Steam Deck](#sur-linux-et-steam-deck)). Toutes les touches se changent dans **Réglages → Raccourcis** (bouton **Détecter**).
 
 ## Installation
 
@@ -67,7 +80,13 @@ Démarrage automatique : **Réglages → Application → Lancer VoiceToText à l
 
 La **pause de la musique** pendant la dictée passe par MPRIS (Spotify, navigateurs, VLC… : ceux que pilotent les touches multimédias) ; la **détection des appels** lit les programmes qui enregistrent le micro par `pactl` (PipeWire ou PulseAudio), en reconnaissant les noms Linux des applications (Discord, Zoom, Slack, Signal, navigateurs…).
 
-Pas encore sous Linux : la **capture commentée**, les **styles par application** pour les applications Wayland (ils marchent pour les applications X11) et le **mode Jeu** du Steam Deck.
+**Capture commentée** : sous X11, l'écran est lu directement ; sous Wayland, par le service de capture d'écran du bureau, que KDE fait autoriser la première fois. Une fenêtre ne pouvant pas être exclue des captures sous Linux, la pastille est masquée pendant l'enregistrement. Les clics sont marqués sous X11, et sous Wayland ceux que KDE laisse voir (même réglage que pour la touche de dictée).
+
+**Styles par application sous Wayland** : un petit script confié à KWin (le gestionnaire de fenêtres de KDE) indique à VoiceToText la fenêtre active, y compris pour les applications Wayland (Firefox, Dolphin…). Il sert aussi à la mémoire graphique libérée en plein écran et à la zone « fenêtre » de la capture commentée. Hors de KDE, seules les applications X11 sont reconnues.
+
+**Déclarer les touches au bureau (Wayland)** : **Réglages → Raccourcis**, case à cocher visible sous Wayland. La dictée et le Command Mode deviennent des raccourcis de KDE, vus partout sans le réglage des anciennes applications X11 ; KDE les confirme une fois, et la touche se change ensuite aussi dans **Configuration du système → Raccourcis**. AltGr, Ctrl ou Maj seuls ne peuvent pas être des raccourcis de KDE : choisir par exemple F13 ou Pause.
+
+Pas encore sous Linux : le **mode Jeu** du Steam Deck.
 
 **Si l'application se ferme toute seule** : les journaux sont dans `~/.local/share/VoiceToText/logs/` (dossier caché : dans Dolphin, **Ctrl+H** pour l'afficher). `voicetotext.log` décrit la session au démarrage (système, X11 ou Wayland…) et, après un plantage, recopie au lancement suivant la fin de `stderr.precedent.log`, où les bibliothèques (GTK, WebKit, pilote graphique) écrivent leurs erreurs. Ce sont ces fichiers à envoyer.
 
@@ -174,7 +193,7 @@ Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dicté
 | « annule la dernière dictée » (seul) | Annule le dernier collage (Ctrl+Z dans l'application) |
 | Épeler un mot : « A, Q, U, A, D, R, O, X », distinctement | « aquadrox » (lettres recollées en un mot) |
 
-Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage. Un mot épelé doit compter au moins trois lettres : « A ou B », « il y a » restent du texte ; une énumération de trois lettres seules (« A, B, C ») devient un mot (« abc »). Le mot est écrit en minuscules ; le LLM peut lui mettre une majuscule s'il s'agit d'un nom.
+Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage. Un mot épelé doit compter au moins trois lettres : « A ou B », « il y a » restent du texte ; une énumération de trois lettres seules (« A, B, C ») devient un mot (« abc »). Le mot est écrit en minuscules ; le LLM peut lui mettre une majuscule s'il s'agit d'un nom. Le nom d'une lettre écrit en toutes lettres par la transcription (« ku » ou « qu » pour Q, « bé », « erre »…) est reconnu au milieu d'un mot épelé. **Marquez une courte pause entre les lettres**, surtout Q puis U : sans pause, « ku-u » est souvent entendu comme un seul U, et le Q est perdu. Pour un mot que vous épelez souvent, ajoutez-le plutôt au **Dictionnaire**.
 
 Désactivables dans **Réglages → Dictée et traduction**.
 

@@ -63,6 +63,11 @@ pub struct HotkeyConfig {
     /// Capture commentée : appui pour démarrer ou arrêter, maintien pour
     /// dessiner à l'écran, ex. "Alt+Shift+A". Vide : désactivé.
     pub annotate: String,
+    /// Linux, session Wayland : touches de dictée et de commande déclarées
+    /// au bureau (portail « raccourcis globaux », confirmé une fois dans
+    /// KDE), pour dicter partout sans le réglage des anciennes applications
+    /// X11. Désactivé par défaut.
+    pub system_shortcut: bool,
 }
 
 impl Default for HotkeyConfig {
@@ -78,6 +83,7 @@ impl Default for HotkeyConfig {
             meeting: "Alt+Shift+M".into(),
             meeting_copy: "Alt+Shift+N".into(),
             annotate: "Alt+Shift+A".into(),
+            system_shortcut: false,
         }
     }
 }

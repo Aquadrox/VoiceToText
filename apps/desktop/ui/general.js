@@ -127,6 +127,8 @@ function fillGeneral(view) {
   showVisionWarning();
   $("hk-hold").value = view.hotkey.min_hold_ms;
   $("hk-handsfree").checked = view.hotkey.hands_free;
+  $("hk-system").checked = view.hotkey.system_shortcut;
+  $("hk-system-row").hidden = !view.wayland;
 
   const microphones = view.microphones.map((name) => option(name, name));
   const configured = view.audio.device;
@@ -239,6 +241,7 @@ function readGeneral(applying) {
       annotate: v("hk-annotate").trim(),
       min_hold_ms: Number(v("hk-hold")),
       hands_free: v("hk-handsfree"),
+      system_shortcut: v("hk-system"),
     },
     audio: { device: v("audio-device") },
     asr: {

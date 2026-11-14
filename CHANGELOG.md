@@ -8,6 +8,13 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.33.1 — 2026-11-14
+
+- Épeler un mot : les lettres écrites en toutes lettres par la transcription (« ku » pour Q, « bé », « erre »…) sont reconnues. Marquez une courte pause entre les lettres, surtout Q puis U, qui sont souvent entendus comme un seul U.
+- [PC] Linux : la capture commentée fonctionne, y compris sous Wayland (KDE demande l'autorisation la première fois).
+- [PC] Linux : les styles par application reconnaissent aussi les applications Wayland (Firefox, Dolphin…) sous KDE.
+- [PC] Linux (Wayland) : nouvelle option dans Réglages → Raccourcis, « Déclarer les touches au bureau », pour dicter partout sans le réglage de KDE des anciennes applications X11.
+
 ## 0.33.0 — 2026-11-14
 
 - Épeler un mot : dites ses lettres distinctement (« A, Q, U, A, D, R, O, X ») et il est écrit d'un bloc : « aquadrox ». Pratique pour un nom, un pseudo ou un mot que la transcription ne connaît pas. Fonctionne avec les commandes vocales activées.
