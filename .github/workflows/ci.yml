@@ -164,9 +164,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libasound2-dev patchelf libfuse2 file
+            librsvg2-dev libxdo-dev libasound2-dev libvulkan-dev patchelf libfuse2 file
       # Vulkan récent (en-têtes et glslc) : celui d'Ubuntu 22.04 est trop
-      # ancien pour ggml-vulkan.
+      # ancien pour ggml-vulkan. La bibliothèque pour l'édition de liens
+      # (libvulkan.so) vient de libvulkan-dev ci-dessus : le SDK ne la met pas
+      # là où l'éditeur de liens la cherche.
       - name: SDK Vulkan (compilation de whisper.cpp pour le GPU)
         if: steps.changes.outputs.code == 'true'
         uses: jakoch/install-vulkan-sdk-action@v1
