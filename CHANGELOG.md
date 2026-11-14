@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.31.0 — 2026-11-14
+
+- Réunions : un intervenant qui se présente est nommé tout seul. « Bonjour, je m'appelle Marie », « Moi c'est Paul », « Karim à l'appareil » : « Intervenant 2 » devient Marie dans la transcription, la copie, l'export et le compte rendu. Il faut avoir activé « Distinguer les intervenants » ; les noms apparaissent à la fin de l'enregistrement, avec les intervenants.
+- Réunions : dans la liste des intervenants, la phrase où chacun s'est présenté est affichée sous son nom, pour vérifier. Corrigez ou effacez le nom s'il est faux : votre choix passe toujours devant. Tout se fait sur l'appareil, sans LLM.
+- Réunions déjà enregistrées : pour chercher les présentations, changez le nombre d'intervenants puis revenez à « Selon les voix ».
+
 ## 0.30.0 — 2026-11-14
 
 - [Android] Réglages repensés : l'accueil n'est plus une longue page. Les réglages sont rangés en catégories (Dictée, Nettoyage du texte, Dictionnaire et snippets, Bulle de dictée, Historique, Mises à jour, Aide), les plus utilisées en premier, chacune avec son état actuel en un coup d'œil (modèle prêt, fournisseur, clé manquante, nouvelle version…).

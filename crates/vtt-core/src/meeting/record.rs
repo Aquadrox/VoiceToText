@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Segment, Track, with_speakers, without_echo};
+use super::{NameGuess, Segment, Track, guess_names, same_person, with_speakers, without_echo};
 use crate::config::MeetingAudio;
 use crate::diarize;
 
@@ -112,6 +112,10 @@ pub struct MeetingRecord {
     /// Noms donnés aux intervenants (vide : « Intervenant N »).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub speaker_names: Vec<String>,
+    /// Noms trouvés quand un intervenant se présente (« je m'appelle
+    /// Marie »), utilisés tant que l'utilisateur n'en a pas donné.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speaker_guesses: Vec<Option<NameGuess>>,
     /// Nombre d'intervenants imposé (`None` : déduit des voix).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker_count: Option<usize>,
@@ -159,6 +163,7 @@ impl MeetingRecord {
             speaker_track: None,
             speaker_turns: Vec::new(),
             speaker_names: Vec::new(),
+            speaker_guesses: Vec::new(),
             speaker_count: None,
             identifying: false,
             marks: Vec::new(),
@@ -253,12 +258,85 @@ impl MeetingRecord {
             speakers: self.speaker_count,
             ..diarize::Options::default()
         });
+        self.speaker_guesses = guess_names(&self.segments(), &self.speaker_names);
         let count = self.speaker_turns.iter().map(|t| t.speaker + 1).max();
+        let found = self.speaker_guesses.iter().flatten().count();
         log::info!(
-            "{} : {} intervenant(s) distingué(s)",
+            "{} : {} intervenant(s) distingué(s), {found} nommé(s) d'après leur présentation",
             self.id,
             count.unwrap_or(0)
         );
+    }
+
+    /// Nom donné par l'utilisateur à un intervenant (vide : aucun).
+    fn given_name(&self, index: usize) -> Option<&str> {
+        self.speaker_names
+            .get(index)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+    }
+
+    /// Nom trouvé dans la présentation d'un intervenant, s'il n'en a pas
+    /// reçu de l'utilisateur.
+    pub fn name_guess(&self, index: usize) -> Option<&NameGuess> {
+        if self.given_name(index).is_some() {
+            return None;
+        }
+        self.speaker_guesses.get(index)?.as_ref()
+    }
+
+    /// Noms des intervenants (indice = numéro) : celui donné par
+    /// l'utilisateur, sinon celui trouvé dans sa présentation, sinon vide
+    /// (« Intervenant N »).
+    pub fn names(&self) -> Vec<String> {
+        let count = self.speaker_names.len().max(self.speaker_guesses.len());
+        (0..count)
+            .map(|i| {
+                self.given_name(i)
+                    .or_else(|| self.name_guess(i).map(|g| g.name.as_str()))
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// Nomme un intervenant (vide : « Intervenant N »). Le nom trouvé dans
+    /// sa présentation est oublié : le choix de l'utilisateur passe devant,
+    /// même vide ; un autre intervenant ne garde pas ce nom s'il le lui
+    /// avait été proposé.
+    pub fn rename_speaker(&mut self, index: usize, name: &str) -> Result<(), String> {
+        const MAX_NAME: usize = 60;
+        const MAX_SPEAKERS: usize = 50;
+        if index >= MAX_SPEAKERS {
+            return Err("intervenant inconnu".into());
+        }
+        let name: String = name.trim().chars().take(MAX_NAME).collect();
+        if self.speaker_names.len() <= index {
+            self.speaker_names.resize(index + 1, String::new());
+        }
+        if let Some(guess) = self.speaker_guesses.get_mut(index) {
+            *guess = None;
+        }
+        for guess in &mut self.speaker_guesses {
+            if guess.as_ref().is_some_and(|g| same_person(&g.name, &name)) {
+                *guess = None;
+            }
+        }
+        self.speaker_names[index] = name;
+        while self.speaker_names.last().is_some_and(String::is_empty) {
+            self.speaker_names.pop();
+        }
+        Ok(())
+    }
+
+    /// Ne plus distinguer les intervenants : tours, noms et nombre oubliés
+    /// (l'analyse des voix, à effacer à part, est dans un fichier).
+    pub fn forget_speakers(&mut self) {
+        self.speaker_track = None;
+        self.speaker_turns.clear();
+        self.speaker_names.clear();
+        self.speaker_guesses.clear();
+        self.speaker_count = None;
     }
 
     /// Fin de la transcription déjà faite, par piste (reprise).
@@ -346,6 +424,50 @@ mod tests {
         assert!(record.conference_summary(), "fichier : conférence");
         record.conference = Some(false);
         assert!(!record.conference_summary(), "réunion choisie");
+    }
+
+    #[test]
+    fn introduced_speakers_are_named_until_the_user_says_otherwise() {
+        let mut record = record();
+        record.speaker_track = Some(Track::Eux);
+        record.segments.push(Segment {
+            track: Track::Eux,
+            start_ms: 10_000,
+            end_ms: 14_000,
+            text: "Moi c'est Paul.".into(),
+            copied: false,
+            speaker: None,
+        });
+        record.speaker_turns = vec![
+            diarize::Turn {
+                start_ms: 2_000,
+                end_ms: 9_500,
+                speaker: 0,
+            },
+            diarize::Turn {
+                start_ms: 10_000,
+                end_ms: 14_000,
+                speaker: 1,
+            },
+        ];
+        record.speaker_guesses = guess_names(&record.segments(), &record.speaker_names);
+        assert_eq!(record.names(), ["", "Paul"]);
+        assert_eq!(record.name_guess(1).unwrap().quote, "Moi c'est Paul.");
+        // Gardé dans la fiche.
+        let json = serde_json::to_string(&record).unwrap();
+        let read: MeetingRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(read.speaker_guesses, record.speaker_guesses);
+        // L'utilisateur donne « Paul » à l'autre voix : la proposition tombe.
+        record.rename_speaker(0, " Paul ").unwrap();
+        assert_eq!(record.names(), ["Paul", ""]);
+        assert!(record.name_guess(1).is_none());
+        // Effacer le nom revient à « Intervenant N », sans la proposition.
+        record.rename_speaker(0, "").unwrap();
+        assert!(record.names().iter().all(String::is_empty));
+        assert!(record.speaker_names.is_empty());
+        assert!(record.rename_speaker(50, "X").is_err());
+        record.forget_speakers();
+        assert!(record.speaker_guesses.is_empty() && record.speaker_track.is_none());
     }
 
     #[test]

@@ -475,6 +475,7 @@ impl Meetings {
             speaker_track: None,
             speaker_turns: Vec::new(),
             speaker_names: Vec::new(),
+            speaker_guesses: Vec::new(),
             speaker_count: None,
             identifying: false,
             marks: Vec::new(),
@@ -832,6 +833,7 @@ impl Meetings {
             speaker_track: None,
             speaker_turns: Vec::new(),
             speaker_names: Vec::new(),
+            speaker_guesses: Vec::new(),
             speaker_count: None,
             identifying: false,
             marks: Vec::new(),
@@ -1079,7 +1081,7 @@ impl Meetings {
         let config = self.config();
         let cleaner = settings::summarizer(&config)
             .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
-        let transcript = meeting::transcript_text(&record.segments(), &record.speaker_names, true);
+        let transcript = meeting::transcript_text(&record.segments(), &record.names(), true);
         let language = language
             .unwrap_or_else(|| config.meetings.summary_language.clone())
             .trim()
@@ -1142,10 +1144,11 @@ impl Meetings {
                 segment.copied = true;
             }
             record.save(&session.dir);
+            let names = record.names();
             meeting::turns(&fresh)
                 .into_iter()
                 .map(|r| {
-                    let who = meeting::speaker_label(r.track, r.speaker, &record.speaker_names);
+                    let who = meeting::speaker_label(r.track, r.speaker, &names);
                     format!("{who} : {}", r.text)
                 })
                 .collect::<Vec<_>>()
@@ -1338,6 +1341,9 @@ pub struct SpeakerView {
     talk_ms: u64,
     /// Première réplique (début).
     first: String,
+    /// `name` vient de sa présentation : la phrase, et quand.
+    found: Option<String>,
+    found_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -1373,6 +1379,7 @@ pub fn meeting_detail(
 ) -> Result<MeetingDetail, String> {
     let (record, dir) = meetings.load(&id)?;
     let replies = meeting::turns(&record.segments());
+    let names = record.names();
     let mut speakers: Vec<SpeakerView> = Vec::new();
     for reply in &replies {
         if let Some(index) = reply.speaker
@@ -1381,7 +1388,9 @@ pub fn meeting_detail(
             speakers.push(SpeakerView {
                 index,
                 label: meeting::speaker_label(reply.track, Some(index), &[]),
-                name: record.speaker_names.get(index).cloned().unwrap_or_default(),
+                name: names.get(index).cloned().unwrap_or_default(),
+                found: record.name_guess(index).map(|g| g.quote.clone()),
+                found_ms: record.name_guess(index).map(|g| g.at_ms),
                 talk_ms: record
                     .speaker_turns
                     .iter()
@@ -1398,7 +1407,7 @@ pub fn meeting_detail(
         .map(|r| Turn {
             who: r
                 .speaker
-                .map(|_| meeting::speaker_label(r.track, r.speaker, &record.speaker_names))
+                .map(|_| meeting::speaker_label(r.track, r.speaker, &names))
                 .unwrap_or_default(),
             track: r.track,
             speaker: r.speaker,
@@ -1575,14 +1584,14 @@ pub fn ask_meetings(
     for record in &records {
         let segments = record.segments();
         let mut lines =
-            vtt_core::search::excerpts(&record.title, &segments, &keywords, &record.speaker_names);
+            vtt_core::search::excerpts(&record.title, &segments, &keywords, &record.names());
         // Un seul enregistrement : tout, s'il tient.
         if id.is_some() {
             let all = vtt_core::search::excerpts(
                 &record.title,
                 &segments,
                 &[String::new()],
-                &record.speaker_names,
+                &record.names(),
             );
             if all.iter().map(String::len).sum::<usize>() <= MAX_CONTEXT_CHARS {
                 lines = all;
@@ -1821,20 +1830,9 @@ pub fn rename_speaker(
     index: usize,
     name: String,
 ) -> Result<(), String> {
-    const MAX_NAME: usize = 60;
-    if index >= 50 {
-        return Err("intervenant inconnu".into());
-    }
-    let name: String = name.trim().chars().take(MAX_NAME).collect();
-    meetings.update(&id, |r| {
-        if r.speaker_names.len() <= index {
-            r.speaker_names.resize(index + 1, String::new());
-        }
-        r.speaker_names[index] = name;
-        while r.speaker_names.last().is_some_and(String::is_empty) {
-            r.speaker_names.pop();
-        }
-    })
+    let mut result = Ok(());
+    meetings.update(&id, |r| result = r.rename_speaker(index, &name))?;
+    result
 }
 
 /// Ne plus distinguer les intervenants : tours, noms et empreintes vocales
@@ -1842,12 +1840,7 @@ pub fn rename_speaker(
 #[tauri::command]
 pub fn forget_speakers(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
     let dir = meetings.meeting_dir(&id)?;
-    meetings.update(&id, |r| {
-        r.speaker_track = None;
-        r.speaker_turns.clear();
-        r.speaker_names.clear();
-        r.speaker_count = None;
-    })?;
+    meetings.update(&id, MeetingRecord::forget_speakers)?;
     speakers::delete_analysis(&dir);
     Ok(())
 }
@@ -1900,7 +1893,7 @@ pub fn copy_meeting(
     let (record, _) = meetings.load(&id)?;
     let text = match part.as_str() {
         "summary" => record.summary.map(|s| s.text).unwrap_or_default(),
-        "transcript" => meeting::transcript_text(&record.segments(), &record.speaker_names, true),
+        "transcript" => meeting::transcript_text(&record.segments(), &record.names(), true),
         _ => markdown(&record),
     };
     vtt_platform::copy_text(&text)
@@ -1924,7 +1917,7 @@ fn markdown(record: &MeetingRecord) -> String {
         record.duration_ms,
         record.summary.as_ref().map(|s| s.text.as_str()),
         &record.segments(),
-        &record.speaker_names,
+        &record.names(),
         true,
     )
 }
@@ -2075,6 +2068,7 @@ mod tests {
             speaker_track: None,
             speaker_turns: Vec::new(),
             speaker_names: Vec::new(),
+            speaker_guesses: Vec::new(),
             speaker_count: None,
             identifying: false,
             marks: Vec::new(),

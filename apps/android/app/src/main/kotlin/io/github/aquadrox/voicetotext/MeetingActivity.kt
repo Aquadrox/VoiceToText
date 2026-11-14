@@ -447,8 +447,8 @@ class MeetingActivity : Activity() {
             },
         )
         column.text("Intervenants", 20f, bold = true)
-        column.note("Donnez un nom : il remplace « Intervenant N » partout (transcription, partage, prochain compte rendu).")
-        val fields = mutableListOf<Pair<Int, EditText>>()
+        column.note("Qui se présente (« je m'appelle Marie ») est nommé d'office. Donnez ou corrigez un nom : il remplace « Intervenant N » partout (transcription, partage, prochain compte rendu).")
+        val fields = mutableListOf<Triple<Int, EditText, String?>>()
         for (speaker in list) {
             val index = speaker.optInt("index")
             column.divider(6)
@@ -471,7 +471,9 @@ class MeetingActivity : Activity() {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             column.addView(row)
             val field = row.field("Nom").apply { setText(speaker.text("name")) }
-            fields += index to field
+            val found = speaker.text("found")
+            // Nom trouvé dans sa présentation : seulement s'il est changé, il devient un nom donné.
+            fields += Triple(index, field, speaker.text("name").takeIf { found.isNotEmpty() })
             if (detail.optBoolean("replay")) {
                 val start = speaker.optLong("first_ms")
                 row.addView(
@@ -488,6 +490,10 @@ class MeetingActivity : Activity() {
                     },
                 )
             }
+            if (found.isNotEmpty()) {
+                column.text("Présentation à ${Meetings.clock(speaker.optLong("found_ms"))} : « $found »", 13f, R.color.muted)
+                    .setTypeface(null, Typeface.ITALIC)
+            }
         }
         column.divider(6)
         column.text("Nombre d'intervenants", 15f, bold = true)
@@ -503,7 +509,8 @@ class MeetingActivity : Activity() {
         val initialCount = count.selectedItemPosition
         column.primary("Enregistrer") {
             stopPlayer()
-            for ((index, field) in fields) {
+            for ((index, field, guess) in fields) {
+                if (field.text.toString().trim() == guess) continue
                 Native.meetingRenameSpeaker(store.meetingsDir, meetingId, index, field.text.toString())
             }
             if (count.selectedItemPosition != initialCount) {

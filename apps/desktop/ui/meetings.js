@@ -245,6 +245,15 @@ function renderSpeakers(detail) {
         about.className = "about";
         about.textContent = `${clock(speaker.talk_ms)} de parole · « ${speaker.first} »`;
         item.append(label, input, about);
+        if (speaker.found) {
+          // Nom trouvé quand l'intervenant s'est présenté : d'où il vient.
+          input.classList.add("found");
+          input.title = "Nom trouvé dans sa présentation : modifiez-le ou effacez-le si besoin";
+          const found = document.createElement("span");
+          found.className = "found";
+          found.textContent = `Présentation à ${clock(speaker.found_ms)} : « ${speaker.found} »`;
+          item.append(found);
+        }
         return item;
       }),
     );

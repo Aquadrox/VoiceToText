@@ -1121,6 +1121,19 @@ ol.entries li + li {
   overflow-wrap: anywhere;
 }
 
+/* Nom trouvé dans la présentation de l'intervenant, sous son nom. */
+.speakers span.found {
+  grid-column: 2 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.speakers input.found {
+  font-style: italic;
+}
+
 .meeting-more {
   margin: 8px 0;
 }

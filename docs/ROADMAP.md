@@ -363,6 +363,20 @@ L'accueil empilait une douzaine de cartes (près de dix écrans à faire défile
 - ✅ Vérifié sur le serveur : les deux éditions compilent, captures Robolectric de chaque page (clair et sombre, recherche)
 - À vérifier sur le téléphone : retour par geste avec un fournisseur non enregistré, téléchargement d'un modèle en quittant la page Dictée, confirmations
 
+## v0.31 — Réunions : intervenants nommés d'après leur présentation ✅
+
+Quelqu'un se présente pendant la réunion (« Bonjour, je m'appelle Marie ») : « Intervenant 2 » devient « Marie », sur le PC et sur le téléphone. Nécessite « Distinguer les intervenants » ; les noms arrivent avec les intervenants, à la fin.
+
+- ✅ Détection locale par règles dans `vtt-core` (`meeting::names`), sans LLM ni réseau, testée sous Linux : « je m'appelle », « je me nomme », « mon nom / prénom est (c'est) », « moi c'est », « je me présente : », « je suis » + nom à majuscule, « Marie Dupont à l'appareil », « Bonjour, c'est / ici Marie » ; anglais : « my name is », « I'm », « Hi, this is »
+- ✅ Prudence : mieux vaut pas de nom qu'un faux nom. Nom à majuscule (sauf après « je m'appelle », « mon nom est » : Vosk écrit en minuscules), jusqu'à trois mots collés, civilité gardée (« Madame Dupont ») mais jamais seule ; pas de sigle (« je suis RH »), ni de mot courant (« je suis désolé », « moi c'est pareil »), ni de nom dans une autre phrase, ni « c'est Paul qui s'en occupe » (on parle de quelqu'un d'autre) ; « Bonjour Paul » ne nomme personne
+- ✅ Attribution : présentations groupées par intervenant (formule forte 3, moyenne 2, « je suis » 1), le nom le plus complet gardé (« Marie Dupont » plutôt que « Marie ») ; un nom ne va qu'à un intervenant (le plus net, puis le premier), un intervenant n'a qu'un nom ; jamais le nom qu'un autre a reçu de l'utilisateur
+- ✅ Calculé avec les tours de parole (`MeetingRecord::set_speakers`) : fin de réunion, nombre imposé, « Distinguer les intervenants » après coup ; donc repris par le compte rendu rédigé ensuite. Gardé dans `meeting.json` (`speaker_guesses` : nom, moment, phrase)
+- ✅ Le nom donné par l'utilisateur passe toujours devant ; le corriger ou l'effacer (retour à « Intervenant N ») oublie la proposition ; donner un nom à une voix retire ce nom des propositions faites aux autres. Renommage et « Ne plus distinguer » mis en commun dans `vtt-core` (PC et Android)
+- ✅ PC (bloc Intervenants) et Android (fenêtre Intervenants) : nom pré-rempli, « Présentation à 03:12 : « … » » dessous ; Android : un nom trouvé laissé tel quel reste une proposition
+- ✅ 7 tests de plus (formules, phrases ordinaires, citation, attribution, noms donnés, fiche)
+- Limites : seulement quand l'intervenant se présente lui-même (pas « je laisse la parole à Paul », ni « merci Marie ») ; pas en direct (les intervenants sont distingués à la fin) ; un nom mal transcrit est repris tel quel ; réunions enregistrées avant : changer le nombre d'intervenants pour relancer la recherche
+- À vérifier : vraies réunions en français (tour de table), rendu Windows du bloc Intervenants, fenêtre Android
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
