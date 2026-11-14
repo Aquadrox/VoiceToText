@@ -364,6 +364,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingCreate<
     audio: JString<'a>,
     summary: jboolean,
     source: JString<'a>,
+    speakers: jboolean,
 ) -> jstring {
     let root = PathBuf::from(text(&mut env, &root));
     let new = meetings::New {
@@ -372,6 +373,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingCreate<
         audio: meeting_audio(&text(&mut env, &audio)),
         summary: summary != 0,
         source: Some(text(&mut env, &source)).filter(|s| !s.is_empty()),
+        speakers: speakers != 0,
     };
     let json = protect(|| reply(meetings::create(&root, &new)));
     java(&mut env, &json)
@@ -466,11 +468,13 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingProcess
     root: JString<'a>,
     id: JString<'a>,
     toml: JString<'a>,
+    models_dir: JString<'a>,
 ) -> jstring {
     let root = PathBuf::from(text(&mut env, &root));
     let id = text(&mut env, &id);
     let toml = text(&mut env, &toml);
-    let json = protect(|| reply(meetings::process(&root, &id, &toml)));
+    let models = PathBuf::from(text(&mut env, &models_dir));
+    let json = protect(|| reply(meetings::process(&root, &id, &toml, &models)));
     java(&mut env, &json)
 }
 
@@ -603,6 +607,93 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingClip<'a
         return std::ptr::null_mut();
     }
     array.into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingIdentify<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    models_dir: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let models = PathBuf::from(text(&mut env, &models_dir));
+    let json = protect(|| reply(meetings::identify(&root, &id, &models)));
+    java(&mut env, &json)
+}
+
+/// `count` 0 : selon les voix.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingSpeakerCount<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    count: jint,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let count = (count > 0).then_some(count as usize);
+    let json = protect(|| reply(meetings::set_speaker_count(&root, &id, count)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingRenameSpeaker<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    index: jint,
+    name: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let name = text(&mut env, &name);
+    let json = protect(|| {
+        reply(match usize::try_from(index) {
+            Ok(index) => meetings::rename_speaker(&root, &id, index, &name),
+            Err(_) => Err("intervenant inconnu".into()),
+        })
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingForgetSpeakers<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::forget_speakers(&root, &id)));
+    java(&mut env, &json)
+}
+
+/// Modèles des intervenants (bloquant) : `{"ok": null}` ou erreur.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_downloadVoices<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    models_dir: JString<'a>,
+) -> jstring {
+    let dir = PathBuf::from(text(&mut env, &models_dir));
+    let json = protect(|| reply(models::download_diarization(&dir)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicesProgress(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    models::VOICES_PROGRESS
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .into()
 }
 
 #[cfg(test)]

@@ -70,6 +70,9 @@ struct View<'a> {
     command_prompt: &'a str,
     /// Réunions effacées au-delà de ce nombre de jours ; 0 : jamais.
     meetings_keep_days: u32,
+    /// Modèles des intervenants téléchargés, et leur taille (Mo).
+    voices: bool,
+    voices_mb: u64,
 }
 
 /// Réglages affichés par l'application (JSON).
@@ -93,6 +96,8 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         cleanup_prompt: active_prompt(&config, PromptKind::Nettoyage, &config.llm.cleanup_prompt),
         command_prompt: active_prompt(&config, PromptKind::Commande, &config.llm.command_prompt),
         meetings_keep_days: config.meetings.keep_days,
+        voices: models::diarization_local(models_dir).is_some(),
+        voices_mb: models::diarization_mb(),
     };
     serde_json::to_string(&view).map_err(|e| e.to_string())
 }

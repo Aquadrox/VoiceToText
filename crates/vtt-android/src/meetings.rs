@@ -26,7 +26,9 @@ use vtt_core::meeting::{
 };
 use vtt_core::{SAMPLE_RATE, audio};
 
-use crate::{engine, settings};
+use vtt_core::diarize;
+
+use crate::{engine, models, settings};
 
 /// Un jour, en millisecondes (durée de conservation).
 const DAY_MS: u64 = 24 * 3600 * 1000;
@@ -230,6 +232,30 @@ fn delete_audio(record: &MeetingRecord, dir: &Path) {
     meeting::delete_audio(dir);
 }
 
+/// Relit l'audio reçu, une seconde environ à la fois (mémoire ou disque) ;
+/// `f` renvoie `false` pour arrêter.
+fn for_each_block(
+    record: &MeetingRecord,
+    dir: &Path,
+    mut f: impl FnMut(&[f32]) -> bool,
+) -> Result<(), String> {
+    if record.audio == MeetingAudio::Memoire {
+        let audio = memory(|m| m.get(&record.id).cloned()).unwrap_or_default();
+        for block in audio.chunks(SAMPLE_RATE as usize) {
+            let block: Vec<f32> = block
+                .iter()
+                .map(|s| f32::from(*s) / f32::from(i16::MAX))
+                .collect();
+            if !f(&block) {
+                break;
+            }
+        }
+        Ok(())
+    } else {
+        meeting::for_each_audio_block(&dir.join(track(record).file()), plain, f)
+    }
+}
+
 /// Ce que l'utilisateur a choisi pour une nouvelle réunion.
 #[derive(Debug, Clone, PartialEq)]
 pub struct New {
@@ -241,6 +267,8 @@ pub struct New {
     pub summary: bool,
     /// Nom du fichier importé ; `None` : enregistrement au micro.
     pub source: Option<String>,
+    /// Distinguer les intervenants à la fin (modèles téléchargés).
+    pub speakers: bool,
 }
 
 /// Crée une réunion et renvoie son identifiant (heure de début en ms).
@@ -312,6 +340,11 @@ pub fn create(root: &Path, new: &New) -> Result<String, String> {
     };
     if new.source.is_some() {
         record.progress = Some(0);
+    }
+    // Intervenants demandés : la piste est notée dès maintenant, les tours
+    // de parole viendront à la fin (reprise comprise).
+    if new.speakers {
+        record.speaker_track = Some(track(&record));
     }
     record.save(&dir);
     log::info!(
@@ -510,10 +543,11 @@ impl Drop for StepGuard {
 }
 
 /// Transcrit l'audio reçu (reprise là où une transcription précédente
-/// s'est arrêtée), puis rédige le compte rendu si demandé. Bloquant : des
+/// s'est arrêtée), distingue les intervenants si demandé, puis rédige le
+/// compte rendu si demandé. Bloquant : des
 /// minutes pour une longue réunion. Le moteur est pris bloc par bloc, les
 /// dictées passent entre deux.
-pub fn process(root: &Path, id: &str, toml: &str) -> Result<(), String> {
+pub fn process(root: &Path, id: &str, toml: &str, models_dir: &Path) -> Result<(), String> {
     let guard = StepGuard::start(id, "transcription")?;
     let (record, dir) = load(root, id)?;
     match record.status {
@@ -547,20 +581,7 @@ pub fn process(root: &Path, id: &str, toml: &str) -> Result<(), String> {
         }
         true
     };
-    if record.audio == MeetingAudio::Memoire {
-        let audio = memory(|m| m.get(id).cloned()).unwrap_or_default();
-        for block in audio.chunks(SAMPLE_RATE as usize) {
-            let block: Vec<f32> = block
-                .iter()
-                .map(|s| f32::from(*s) / f32::from(i16::MAX))
-                .collect();
-            if !on_block(&block) {
-                break;
-            }
-        }
-    } else {
-        meeting::for_each_audio_block(&dir.join(track.file()), plain, &mut on_block)?;
-    }
+    for_each_block(&record, &dir, &mut on_block)?;
     if failure.is_none()
         && let Some(chunk) = chunker.finish()
         && let Err(e) = transcribe(root, id, track, &chunk, total_ms)
@@ -572,6 +593,20 @@ pub fn process(root: &Path, id: &str, toml: &str) -> Result<(), String> {
         // là où elle s'est arrêtée.
         return Err(e);
     }
+    log::info!("réunion {id} transcrite");
+    let (record, _) = load(root, id)?;
+    if record.speaker_track.is_some()
+        && record.speaker_turns.is_empty()
+        && !record.segments.is_empty()
+    {
+        guard.set("speakers");
+        if let Err(e) = analyze_voices(root, id, models_dir) {
+            log::warn!("intervenants de {id} : {e}");
+            update(root, id, |r| {
+                r.notes.push(format!("Intervenants non distingués : {e}"))
+            })?;
+        }
+    }
     let summarize = update(root, id, |r| {
         r.status = MeetingStatus::Terminee;
         r.progress = None;
@@ -580,7 +615,6 @@ pub fn process(root: &Path, id: &str, toml: &str) -> Result<(), String> {
         }
         r.output != Output::Transcription && !r.segments.is_empty()
     })?;
-    log::info!("réunion {id} transcrite");
     if summarize {
         guard.set("summary");
         let config = settings::parse(toml)?.0;
@@ -634,6 +668,160 @@ fn transcribe(
             })
         }
     }
+}
+
+/// Analyse des voix gardée (empreintes, pour changer le nombre
+/// d'intervenants sans l'audio), dans le stockage privé de l'application.
+const ANALYSIS_FILE: &str = "voix.bin";
+/// Audio envoyé à l'analyse des voix par morceaux de 30 s.
+const VOICE_PIECE: usize = SAMPLE_RATE as usize * 30;
+
+/// Distingue les intervenants d'après l'audio reçu (au fil de la lecture,
+/// sans tout garder en mémoire), puis répartit les répliques. Bloquant :
+/// quelques minutes pour une heure.
+fn analyze_voices(root: &Path, id: &str, models_dir: &Path) -> Result<(), String> {
+    let (record, dir) = load(root, id)?;
+    let (segmentation, embedding) =
+        models::diarization_local(models_dir).ok_or("modèles des intervenants non téléchargés")?;
+    // La moitié des cœurs (les rapides suffisent) : le téléphone reste fluide.
+    let threads = std::thread::available_parallelism()
+        .map(|n| (n.get() / 2).clamp(1, 4))
+        .unwrap_or(2);
+    let mut diarizer = vtt_asr::Diarizer::load(
+        &segmentation,
+        &embedding,
+        Path::new("libonnxruntime.so"),
+        threads,
+    )
+    .map_err(|e| e.to_string())?;
+    let total = stored_samples(&record, &dir).max(1);
+    let mut analysis = diarize::Analysis::new(diarize::Options::default().step);
+    let mut piece: Vec<f32> = Vec::with_capacity(VOICE_PIECE);
+    let mut sent = 0u64;
+    let mut failure: Option<String> = None;
+    let mut percent = 0u8;
+    let mut send = |piece: &mut Vec<f32>, sent: &mut u64| -> Result<(), String> {
+        let start_ms = samples_to_ms(*sent);
+        *sent += piece.len() as u64;
+        analysis
+            .add(start_ms, piece, &mut diarizer)
+            .map_err(|e| e.to_string())?;
+        piece.clear();
+        let now = (*sent * 100 / total).min(99) as u8;
+        if now > percent {
+            percent = now;
+            update(root, id, |r| r.progress = Some(now))?;
+        }
+        Ok(())
+    };
+    for_each_block(&record, &dir, |block| {
+        piece.extend_from_slice(block);
+        if piece.len() >= VOICE_PIECE
+            && let Err(e) = send(&mut piece, &mut sent)
+        {
+            failure = Some(e);
+            return false;
+        }
+        true
+    })?;
+    if let Some(e) = failure {
+        return Err(e);
+    }
+    if !piece.is_empty() {
+        send(&mut piece, &mut sent)?;
+    }
+    analysis.finish(&mut diarizer).map_err(|e| e.to_string())?;
+    let keep = update(root, id, |r| {
+        r.set_speakers(&analysis);
+        r.progress = None;
+        r.keeps_voices()
+    })?;
+    if keep {
+        save_analysis(&dir, &analysis)?;
+    }
+    Ok(())
+}
+
+fn save_analysis(dir: &Path, analysis: &diarize::Analysis) -> Result<(), String> {
+    let tmp = dir.join("voix.bin.tmp");
+    fs::write(&tmp, analysis.to_bytes())
+        .and_then(|()| fs::rename(&tmp, dir.join(ANALYSIS_FILE)))
+        .map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+fn load_analysis(dir: &Path) -> Result<diarize::Analysis, String> {
+    let path = dir.join(ANALYSIS_FILE);
+    let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    diarize::Analysis::from_bytes(&bytes)
+}
+
+/// Distingue les intervenants après coup (audio gardé). Bloquant.
+pub fn identify(root: &Path, id: &str, models_dir: &Path) -> Result<(), String> {
+    let _guard = StepGuard::start(id, "speakers")?;
+    let (record, dir) = load(root, id)?;
+    if record.status != MeetingStatus::Terminee {
+        return Err("réunion pas encore transcrite".into());
+    }
+    if !has_audio(&record, &dir) {
+        return Err(
+            "audio non gardé : impossible de distinguer les intervenants après coup".into(),
+        );
+    }
+    update(root, id, |r| r.speaker_track = Some(track(r)))?;
+    let result = analyze_voices(root, id, models_dir);
+    if result.is_err() {
+        update(root, id, |r| r.progress = None)?;
+    }
+    result
+}
+
+/// Nombre d'intervenants imposé (`None` : selon les voix), recalculé
+/// d'après l'analyse gardée.
+pub fn set_speaker_count(root: &Path, id: &str, count: Option<usize>) -> Result<(), String> {
+    if count.is_some_and(|c| !(1..=20).contains(&c)) {
+        return Err("nombre d'intervenants : de 1 à 20".into());
+    }
+    let dir = dir(root, id)?;
+    let analysis = load_analysis(&dir).map_err(|e| {
+        log::warn!("analyse des voix de {id} : {e}");
+        "analyse des voix non gardée : relancez « Distinguer les intervenants »".to_owned()
+    })?;
+    update(root, id, |r| {
+        r.speaker_count = count;
+        r.set_speakers(&analysis);
+    })
+}
+
+/// Nom d'un intervenant (vide : « Intervenant N »).
+pub fn rename_speaker(root: &Path, id: &str, index: usize, name: &str) -> Result<(), String> {
+    const MAX_NAME: usize = 60;
+    if index >= 50 {
+        return Err("intervenant inconnu".into());
+    }
+    let name: String = name.trim().chars().take(MAX_NAME).collect();
+    update(root, id, |r| {
+        if r.speaker_names.len() <= index {
+            r.speaker_names.resize(index + 1, String::new());
+        }
+        r.speaker_names[index] = name;
+        while r.speaker_names.last().is_some_and(String::is_empty) {
+            r.speaker_names.pop();
+        }
+    })
+}
+
+/// Ne plus distinguer les intervenants : tours, noms et empreintes vocales
+/// effacés.
+pub fn forget_speakers(root: &Path, id: &str) -> Result<(), String> {
+    let dir = dir(root, id)?;
+    update(root, id, |r| {
+        r.speaker_track = None;
+        r.speaker_turns.clear();
+        r.speaker_names.clear();
+        r.speaker_count = None;
+    })?;
+    let _ = fs::remove_file(dir.join(ANALYSIS_FILE));
+    Ok(())
 }
 
 /// Rédige (ou refait) le compte rendu. Bloquant (requête au LLM).
@@ -799,11 +987,63 @@ pub struct Detail {
     pub marks: Vec<u64>,
     pub replies: Vec<Reply>,
     pub speaker_names: Vec<String>,
+    /// Intervenants distingués, pour les reconnaître et les nommer.
+    pub speaker_list: Vec<SpeakerView>,
+    /// Nombre imposé (`None` : selon les voix).
+    pub speaker_count: Option<usize>,
+    /// Intervenants demandés mais pas encore distingués.
+    pub speakers_pending: bool,
+    /// Analyse gardée : le nombre peut changer sans l'audio.
+    pub voices_kept: bool,
+}
+
+/// Intervenant distingué.
+#[derive(Debug, Serialize)]
+pub struct SpeakerView {
+    pub index: usize,
+    /// « Intervenant N ».
+    pub label: String,
+    pub name: String,
+    pub talk_ms: u64,
+    /// Première réplique, pour reconnaître la voix (début, et moment).
+    pub first: String,
+    pub first_ms: u64,
+}
+
+/// Début d'un texte, coupé sur un caractère.
+fn excerpt(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let cut: String = text.chars().take(max).collect();
+    format!("{}…", cut.trim_end())
 }
 
 pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
     let (record, dir) = load(root, id)?;
-    let replies = meeting::turns(&record.segments())
+    let turns = meeting::turns(&record.segments());
+    let mut speaker_list: Vec<SpeakerView> = Vec::new();
+    for reply in &turns {
+        if let Some(index) = reply.speaker
+            && !speaker_list.iter().any(|s| s.index == index)
+        {
+            speaker_list.push(SpeakerView {
+                index,
+                label: meeting::speaker_label(reply.track, Some(index), &[]),
+                name: record.speaker_names.get(index).cloned().unwrap_or_default(),
+                talk_ms: record
+                    .speaker_turns
+                    .iter()
+                    .filter(|t| t.speaker == index)
+                    .map(|t| t.end_ms.saturating_sub(t.start_ms))
+                    .sum(),
+                first: excerpt(&reply.text, 90),
+                first_ms: reply.start_ms,
+            });
+        }
+    }
+    speaker_list.sort_by_key(|s| s.index);
+    let replies = turns
         .into_iter()
         .map(|r| Reply {
             label: r
@@ -845,6 +1085,10 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
         marks: record.marks.clone(),
         replies,
         speaker_names: record.speaker_names.clone(),
+        speaker_list,
+        speaker_count: record.speaker_count,
+        speakers_pending: record.speaker_track.is_some() && record.speaker_turns.is_empty(),
+        voices_kept: dir.join(ANALYSIS_FILE).is_file(),
     })
 }
 
@@ -956,6 +1200,7 @@ mod tests {
             audio,
             summary: true,
             source: source.map(str::to_owned),
+            speakers: false,
         }
     }
 
@@ -1026,7 +1271,7 @@ mod tests {
         assert!(clip.iter().any(|s| s.abs() > 1_000));
         // Moteur non démarré : la transcription s'arrête, la réunion attend
         // la reprise.
-        assert!(process(&root, &id, "").is_err());
+        assert!(process(&root, &id, "", Path::new("/nulle-part")).is_err());
         assert_eq!(recover(&root), std::slice::from_ref(&id));
         assert_eq!(step(&id), None);
         delete(&root, &id).unwrap();
@@ -1158,5 +1403,89 @@ mod tests {
         assert!(list(&root, toml).unwrap().is_empty());
         assert!(!root.join(&id).exists());
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn speakers_are_requested_named_and_forgotten() {
+        let _serial = lock(&SERIAL);
+        let root = root("speakers");
+        let id = create(
+            &root,
+            &New {
+                speakers: true,
+                ..new(MeetingAudio::Conserve, None)
+            },
+        )
+        .unwrap();
+        assert!(detail(&root, &id).unwrap().speakers_pending);
+        // Silence seulement : rien à transcrire, le moteur n'est pas appelé.
+        feed(&root, &id, &vec![0; 16_000 * 8], 16_000, 1).unwrap();
+        stop(&root, &id).unwrap();
+        update(&root, &id, |r| {
+            r.segments.push(Segment {
+                track: Track::Moi,
+                start_ms: 0,
+                end_ms: 2_000,
+                text: "Bonjour.".into(),
+                copied: false,
+                speaker: None,
+            })
+        })
+        .unwrap();
+        process(&root, &id, "", Path::new("/nulle-part")).unwrap();
+        let (record, _) = load(&root, &id).unwrap();
+        assert_eq!(record.status, MeetingStatus::Terminee);
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|n| n.contains("modèles des intervenants")),
+            "{:?}",
+            record.notes
+        );
+        assert!(identify(&root, &id, Path::new("/nulle-part")).is_err());
+        assert_eq!(step(&id), None);
+        assert!(
+            set_speaker_count(&root, &id, Some(2)).is_err(),
+            "analyse absente"
+        );
+        assert!(set_speaker_count(&root, &id, Some(0)).is_err());
+
+        // Tours de parole connus : répliques nommées, noms modifiables.
+        update(&root, &id, |r| {
+            r.speaker_turns = vec![diarize::Turn {
+                start_ms: 0,
+                end_ms: 2_000,
+                speaker: 1,
+            }];
+        })
+        .unwrap();
+        rename_speaker(&root, &id, 1, "  Paul ").unwrap();
+        let view = detail(&root, &id).unwrap();
+        assert!(!view.speakers_pending);
+        assert_eq!(view.speaker_list.len(), 1);
+        assert_eq!(view.speaker_list[0].label, "Intervenant 2");
+        assert_eq!(view.speaker_list[0].name, "Paul");
+        assert_eq!(view.speaker_list[0].talk_ms, 2_000);
+        assert_eq!(view.replies[0].label.as_deref(), Some("Paul"));
+        assert_eq!(view.row.speakers, 2);
+        assert!(
+            export(&root, &id, "transcript", "")
+                .unwrap()
+                .contains("Paul : Bonjour.")
+        );
+        rename_speaker(&root, &id, 1, "").unwrap();
+        assert!(load(&root, &id).unwrap().0.speaker_names.is_empty());
+        forget_speakers(&root, &id).unwrap();
+        let view = detail(&root, &id).unwrap();
+        assert!(view.speaker_list.is_empty() && !view.speakers_pending);
+        assert_eq!(view.replies[0].label, None);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn long_texts_are_cut_on_characters() {
+        assert_eq!(excerpt("Bonjour", 90), "Bonjour");
+        assert_eq!(excerpt("Ça va très bien", 6), "Ça va…");
     }
 }

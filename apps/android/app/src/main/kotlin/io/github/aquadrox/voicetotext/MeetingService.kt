@@ -70,6 +70,7 @@ class MeetingService : Service() {
             ACTION_STOP -> stopRecording()
             ACTION_IMPORT -> intent.data?.let { importFile(id, it) }
             ACTION_PROCESS -> process(id)
+            ACTION_IDENTIFY -> identify(id)
         }
         main.removeCallbacks(ticker)
         main.post(ticker)
@@ -342,6 +343,30 @@ class MeetingService : Service() {
         }
     }
 
+    /** Intervenants d'une réunion déjà transcrite (audio gardé). */
+    private fun identify(id: String) {
+        if (id.isEmpty() || !queued.add(id)) return
+        foreground()
+        val root = store.meetingsDir
+        val models = store.modelsDir
+        worker.execute {
+            processing = id
+            main.post { foreground() }
+            val reply = try {
+                JSONObject(Native.meetingIdentify(root, id, models))
+            } catch (e: Throwable) {
+                JSONObject().put("error", e.message ?: e.javaClass.simpleName)
+            }
+            processing = null
+            main.post {
+                queued.remove(id)
+                val error = reply.optString("error")
+                if (error.isNotEmpty()) notifyError(id, "Intervenants : $error") else done(id, "Intervenants distingués", "Donnez-leur un nom dans la transcription.")
+                stopIfIdle()
+            }
+        }
+    }
+
     /** Charge le modèle (fil principal), puis transcrit. */
     private fun run(root: String, id: String): JSONObject {
         val latch = CountDownLatch(1)
@@ -355,7 +380,7 @@ class MeetingService : Service() {
         latch.await(10, TimeUnit.MINUTES)
         error?.let { return JSONObject().put("error", it) }
         return try {
-            JSONObject(Native.meetingProcess(root, id, store.config))
+            JSONObject(Native.meetingProcess(root, id, store.config, store.modelsDir))
         } catch (e: Throwable) {
             Log.e(TAG, "Transcription", e)
             JSONObject().put("error", e.message ?: e.javaClass.simpleName)
@@ -426,6 +451,10 @@ class MeetingService : Service() {
         if (busy == null) return builder.setContentTitle("Réunions").setContentText("Préparation…").build()
         val detail = JSONObject(Native.meeting(store.meetingsDir, busy)).optJSONObject("ok")
         val title = detail?.optString("title").orEmpty()
+        if (detail?.optString("step") == "speakers") {
+            val percent = detail.optInt("progress", 0)
+            return builder.setContentTitle("Intervenants : $percent %").setContentText(title).setProgress(100, percent, false).build()
+        }
         if (detail?.optString("step") == "summary") {
             return builder.setContentTitle("Compte rendu en cours").setContentText(title).setProgress(0, 0, true).build()
         }
@@ -491,6 +520,7 @@ class MeetingService : Service() {
         const val ACTION_STOP = "io.github.aquadrox.voicetotext.meeting.STOP"
         const val ACTION_IMPORT = "io.github.aquadrox.voicetotext.meeting.IMPORT"
         const val ACTION_PROCESS = "io.github.aquadrox.voicetotext.meeting.PROCESS"
+        const val ACTION_IDENTIFY = "io.github.aquadrox.voicetotext.meeting.IDENTIFY"
         const val EXTRA_ID = "id"
         private const val CHANNEL = "meetings"
         private const val CHANNEL_DONE = "meetings_done"

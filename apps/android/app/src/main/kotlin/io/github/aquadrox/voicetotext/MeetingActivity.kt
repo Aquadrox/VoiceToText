@@ -194,6 +194,7 @@ class MeetingActivity : Activity() {
                 false,
                 when {
                     transcribing -> "${detail.optInt("progress")} % · modèle de la dictée, sur le téléphone"
+                    detail.text("step") == "speakers" -> "Terminée"
                     status == "transcription" -> "En attente…"
                     else -> ""
                 },
@@ -208,6 +209,10 @@ class MeetingActivity : Activity() {
                 },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
             )
+        }
+        if (detail.optBoolean("speakers_pending") || detail.text("step") == "speakers") {
+            val analyzing = detail.text("step") == "speakers"
+            card.step("Intervenants").set(false, if (analyzing) "${detail.optInt("progress")} % · voix analysées sur le téléphone" else "Après la transcription")
         }
         card.step("Compte rendu").set(false, if (detail.optBoolean("conference")) "Modèle cours ou conférence" else "Modèle réunion")
         body.note(
@@ -304,6 +309,7 @@ class MeetingActivity : Activity() {
             body.card().note("Rien n'a été transcrit (silence, ou audio illisible).")
             return
         }
+        speakers(detail)
         body.note(if (replay) "Touchez une phrase pour la copier, ▶ pour la réécouter." else "Touchez une phrase pour la copier.")
         val card = body.card().apply {
             setPadding(0, dp(2), 0, dp(2))
@@ -372,9 +378,184 @@ class MeetingActivity : Activity() {
         }
     }
 
+    // ---- Intervenants ----
+
+    /** Pastilles des intervenants (toucher : les nommer), ou analyse en cours. */
+    private fun speakers(detail: JSONObject) {
+        if (detail.text("step") == "speakers") {
+            body.card().apply {
+                note("Intervenants : ${detail.optInt("progress")} % (voix analysées sur le téléphone)…")
+                addView(ProgressBar(this@MeetingActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    progress = detail.optInt("progress")
+                    progressTintList = ColorStateList.valueOf(getColor(R.color.accent))
+                })
+            }
+            return
+        }
+        val list = detail.optJSONArray("speaker_list")?.objects().orEmpty()
+        if (list.isEmpty()) return
+        val flow = FlowLayout(this).apply { setPadding(0, dp(10), 0, 0) }
+        for (speaker in list) {
+            val name = speaker.text("name").ifEmpty { speaker.optString("label") }
+            flow.addView(TextView(this).apply {
+                setTextColor(getColor(R.color.fg))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                val dot = speakerColor(speaker.optInt("index"))
+                text = android.text.SpannableString("●  $name").apply {
+                    setSpan(android.text.style.ForegroundColorSpan(dot), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                background = pressable(rounded(getColor(R.color.card), 16f, getColor(R.color.border_strong)), 16f)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                minHeight = dp(36)
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { speakersDialog() }
+            })
+        }
+        flow.addView(TextView(this).apply {
+            text = "Nommer…"
+            setTextColor(getColor(R.color.fg))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            background = pressable(null, 16f)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            minHeight = dp(36)
+            gravity = Gravity.CENTER_VERTICAL
+            setOnClickListener { speakersDialog() }
+        })
+        body.addView(flow)
+    }
+
+    /** Fenêtre Intervenants : nom, temps de parole, première phrase, écoute ; nombre imposé. */
+    private fun speakersDialog() {
+        val detail = detail ?: return
+        val list = detail.optJSONArray("speaker_list")?.objects().orEmpty()
+        val dialog = android.app.Dialog(this)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(20))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(getColor(R.color.card))
+                cornerRadii = FloatArray(8) { if (it < 4) dp(20).toFloat() else 0f }
+            }
+        }
+        column.addView(
+            View(this).apply { background = rounded(getColor(R.color.border_strong), 2f) },
+            LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(10)
+            },
+        )
+        column.text("Intervenants", 20f, bold = true)
+        column.note("Donnez un nom : il remplace « Intervenant N » partout (transcription, partage, prochain compte rendu).")
+        val fields = mutableListOf<Pair<Int, EditText>>()
+        for (speaker in list) {
+            val index = speaker.optInt("index")
+            column.divider(6)
+            val head = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            head.addView(
+                TextView(this).apply {
+                    text = speaker.optString("label")
+                    setTextColor(speakerColor(index))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            head.text(Meetings.clock(speaker.optLong("talk_ms")) + " de parole", 13f, R.color.muted)
+            column.addView(head)
+            column.text("« ${speaker.optString("first")} »", 14f, R.color.muted).setTypeface(null, Typeface.ITALIC)
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            column.addView(row)
+            val field = row.field("Nom").apply { setText(speaker.text("name")) }
+            fields += index to field
+            if (detail.optBoolean("replay")) {
+                val start = speaker.optLong("first_ms")
+                row.addView(
+                    ImageButton(this).apply {
+                        setImageResource(R.drawable.ic_play)
+                        imageTintList = ColorStateList.valueOf(getColor(R.color.fg))
+                        background = pressable(rounded(getColor(R.color.card), 10f, getColor(R.color.border_strong)), 10f)
+                        contentDescription = "Écouter sa voix"
+                        setOnClickListener { play(start, start + VOICE_SAMPLE_MS, redraw = false) }
+                    },
+                    LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+                        marginStart = dp(8)
+                        topMargin = dp(8)
+                    },
+                )
+            }
+        }
+        column.divider(6)
+        column.text("Nombre d'intervenants", 15f, bold = true)
+        column.note("À imposer si deux voix sont confondues ou une voix coupée en deux.")
+        val choices = listOf("Selon les voix") + (1..8).map { it.toString() }
+        val count = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@MeetingActivity, android.R.layout.simple_spinner_dropdown_item, choices)
+            setSelection(if (detail.isNull("speaker_count")) 0 else detail.optInt("speaker_count").coerceIn(0, 8))
+            isEnabled = detail.optBoolean("voices_kept")
+        }
+        column.addView(count)
+        if (!detail.optBoolean("voices_kept")) column.note("Analyse des voix non gardée (réunion en mémoire seulement) : nombre fixe.")
+        val initialCount = count.selectedItemPosition
+        column.primary("Enregistrer") {
+            stopPlayer()
+            for ((index, field) in fields) {
+                Native.meetingRenameSpeaker(store.meetingsDir, meetingId, index, field.text.toString())
+            }
+            if (count.selectedItemPosition != initialCount) {
+                val reply = JSONObject(Native.meetingSpeakerCount(store.meetingsDir, meetingId, count.selectedItemPosition))
+                message.say(reply.text("error"))
+            }
+            if (detail.optJSONObject("summary_text") != null) {
+                message.say("Noms enregistrés. Menu ⋯ → « Refaire le compte rendu » pour les y reprendre.")
+            }
+            dialog.dismiss()
+            load()
+        }
+        column.secondary("Ne plus distinguer") {
+            stopPlayer()
+            Native.meetingForgetSpeakers(store.meetingsDir, meetingId)
+            dialog.dismiss()
+            load()
+        }.apply { setTextColor(getColor(R.color.danger)) }
+        dialog.setContentView(android.widget.ScrollView(this).apply { addView(column) })
+        dialog.setOnDismissListener { stopPlayer() }
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
+    }
+
+    /** Distinguer les intervenants après coup : modèles d'abord si besoin. */
+    private fun identify() {
+        val installed = JSONObject(Native.settings(store.config, store.modelsDir)).optJSONObject("ok")?.optBoolean("voices") == true
+        if (installed) {
+            MeetingService.start(this, MeetingService.ACTION_IDENTIFY, meetingId)
+            body.postDelayed({ load() }, 500)
+            return
+        }
+        message.say("Téléchargement des modèles des intervenants…")
+        Meetings.Voices.download(this, store) { error ->
+            if (isDestroyed) return@download
+            if (error != null) {
+                message.say("Téléchargement échoué : $error")
+            } else {
+                message.say("")
+                MeetingService.start(this, MeetingService.ACTION_IDENTIFY, meetingId)
+                body.postDelayed({ load() }, 500)
+            }
+        }
+    }
+
     // ---- Réécoute ----
 
-    private fun play(start: Long, end: Long) {
+    private fun play(start: Long, end: Long, redraw: Boolean = true) {
         stopPlayer()
         val pcm = Native.meetingClip(store.meetingsDir, meetingId, start, end)
         if (pcm == null || pcm.isEmpty()) {
@@ -395,8 +576,10 @@ class MeetingActivity : Activity() {
         })
         track.play()
         player = track
-        playing = start
-        render(true)
+        if (redraw) {
+            playing = start
+            render(true)
+        }
     }
 
     private fun stopPlayer() {
@@ -444,6 +627,12 @@ class MeetingActivity : Activity() {
             menu.add(0, 2, 0, if (detail.optBoolean("conference")) "Compte rendu : passer au modèle réunion" else "Compte rendu : passer au modèle cours")
                 .isEnabled = !busy
             menu.add(0, 3, 0, "Refaire le compte rendu").isEnabled = !busy && detail.optJSONArray("replies")?.length() ?: 0 > 0
+            val speakers = detail.optJSONArray("speaker_list")?.length() ?: 0
+            if (speakers > 0) {
+                menu.add(0, 6, 0, "Intervenants…").isEnabled = !busy
+            } else if (detail.optString("status") == "terminee" && detail.optBoolean("replay")) {
+                menu.add(0, 7, 0, "Distinguer les intervenants").isEnabled = !busy
+            }
             menu.add(0, 4, 0, "Partager tout (Markdown)").isEnabled = !busy
             menu.add(0, 5, 0, "Supprimer")
             setOnMenuItemClickListener {
@@ -458,6 +647,8 @@ class MeetingActivity : Activity() {
                     4 -> JSONObject(Native.meetingExport(store.meetingsDir, meetingId, "markdown", dateText())).text("ok")
                         .takeIf { t -> t.isNotEmpty() }?.let { t -> Meetings.share(this@MeetingActivity, detail.optString("title"), t) }
                     5 -> delete()
+                    6 -> speakersDialog()
+                    7 -> identify()
                 }
                 true
             }
@@ -515,6 +706,9 @@ class MeetingActivity : Activity() {
     }
 
     companion object {
+        /** « Écouter sa voix » : début de sa première réplique. */
+        private const val VOICE_SAMPLE_MS = 8_000L
+
         /** Réécoute : jusqu'à la réplique suivante, une minute au plus. */
         private const val CLIP_MS = 60_000L
 

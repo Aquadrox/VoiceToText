@@ -15,6 +15,7 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - [Android] Réunions : l'enregistrement continue écran éteint ; grand chrono lisible de loin, « Marquer un moment » pour retrouver un passage important, arrêt depuis l'écran ou la notification.
 - [Android] Réunions : la transcription se fait à la fin, sur le téléphone, avec le modèle de la dictée ; une notification prévient quand le compte rendu est prêt. Vous pouvez continuer à dicter pendant ce temps.
 - [Android] Réunions : compte rendu et transcription dans deux onglets, à partager ou copier ; réécoute d'une phrase quand l'audio est gardé ; renommer, changer de type de compte rendu (réunion ou cours), refaire le compte rendu, supprimer.
+- [Android] Réunions : « Distinguer les intervenants » sépare les voix (« Intervenant 1, 2… ») à la fin, sur le téléphone ; donnez-leur un nom (avec leur temps de parole, leur première phrase et ▶ pour écouter leur voix), imposez leur nombre si deux voix sont confondues. Aussi après coup, depuis le menu ⋯, quand l'audio est gardé. Deux petits modèles (33 Mo) se téléchargent la première fois.
 - [Android] Réunions : l'audio est gardé sur le téléphone par défaut (stockage privé, chiffré par Android) ; au choix, effacé après la transcription ou gardé en mémoire seulement.
 
 ## 0.27.1 — 2026-11-13

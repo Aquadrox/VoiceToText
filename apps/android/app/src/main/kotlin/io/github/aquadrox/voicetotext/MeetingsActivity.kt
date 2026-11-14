@@ -331,6 +331,48 @@ class MeetingsActivity : Activity() {
         } else {
             column.note("La transcription est envoyée au LLM choisi pour le compte rendu ; l'audio ne quitte jamais le téléphone.")
         }
+        // Intervenants : modèles téléchargés une fois (sur accord : interrupteur).
+        val voicesReady = settings?.optBoolean("voices") == true
+        val voicesMb = settings?.optInt("voices_mb") ?: 33
+        val speakers = column.option("Distinguer les intervenants", store.meetingSpeakers && voicesReady)
+        val voicesNote = column.note(
+            if (voicesReady) "« Intervenant 1, 2… » à la fin, à nommer ensuite. Voix analysées sur le téléphone."
+            else "Télécharge une fois deux petits modèles ($voicesMb Mo). Voix analysées sur le téléphone.",
+        )
+        val voicesProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            visibility = View.GONE
+            progressTintList = ColorStateList.valueOf(getColor(R.color.accent))
+        }.also { column.addView(it) }
+        val pollVoices = object : Runnable {
+            override fun run() {
+                if (!Meetings.Voices.downloading) return
+                voicesProgress.progress = Native.voicesProgress()
+                voicesProgress.postDelayed(this, 300)
+            }
+        }
+        speakers.setOnCheckedChangeListener { _, checked ->
+            store.meetingSpeakers = checked
+            val installed = JSONObject(Native.settings(store.config, store.modelsDir)).optJSONObject("ok")?.optBoolean("voices") == true
+            if (!checked || installed) return@setOnCheckedChangeListener
+            voicesProgress.visibility = View.VISIBLE
+            voicesNote.text = "Téléchargement des modèles des intervenants ($voicesMb Mo)…"
+            Meetings.Voices.download(this, store) { error ->
+                voicesProgress.visibility = View.GONE
+                if (error == null) {
+                    voicesNote.text = "Modèles prêts : « Intervenant 1, 2… » à la fin, à nommer ensuite."
+                } else {
+                    voicesNote.text = "Téléchargement échoué : $error. Réessayez avec l'interrupteur."
+                    speakers.isChecked = false
+                }
+            }
+            voicesProgress.post(pollVoices)
+        }
+        column.more(
+            "Méthode de pyannote.audio (MIT) ; modèles pyannote segmentation 3.0 (MIT) et WeSpeaker ResNet34-LM (CC BY 4.0), convertis en ONNX par sherpa-onnx. " +
+                "Les empreintes vocales sont gardées avec la réunion (stockage privé de l'application) pour changer le nombre d'intervenants, jamais pour une réunion « en mémoire seulement », et effacées avec elle.",
+            "À propos des intervenants",
+        )
         if (file == null) {
             column.text("Prévenez les participants : leur accord est nécessaire pour enregistrer.", 13f, R.color.warning_fg).apply {
                 background = rounded(getColor(R.color.warning_bg), 12f)
@@ -344,7 +386,10 @@ class MeetingsActivity : Activity() {
             store.meetingConference = conference
             if (llm) store.meetingSummary = summary.isChecked
             val reply = JSONObject(
-                Native.meetingCreate(store.meetingsDir, title.text.toString(), conference, chosen, summary.isChecked, name.orEmpty()),
+                Native.meetingCreate(
+                    store.meetingsDir, title.text.toString(), conference, chosen, summary.isChecked, name.orEmpty(),
+                    speakers.isChecked,
+                ),
             )
             val id = reply.optString("ok")
             if (id.isEmpty()) {

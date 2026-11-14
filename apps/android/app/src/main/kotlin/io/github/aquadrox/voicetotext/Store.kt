@@ -122,6 +122,11 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("meeting_summary", true)
         set(value) = prefs.edit().putBoolean("meeting_summary", value).apply()
 
+    /** Réunions : distinguer les intervenants à la fin. */
+    var meetingSpeakers: Boolean
+        get() = prefs.getBoolean("meeting_speakers", true)
+        set(value) = prefs.edit().putBoolean("meeting_speakers", value).apply()
+
     /** Dossier des réunions (une par sous-dossier, comme sur PC). */
     val meetingsDir: String
         get() = File(context.filesDir, "meetings").apply { mkdirs() }.absolutePath

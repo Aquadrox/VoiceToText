@@ -192,12 +192,14 @@ pub static PROGRESS: AtomicU8 = AtomicU8::new(0);
 struct Progress {
     total: u64,
     done: u64,
+    /// Où publier le pourcentage.
+    shown: &'static AtomicU8,
 }
 
 impl Progress {
     fn add(&mut self, n: u64) {
         self.done += n;
-        PROGRESS.store(
+        self.shown.store(
             (self.done * 100 / self.total.max(1)).min(100) as u8,
             Ordering::Relaxed,
         );
@@ -216,6 +218,7 @@ pub fn download(dir: &Path, id: &str) -> Result<PathBuf, String> {
     let mut progress = Progress {
         total: model.source.size(),
         done: 0,
+        shown: &PROGRESS,
     };
     match &model.source {
         Source::File(remote) => {
@@ -350,6 +353,69 @@ fn extract(archive: &Path, dest: &Path, prefix: &str) -> Result<(), String> {
         return Err("archive du modèle vide".into());
     }
     Ok(())
+}
+
+/// Modèles des intervenants (qui parle ?), comme sur PC : segmentation
+/// pyannote 3.0 (MIT) et empreinte vocale WeSpeaker ResNet34-LM (CC BY 4.0),
+/// convertis en ONNX par sherpa-onnx, à des révisions figées de Hugging Face.
+/// ONNX Runtime est celui de Parakeet, livré dans l'APK.
+const DIARIZATION_DIR: &str = "diarisation-1";
+static DIARIZATION: Source = Source::Files(&[
+    (
+        "segmentation.onnx",
+        Remote {
+            url: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.onnx",
+            size: 5_992_913,
+            sha256: "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+        },
+    ),
+    (
+        "empreinte.onnx",
+        Remote {
+            url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/wespeaker_en_voxceleb_resnet34_LM.onnx",
+            size: 26_530_550,
+            sha256: "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012",
+        },
+    ),
+]);
+
+/// Progression du téléchargement des modèles des intervenants (0–100).
+pub static VOICES_PROGRESS: AtomicU8 = AtomicU8::new(0);
+
+/// Taille des modèles des intervenants (Mo).
+pub fn diarization_mb() -> u64 {
+    DIARIZATION.size().div_ceil(1_000_000)
+}
+
+/// Modèles des intervenants (segmentation, empreinte) s'ils sont complets.
+pub fn diarization_local(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let models = dir.join(DIARIZATION_DIR);
+    models.join(COMPLETE).is_file().then(|| {
+        (
+            models.join("segmentation.onnx"),
+            models.join("empreinte.onnx"),
+        )
+    })
+}
+
+/// Télécharge les modèles des intervenants s'ils manquent (taille et
+/// SHA-256 vérifiés).
+pub fn download_diarization(dir: &Path) -> Result<(), String> {
+    if diarization_local(dir).is_some() {
+        return Ok(());
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    VOICES_PROGRESS.store(0, Ordering::Relaxed);
+    let mut progress = Progress {
+        total: DIARIZATION.size(),
+        done: 0,
+        shown: &VOICES_PROGRESS,
+    };
+    install_dir(&dir.join(DIARIZATION_DIR), &DIARIZATION, &mut progress)?;
+    log::info!("modèles des intervenants installés");
+    diarization_local(dir)
+        .map(|_| ())
+        .ok_or_else(|| "modèles des intervenants incomplets".to_owned())
 }
 
 #[cfg(test)]

@@ -70,12 +70,17 @@ object Meetings {
         when (meeting.optString("status")) {
             "enregistrement" -> add(if (meeting.optBoolean("imported")) "lecture du fichier" else "enregistrement en cours")
             "transcription" -> add(
-                if (meeting.optString("step") == "transcription") "transcription ${meeting.optInt("progress")} %"
-                else "en attente de transcription",
+                when (meeting.optString("step")) {
+                    "transcription" -> "transcription ${meeting.optInt("progress")} %"
+                    "speakers" -> "intervenants ${meeting.optInt("progress")} %"
+                    "summary" -> "compte rendu en cours"
+                    else -> "en attente de transcription"
+                },
             )
             "interrompue" -> add("interrompue")
             else -> when {
                 meeting.optString("step") == "summary" -> add("compte rendu en cours")
+                meeting.optString("step") == "speakers" -> add("intervenants ${meeting.optInt("progress")} %")
                 meeting.optBoolean("summary") -> add("compte rendu")
                 else -> add("transcription seule")
             }
@@ -103,6 +108,27 @@ object Meetings {
     fun copy(context: Context, label: String, text: String) {
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
         Toast.makeText(context, "Copié", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Téléchargement des modèles des intervenants, partagé par les écrans. */
+    object Voices {
+        @Volatile
+        var downloading = false
+            private set
+
+        /** Lance le téléchargement (rien s'il tourne déjà) ; `done` (fil principal) : erreur ou null. */
+        fun download(context: Context, store: Store, done: (String?) -> Unit) {
+            if (downloading) return
+            downloading = true
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
+            val dir = store.modelsDir
+            Thread {
+                val error = runCatching { JSONObject(Native.downloadVoices(dir)).optString("error") }
+                    .getOrElse { it.message ?: "erreur" }
+                downloading = false
+                main.post { done(error.ifEmpty { null }) }
+            }.start()
+        }
     }
 
     /** Feuille de partage d'Android (mail, messagerie, Drive, Notes…). */

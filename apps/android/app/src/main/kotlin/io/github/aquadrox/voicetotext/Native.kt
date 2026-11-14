@@ -85,6 +85,7 @@ object Native {
         audio: String,
         summary: Boolean,
         source: String,
+        speakers: Boolean,
     ): String
 
     /** Audio reçu (PCM 16 bits entrelacé, `count` valeurs) : `{"ok": <durée en ms>}`. */
@@ -102,8 +103,26 @@ object Native {
     /** Après un arrêt de l'application : `{"ok": [ids à transcrire]}`. */
     external fun meetingRecover(root: String): String
 
-    /** Transcription puis compte rendu (bloquant, des minutes). */
-    external fun meetingProcess(root: String, id: String, toml: String): String
+    /** Transcription, intervenants si demandés, puis compte rendu (bloquant, des minutes). */
+    external fun meetingProcess(root: String, id: String, toml: String, modelsDir: String): String
+
+    /** Distingue les intervenants après coup (audio gardé ; bloquant). */
+    external fun meetingIdentify(root: String, id: String, modelsDir: String): String
+
+    /** Nombre d'intervenants imposé (0 : selon les voix), recalculé aussitôt. */
+    external fun meetingSpeakerCount(root: String, id: String, count: Int): String
+
+    /** Nom d'un intervenant (vide : « Intervenant N »). */
+    external fun meetingRenameSpeaker(root: String, id: String, index: Int, name: String): String
+
+    /** Ne plus distinguer : tours de parole, noms et empreintes effacés. */
+    external fun meetingForgetSpeakers(root: String, id: String): String
+
+    /** Modèles des intervenants (bloquant) : `{"ok": null}` ou erreur. */
+    external fun downloadVoices(modelsDir: String): String
+
+    /** Progression de ce téléchargement (0–100). */
+    external fun voicesProgress(): Int
 
     /** (Re)fait le compte rendu (bloquant). `language` vide : celle des réglages. */
     external fun meetingSummarize(root: String, id: String, toml: String, language: String): String
