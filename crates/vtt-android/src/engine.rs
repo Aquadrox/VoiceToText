@@ -159,6 +159,45 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
     Ok(())
 }
 
+/// Modèle chargé (une transcription de réunion peut avancer).
+pub fn loaded() -> bool {
+    lock(&ENGINE).is_some()
+}
+
+/// Transcription seule d'un bloc de réunion (16 kHz mono), filtrée comme une
+/// dictée ; `None` : silence ou hallucination. Le moteur n'est pris que le
+/// temps du bloc : les dictées passent entre deux blocs.
+pub fn transcribe(samples: Vec<f32>) -> Result<Option<String>, String> {
+    let engine = lock(&ENGINE);
+    let engine = engine
+        .as_ref()
+        .ok_or("moteur non démarré : modèle libéré ou pas encore chargé")?;
+    engine
+        .pipeline
+        .transcribe_only(&AudioClip { samples })
+        .map_err(|e| e.to_string())
+}
+
+/// Client LLM des comptes rendus de réunion (`None` : nettoyage par LLM
+/// désactivé), avec les prompts de la configuration.
+pub fn summarizer(config: &Config) -> Option<LlmCleaner> {
+    if !config.llm.enabled {
+        return None;
+    }
+    let text = |kind, name: &str| config.prompt_text(kind, name).map(str::to_owned);
+    let prompts = Prompts {
+        summary: text(PromptKind::CompteRendu, &config.meetings.summary_prompt),
+        conference: text(PromptKind::Conference, &config.meetings.conference_prompt),
+        ..Prompts::default()
+    };
+    Some(LlmCleaner::new(
+        &config.llm,
+        &config.dictionary,
+        &prompts,
+        Box::new(|| lock(&API_KEY).clone()),
+    ))
+}
+
 /// Libère le modèle (plusieurs centaines de Mo de mémoire vive) : le
 /// prochain [`start`] le recharge. Sert à la bulle quand l'écran est éteint,
 /// pour que le téléphone ait moins de raisons d'arrêter l'application.

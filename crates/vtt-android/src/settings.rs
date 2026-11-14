@@ -68,6 +68,8 @@ struct View<'a> {
     /// Prompts actifs (nom ; vide : prompt intégré).
     cleanup_prompt: &'a str,
     command_prompt: &'a str,
+    /// Réunions effacées au-delà de ce nombre de jours ; 0 : jamais.
+    meetings_keep_days: u32,
 }
 
 /// Réglages affichés par l'application (JSON).
@@ -90,6 +92,7 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         history: config.history.enabled,
         cleanup_prompt: active_prompt(&config, PromptKind::Nettoyage, &config.llm.cleanup_prompt),
         command_prompt: active_prompt(&config, PromptKind::Commande, &config.llm.command_prompt),
+        meetings_keep_days: config.meetings.keep_days,
     };
     serde_json::to_string(&view).map_err(|e| e.to_string())
 }

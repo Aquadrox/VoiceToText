@@ -8,16 +8,18 @@
 //! gardée qu'en mémoire.
 
 pub mod engine;
+pub mod meetings;
 pub mod models;
 pub mod settings;
 
 use std::path::PathBuf;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JFloatArray, JString};
-use jni::sys::{jint, jstring};
+use jni::objects::{JClass, JFloatArray, JShortArray, JString};
+use jni::sys::{jboolean, jint, jlong, jshortArray, jstring};
 use serde::Serialize;
 use vtt_core::changelog::{self, Platform, Release};
+use vtt_core::config::MeetingAudio;
 
 /// Texte Java → Rust (vide si nul ou illisible).
 fn text(env: &mut JNIEnv, value: &JString) -> String {
@@ -341,6 +343,266 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_releaseNotes<'
     let up_to = text(&mut env, &up_to);
     let json = protect(|| reply(Ok(release_notes(&changelog, &after, &up_to))));
     java(&mut env, &json)
+}
+
+/// Choix de l'audio d'une réunion, tel que l'application l'envoie.
+fn meeting_audio(value: &str) -> MeetingAudio {
+    match value {
+        "memoire" => MeetingAudio::Memoire,
+        "temporaire" => MeetingAudio::Temporaire,
+        _ => MeetingAudio::Conserve,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingCreate<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    title: JString<'a>,
+    conference: jboolean,
+    audio: JString<'a>,
+    summary: jboolean,
+    source: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let new = meetings::New {
+        title: text(&mut env, &title),
+        conference: conference != 0,
+        audio: meeting_audio(&text(&mut env, &audio)),
+        summary: summary != 0,
+        source: Some(text(&mut env, &source)).filter(|s| !s.is_empty()),
+    };
+    let json = protect(|| reply(meetings::create(&root, &new)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingFeed<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    pcm: JShortArray<'a>,
+    count: jint,
+    rate: jint,
+    channels: jint,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let length = env.get_array_length(&pcm).unwrap_or(0).max(0) as usize;
+    let mut buffer = vec![0i16; (count.max(0) as usize).min(length)];
+    let read = env.get_short_array_region(&pcm, 0, &mut buffer);
+    let json = protect(|| {
+        reply(read.map_err(|e| e.to_string()).and_then(|()| {
+            meetings::feed(
+                &root,
+                &id,
+                &buffer,
+                rate.max(0) as u32,
+                channels.max(0) as u32,
+            )
+        }))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingProgress<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    percent: jint,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let percent = percent.clamp(0, 100) as u8;
+    let json = protect(|| reply(meetings::set_progress(&root, &id, percent)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingMark<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::mark(&root, &id)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingStop<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::stop(&root, &id)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingRecover<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let json = protect(|| reply(Ok::<_, String>(meetings::recover(&root))));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingProcess<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    toml: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let toml = text(&mut env, &toml);
+    let json = protect(|| reply(meetings::process(&root, &id, &toml)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingSummarize<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    toml: JString<'a>,
+    language: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let toml = text(&mut env, &toml);
+    let language = text(&mut env, &language);
+    let json = protect(|| reply(meetings::summarize(&root, &id, &toml, &language)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetings<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    toml: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let toml = text(&mut env, &toml);
+    let json = protect(|| reply(meetings::list(&root, &toml)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meeting<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::detail(&root, &id)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingRename<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    title: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let title = text(&mut env, &title);
+    let json = protect(|| reply(meetings::rename(&root, &id, &title)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingSetConference<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    conference: jboolean,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::set_conference(&root, &id, conference != 0)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingDelete<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::delete(&root, &id)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingExport<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    what: JString<'a>,
+    date: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let what = text(&mut env, &what);
+    let date = text(&mut env, &date);
+    let json = protect(|| reply(meetings::export(&root, &id, &what, &date)));
+    java(&mut env, &json)
+}
+
+/// Passage de l'audio conservé (PCM 16 bits 16 kHz) ; vide en cas d'erreur.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingClip<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    start_ms: jlong,
+    end_ms: jlong,
+) -> jshortArray {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let samples = std::panic::catch_unwind(|| {
+        meetings::clip(&root, &id, start_ms.max(0) as u64, end_ms.max(0) as u64)
+    })
+    .unwrap_or_else(|_| Err("erreur interne".into()))
+    .unwrap_or_else(|e| {
+        log::warn!("réécoute : {e}");
+        Vec::new()
+    });
+    let Ok(array) = env.new_short_array(samples.len() as i32) else {
+        return std::ptr::null_mut();
+    };
+    if env.set_short_array_region(&array, 0, &samples).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
 }
 
 #[cfg(test)]

@@ -107,6 +107,25 @@ class Store(private val context: Context) {
         get() = prefs.getString("last_run_version", "").orEmpty()
         set(value) = prefs.edit().putString("last_run_version", value).apply()
 
+    /** Réunions : audio « conserve » (par défaut), « temporaire » ou « memoire ». */
+    var meetingAudio: String
+        get() = prefs.getString("meeting_audio", "conserve").orEmpty()
+        set(value) = prefs.edit().putString("meeting_audio", value).apply()
+
+    /** Réunions : compte rendu de cours ou conférence plutôt que de réunion. */
+    var meetingConference: Boolean
+        get() = prefs.getBoolean("meeting_conference", false)
+        set(value) = prefs.edit().putBoolean("meeting_conference", value).apply()
+
+    /** Réunions : compte rendu à la fin de la transcription. */
+    var meetingSummary: Boolean
+        get() = prefs.getBoolean("meeting_summary", true)
+        set(value) = prefs.edit().putBoolean("meeting_summary", value).apply()
+
+    /** Dossier des réunions (une par sous-dossier, comme sur PC). */
+    val meetingsDir: String
+        get() = File(context.filesDir, "meetings").apply { mkdirs() }.absolutePath
+
     /** Autorisation des notifications déjà demandée (Android 13 et plus). */
     var askedNotifications: Boolean
         get() = prefs.getBoolean("asked_notifications", false)

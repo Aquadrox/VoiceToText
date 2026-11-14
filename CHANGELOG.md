@@ -8,6 +8,15 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.28.0 — 2026-11-14
+
+- [Android] Réunions : enregistrez une réunion, un cours ou une conférence avec le téléphone posé sur la table, puis obtenez la transcription et un compte rendu par le LLM choisi. Carte « Réunions » sur l'accueil, ou appui long sur l'icône → « Enregistrer une réunion ».
+- [Android] Réunions : importez un enregistrement existant (mémo vocal, note vocale, enregistrement d'appel du téléphone, cours, vidéo…), avec le bouton « Importer » ou depuis une autre application : Partager → VoiceToText.
+- [Android] Réunions : l'enregistrement continue écran éteint ; grand chrono lisible de loin, « Marquer un moment » pour retrouver un passage important, arrêt depuis l'écran ou la notification.
+- [Android] Réunions : la transcription se fait à la fin, sur le téléphone, avec le modèle de la dictée ; une notification prévient quand le compte rendu est prêt. Vous pouvez continuer à dicter pendant ce temps.
+- [Android] Réunions : compte rendu et transcription dans deux onglets, à partager ou copier ; réécoute d'une phrase quand l'audio est gardé ; renommer, changer de type de compte rendu (réunion ou cours), refaire le compte rendu, supprimer.
+- [Android] Réunions : l'audio est gardé sur le téléphone par défaut (stockage privé, chiffré par Android) ; au choix, effacé après la transcription ou gardé en mémoire seulement.
+
 ## 0.27.1 — 2026-11-13
 
 - [PC] Réunions : fini les intervenants en trop. Une même voix n'est plus comptée plusieurs fois (quelques mots, un rire, un changement de ton suffisaient à créer un « Intervenant » de plus, d'autant plus souvent que la réunion était longue).

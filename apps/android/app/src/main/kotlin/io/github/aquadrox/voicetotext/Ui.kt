@@ -84,7 +84,7 @@ fun Activity.screen(bar: (LinearLayout.() -> Unit)? = null, content: LinearLayou
 }
 
 /** Texte simple ; taille en sp. */
-fun LinearLayout.text(value: String, size: Float = 15f, color: Int = R.color.fg, bold: Boolean = false): TextView =
+fun LinearLayout.text(value: CharSequence, size: Float = 15f, color: Int = R.color.fg, bold: Boolean = false): TextView =
     TextView(context).apply {
         text = value
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)

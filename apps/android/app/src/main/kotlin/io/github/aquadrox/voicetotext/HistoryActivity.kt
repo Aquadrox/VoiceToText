@@ -9,12 +9,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
-import java.math.MathContext
 import java.text.DateFormat
-import java.text.NumberFormat
-import java.util.Currency
 import java.util.Date
-import java.util.Locale
 
 /** Dictées récentes (sur le téléphone seulement) : toucher pour copier. */
 class HistoryActivity : Activity() {
@@ -98,18 +94,7 @@ class HistoryActivity : Activity() {
         }
     }
 
-    /** Comme sur PC : chiffres significatifs pour les montants minuscules. */
-    private fun cost(value: Double, currency: String): String {
-        val tiny = value > 0 && value < 0.01
-        val shown = if (tiny) value.toBigDecimal().round(MathContext(2)).toDouble() else value
-        return runCatching {
-            NumberFormat.getCurrencyInstance(Locale.FRANCE).apply {
-                this.currency = Currency.getInstance(currency)
-                maximumFractionDigits = if (tiny) 8 else 2
-                minimumFractionDigits = 2
-            }.format(shown)
-        }.getOrElse { "%.4f %s".format(shown, currency) }
-    }
+    private fun cost(value: Double, currency: String): String = Meetings.cost(value, currency)
 
     /** Effacement en deux appuis. */
     private fun clear() {

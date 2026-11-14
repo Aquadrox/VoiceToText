@@ -289,6 +289,10 @@ class VoiceKeyboard : InputMethodService() {
             if (Dictation.stale(store)) loadEngine() else show("Modèle pas encore prêt")
             return
         }
+        if (MeetingService.recording) {
+            show("Réunion en cours : le micro est pris par l'enregistrement")
+            return
+        }
         if (!recorder.start()) {
             show("Micro indisponible")
             return

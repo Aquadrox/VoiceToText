@@ -182,6 +182,8 @@ Une réplique par bloc, nom en couleur (couleurs du PC). Toucher un nom → le r
 
 ## Découpage proposé
 
+Avancement : étapes 1, 2 et 4 livrées en v0.28.0 (voir la roadmap) ; étape 3 (intervenants) à suivre.
+
 1. **Moteur commun** (Rust, testé sous Linux) : format `meeting.json` et liste des réunions déplacés dans `vtt-core` (le PC s'en sert sans changement de comportement) ; session de réunion et JNI dans `vtt-android`. Tests : découpe, transcription simulée, reprise, compte rendu.
 2. **Enregistrer et relire** (Android) : service au premier plan, écrans 1 à 4, audio en mémoire ou temporaire chiffré, compte rendu automatique ou à la demande, partage. Captures Robolectric en clair et en sombre.
 3. **Intervenants** : téléchargement des modèles de diarisation, analyse pendant la réunion, écran 5, nombre imposé.

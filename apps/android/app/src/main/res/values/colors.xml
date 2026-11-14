@@ -14,6 +14,8 @@
     <color name="accent_fg">#FFFFFF</color>
     <!-- Ce qui est actif ou enregistre. -->
     <color name="signal">#CC3E1B</color>
+    <!-- Texte sur un fond vermillon (bouton Arrêter). -->
+    <color name="on_signal">#FFFFFF</color>
     <color name="ok">#1D7A46</color>
     <color name="danger">#B42318</color>
     <color name="warning_bg">#FBF0D6</color>

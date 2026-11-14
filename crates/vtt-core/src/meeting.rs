@@ -14,6 +14,10 @@ use crate::audio;
 use crate::diarize;
 use crate::pipeline::SAMPLE_RATE;
 
+mod record;
+
+pub use record::{MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE};
+
 /// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -279,18 +283,22 @@ pub fn with_speakers(segments: &[Segment], track: Track, turns: &[diarize::Turn]
     out
 }
 
+/// Nom à afficher devant une réplique ; `None` si `tracks` est faux et que
+/// l'intervenant n'est pas connu (téléphone : une seule source, nommer la
+/// piste n'apprendrait rien).
+fn reply_label(reply: &Reply, names: &[String], tracks: bool) -> Option<String> {
+    (tracks || reply.speaker.is_some()).then(|| speaker_label(reply.track, reply.speaker, names))
+}
+
 /// Transcription lisible, une réplique par ligne : `[12:34] Moi : …`.
-/// `names` : noms donnés aux intervenants.
-pub fn transcript_text(segments: &[Segment], names: &[String]) -> String {
+/// `names` : noms donnés aux intervenants ; `tracks` : nommer les pistes
+/// (« Moi », « Eux ») quand l'intervenant n'est pas connu.
+pub fn transcript_text(segments: &[Segment], names: &[String], tracks: bool) -> String {
     turns(segments)
         .into_iter()
-        .map(|r| {
-            format!(
-                "[{}] {} : {}",
-                timestamp(r.start_ms),
-                speaker_label(r.track, r.speaker, names),
-                r.text
-            )
+        .map(|r| match reply_label(&r, names, tracks) {
+            Some(label) => format!("[{}] {label} : {}", timestamp(r.start_ms), r.text),
+            None => format!("[{}] {}", timestamp(r.start_ms), r.text),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -304,6 +312,7 @@ pub fn to_markdown(
     summary: Option<&str>,
     segments: &[Segment],
     names: &[String],
+    tracks: bool,
 ) -> String {
     let mut md = format!("# {title}\n\n{date} · durée {}\n\n", timestamp(duration_ms));
     if let Some(summary) = summary.map(str::trim).filter(|s| !s.is_empty()) {
@@ -313,12 +322,14 @@ pub fn to_markdown(
     }
     md.push_str("## Transcription\n\n");
     for r in turns(segments) {
-        md.push_str(&format!(
-            "**{}** [{}] : {}\n\n",
-            speaker_label(r.track, r.speaker, names),
-            timestamp(r.start_ms),
-            r.text
-        ));
+        match reply_label(&r, names, tracks) {
+            Some(label) => md.push_str(&format!(
+                "**{label}** [{}] : {}\n\n",
+                timestamp(r.start_ms),
+                r.text
+            )),
+            None => md.push_str(&format!("[{}] {}\n\n", timestamp(r.start_ms), r.text)),
+        }
     }
     md
 }
@@ -738,7 +749,7 @@ mod tests {
         ];
         sort_segments(&mut segments);
         assert_eq!(
-            transcript_text(&segments, &[]),
+            transcript_text(&segments, &[], true),
             "[00:00] Moi : Bonjour à tous. On commence ?\n[00:09] Eux : Très bien.\n\
              [1:01:01] Eux : Au revoir."
         );
@@ -749,10 +760,14 @@ mod tests {
             Some("Rien."),
             &segments,
             &[],
+            true,
         );
         assert!(md.starts_with("# Point hebdo\n\n4 nov. 2026 · durée 1:01:02"));
         assert!(md.contains("## Compte rendu\n\nRien."));
         assert!(md.contains("**Eux** [00:09] : Très bien."));
+        // Une seule source (téléphone) : pas de nom de piste.
+        let md = to_markdown("Cours", "", 9_000, None, &segments[..2], &[], false);
+        assert!(md.contains("[00:00] Bonjour à tous.") && !md.contains("Moi"));
     }
 
     #[test]
@@ -785,9 +800,15 @@ mod tests {
         assert_eq!(split[2].speaker, Some(1));
         let names = vec![String::new(), "Anne".to_owned()];
         assert_eq!(
-            transcript_text(&split, &names),
+            transcript_text(&split, &names, true),
             "[00:00] Moi : Bonjour.\n[00:02] Intervenant 1 : Salut Paul.\n\
              [00:03] Anne : Oui bonjour Anne, ça va ?"
+        );
+        assert_eq!(
+            transcript_text(&split, &names, false),
+            "[00:00] Bonjour.\n[00:02] Intervenant 1 : Salut Paul.\n\
+             [00:03] Anne : Oui bonjour Anne, ça va ?",
+            "intervenants nommés, piste seule muette"
         );
     }
 

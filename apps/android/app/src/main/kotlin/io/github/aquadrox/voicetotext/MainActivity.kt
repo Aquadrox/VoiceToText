@@ -5,6 +5,9 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -75,6 +78,7 @@ class MainActivity : Activity() {
     private lateinit var updateCheck: Button
     private lateinit var updateProgress: ProgressBar
     private lateinit var notificationsButton: Button
+    private lateinit var meetingsList: LinearLayout
 
     /** Téléchargement et vérification de la mise à jour, à part du modèle. */
     private val updates = Executors.newSingleThreadExecutor()
@@ -96,6 +100,7 @@ class MainActivity : Activity() {
         screen(bar = { primary("Enregistrer les réglages") { save() } }) { content() }
         refresh()
         startUpdates()
+        shortcut()
         handle(intent)
     }
 
@@ -154,6 +159,23 @@ class MainActivity : Activity() {
                 bubbleBannerText = note("")
                 primary("Relancer la bulle") { BubbleStatus.openSettings(this@MainActivity) }
                 visibility = View.GONE
+            }
+        }
+
+        card("Réunions", R.drawable.ic_audio_lines).apply {
+            note("Posez le téléphone sur la table, ou importez un enregistrement : transcription et compte rendu à la fin.")
+            meetingsList = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            addView(meetingsList)
+            row {
+                primary("Enregistrer") {
+                    startActivity(Intent(this@MainActivity, MeetingsActivity::class.java).setAction(MeetingsActivity.ACTION_NEW))
+                }.apply {
+                    background = pressable(rounded(getColor(R.color.signal), 10f), 10f)
+                    setTextColor(getColor(R.color.on_signal))
+                }
+                secondary("Toutes les réunions") {
+                    startActivity(Intent(this@MainActivity, MeetingsActivity::class.java))
+                }
             }
         }
 
@@ -413,6 +435,40 @@ class MainActivity : Activity() {
             },
         )
         refreshStatus()
+        refreshMeetings()
+    }
+
+    /** Deux dernières réunions dans la carte de l'accueil. */
+    private fun refreshMeetings() {
+        meetingsList.removeAllViews()
+        val rows = JSONObject(Native.meetings(store.meetingsDir, store.config)).optJSONArray("ok")
+        for (i in 0 until minOf(2, rows?.length() ?: 0)) {
+            val row = rows!!.getJSONObject(i)
+            meetingsList.divider(6)
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = pressable(null, 8f)
+                setOnClickListener { startActivity(MeetingActivity.intent(this@MainActivity, row.getString("id"))) }
+            }
+            item.text("${row.optString("title")} · ${Meetings.clock(row.optLong("duration_ms"))}", 15f, bold = true)
+            item.text("${Meetings.date(row.getLong("started_at_ms"))} · ${Meetings.meta(row)}", 13f, R.color.muted)
+            meetingsList.addView(item)
+        }
+    }
+
+    /** Appui long sur l'icône : « Enregistrer une réunion ». */
+    private fun shortcut() {
+        runCatching {
+            val intent = Intent(this, MeetingsActivity::class.java).setAction(MeetingsActivity.ACTION_NEW)
+            getSystemService(ShortcutManager::class.java).dynamicShortcuts = listOf(
+                ShortcutInfo.Builder(this, "meeting")
+                    .setShortLabel("Réunion")
+                    .setLongLabel("Enregistrer une réunion")
+                    .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+                    .setIntent(intent)
+                    .build(),
+            )
+        }
     }
 
     private fun refreshStatus() {

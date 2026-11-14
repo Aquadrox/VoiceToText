@@ -406,6 +406,10 @@ class BubbleService : AccessibilityService() {
         }
         // Réglages modifiés : rechargés avant la dictée (même file d'attente).
         if (Dictation.stale(store)) Dictation.prepare(store) { error -> error?.let { say(it) } }
+        if (MeetingService.recording) {
+            say("Réunion en cours : le micro est pris par l'enregistrement")
+            return
+        }
         if (!recorder.start()) {
             say("Micro indisponible")
             return
