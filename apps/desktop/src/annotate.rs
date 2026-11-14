@@ -169,6 +169,11 @@ impl Annotator {
         settings::read(&self.app.state::<SharedConfig>()).clone()
     }
 
+    /// Enregistrement en cours.
+    pub fn is_recording(&self) -> bool {
+        lock(&self.recording).is_some()
+    }
+
     pub fn state(&self) -> AnnotateState {
         let recording = lock(&self.recording);
         AnnotateState {
@@ -291,6 +296,12 @@ impl Annotator {
             _click_recorder: click_recorder,
         });
         drop(recording);
+        // Linux : la pastille apparaîtrait sur les captures (voir
+        // app_settings::overlay_visible).
+        #[cfg(target_os = "linux")]
+        if let Some(overlay) = self.app.get_webview_window("overlay") {
+            let _ = overlay.hide();
+        }
         log::info!("capture commentée : enregistrement");
         // Arrêt automatique au-delà de la durée maximale.
         let annotator = Arc::clone(self);

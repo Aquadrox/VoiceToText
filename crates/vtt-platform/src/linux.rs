@@ -125,7 +125,7 @@ pub fn companion_keys(_trigger: u32) -> Vec<u32> {
 /// Un appui seul sur Alt n'ouvre pas de menu dans les applications Linux.
 pub fn suppress_menu_activation(_trigger: u32) {}
 
-fn connect() -> Result<(RustConnection, usize), String> {
+pub(crate) fn connect() -> Result<(RustConnection, usize), String> {
     x11rb::connect(None).map_err(|e| {
         format!("affichage X11 introuvable ({e}) : VoiceToText demande une session X11")
     })
@@ -153,6 +153,12 @@ pub fn spawn_keyboard_hook(tx: Sender<KeyEvent>) -> Result<(), String> {
              l'autorise (Configuration du système → prise en charge des applications X11 \
              historiques → « Toujours »)"
         );
+    }
+    // Raccourcis déclarés au bureau (Wayland) : envoyés au même endroit.
+    crate::shortcuts_linux::set_sender(tx.clone());
+    if wayland_session() {
+        // Fenêtre active des applications Wayland (styles par application).
+        crate::kwin::start();
     }
     let (conn, screen) = connect()?;
     let version = conn
@@ -353,7 +359,7 @@ fn is_down(keys: &[u8; 32], code: u32) -> bool {
 
 /// État physique de la touche, indépendamment du suivi des événements.
 pub fn key_is_down(key: u32) -> bool {
-    keymap().is_some_and(|keys| is_down(&keys, key))
+    crate::shortcuts_linux::is_held(key) || keymap().is_some_and(|keys| is_down(&keys, key))
 }
 
 /// Une touche de modification (Ctrl, Maj, Alt, AltGr, Super) est enfoncée.
@@ -475,6 +481,23 @@ fn with_clipboard<R>(f: impl FnOnce(&mut arboard::Clipboard) -> R) -> Result<R, 
 
 fn clipboard_text() -> Option<String> {
     with_clipboard(|c| c.get_text().ok()).ok().flatten()
+}
+
+/// Met une image dans le presse-papier (capture commentée).
+pub(crate) fn set_clipboard_image(image: &vtt_core::annotation::Image) -> Result<(), String> {
+    with_clipboard(|c| {
+        c.set_image(arboard::ImageData {
+            width: image.width as usize,
+            height: image.height as usize,
+            bytes: std::borrow::Cow::Borrowed(&image.rgba),
+        })
+    })?
+    .map_err(|e| format!("presse-papier : {e}"))
+}
+
+/// Ctrl+V simulé dans l'application active.
+pub(crate) fn paste_shortcut() -> Result<(), String> {
+    send_ctrl(keysym::V, key::V)
 }
 
 fn set_clipboard_text(text: &str) -> Result<(), String> {
@@ -612,6 +635,33 @@ fn active_window(conn: &RustConnection, screen: usize) -> Option<Window> {
     .filter(|&w| w != x11rb::NONE)
 }
 
+/// Rectangle (pixels de l'écran) de la fenêtre au premier plan, bordures
+/// et barre de titre comprises. Sous Wayland, fourni par KWin.
+pub fn foreground_rect() -> Option<(i32, i32, i32, i32)> {
+    if let Some(window) = crate::kwin::active_window() {
+        return window.rect;
+    }
+    let (conn, screen) = display()?;
+    let window = active_window(conn, *screen)?;
+    let geometry = conn.get_geometry(window).ok()?.reply().ok()?;
+    let origin = conn
+        .translate_coordinates(window, root(conn, *screen), 0, 0)
+        .ok()?
+        .reply()
+        .ok()?;
+    // Décorations ajoutées par le gestionnaire de fenêtres : gauche, droite,
+    // haut, bas.
+    let frame: Vec<i32> = property(conn, window, "_NET_FRAME_EXTENTS", AtomEnum::CARDINAL)
+        .and_then(|reply| Some(reply.value32()?.map(|v| v as i32).collect()))
+        .filter(|v: &Vec<i32>| v.len() == 4)
+        .unwrap_or_else(|| vec![0; 4]);
+    let left = i32::from(origin.dst_x) - frame[0];
+    let top = i32::from(origin.dst_y) - frame[2];
+    let right = i32::from(origin.dst_x) + i32::from(geometry.width) + frame[1];
+    let bottom = i32::from(origin.dst_y) + i32::from(geometry.height) + frame[3];
+    Some((left, top, right, bottom))
+}
+
 /// Fenêtre au premier plan : nom du programme et titre.
 ///
 /// Le nom est la classe de la fenêtre (`WM_CLASS`, ex. "firefox", "Slack") :
@@ -619,6 +669,14 @@ fn active_window(conn: &RustConnection, screen: usize) -> Option<Window> {
 /// pris dans leur bac à sable, inutilisable ici. Le nom de l'exécutable ne
 /// sert que si la fenêtre n'a pas de classe.
 pub fn foreground_target() -> Target {
+    // Sous Wayland, KWin voit toutes les fenêtres ; X11 seulement les
+    // siennes.
+    if let Some(window) = crate::kwin::active_window() {
+        return Target {
+            app: Some(window.class).filter(|c| !c.is_empty()),
+            title: Some(window.title).filter(|t| !t.is_empty()),
+        };
+    }
     let Some((conn, screen)) = display() else {
         return Target::default();
     };
@@ -661,6 +719,9 @@ fn process_name(pid: u32) -> Option<String> {
 
 /// La fenêtre active est en plein écran (jeu, vidéo, présentation).
 pub fn fullscreen_app_running() -> bool {
+    if let Some(window) = crate::kwin::active_window() {
+        return window.fullscreen;
+    }
     let Some((conn, screen)) = display() else {
         return false;
     };

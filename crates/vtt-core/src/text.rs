@@ -123,24 +123,51 @@ const MIN_SPELLED_LETTERS: usize = 3;
 /// transcription) deviennent « aquadrox ».
 ///
 /// Une lettre isolée est une lettre seule entre espaces, virgules, points
-/// ou tirets ; « l' », « d' » n'en sont pas. Il en faut au moins trois à la
-/// suite : une énumération courte (« A, B ») est gardée telle quelle, mais
-/// « A, B, C » devient « abc ».
+/// ou tirets ; « l' », « d' » n'en sont pas. Le nom d'une lettre écrit en
+/// toutes lettres (« ku », « bé », « erre »…) compte aussi au milieu d'un
+/// mot épelé. Il faut au moins trois lettres seules à la suite, dont deux
+/// autres que « a » et « y » (des mots français) : une énumération courte
+/// (« A, B ») est gardée telle quelle, mais « A, B, C » devient « abc ».
 pub fn join_spelled_letters(text: &str) -> String {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let isolated =
-        |c: Option<char>| c.is_none_or(|c| !c.is_alphanumeric() && c != '\'' && c != '’');
-    // Lettres isolées : (début, fin, lettre).
-    let letters: Vec<(usize, usize, char)> = chars
-        .iter()
-        .enumerate()
-        .filter(|(i, (_, c))| {
-            c.is_ascii_alphabetic()
-                && isolated(i.checked_sub(1).map(|j| chars[j].1))
-                && isolated(chars.get(i + 1).map(|&(_, c)| c))
-        })
-        .map(|(_, &(start, c))| (start, start + c.len_utf8(), c))
-        .collect();
+    let apostrophe = |c: char| c == '\'' || c == '’';
+    // Mots du texte : (début, fin, lettre épelée, lettre seule ?). Une
+    // lettre seule (« Q ») ou son nom écrit en toutes lettres (« ku »,
+    // « bé »), que le moteur de transcription écrit parfois à sa place.
+    let mut tokens: Vec<(usize, usize, char, bool)> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].1.is_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let first = i;
+        while i < chars.len() && chars[i].1.is_alphabetic() {
+            i += 1;
+        }
+        let start = chars[first].0;
+        let end = chars.get(i).map_or(text.len(), |&(at, _)| at);
+        // « l' », « d' » : élision, pas une lettre épelée.
+        let elided = first
+            .checked_sub(1)
+            .is_some_and(|j| apostrophe(chars[j].1) || chars[j].1.is_alphanumeric())
+            || chars
+                .get(i)
+                .is_some_and(|&(_, c)| apostrophe(c) || c.is_alphanumeric());
+        if elided {
+            continue;
+        }
+        let word = &text[start..end];
+        let mut letters = word.chars();
+        match (letters.next(), letters.next()) {
+            (Some(c), None) if c.is_ascii_alphabetic() => tokens.push((start, end, c, true)),
+            _ => {
+                if let Some(letter) = letter_name(word) {
+                    tokens.push((start, end, letter, false));
+                }
+            }
+        }
+    }
     let spelling_gap = |between: &str| {
         !between.is_empty()
             && between.len() <= 3
@@ -152,24 +179,59 @@ pub fn join_spelled_letters(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut copied = 0;
     let mut i = 0;
-    while i < letters.len() {
+    while i < tokens.len() {
         let mut j = i;
-        while j + 1 < letters.len() && spelling_gap(&text[letters[j].1..letters[j + 1].0]) {
+        while j + 1 < tokens.len() && spelling_gap(&text[tokens[j].1..tokens[j + 1].0]) {
             j += 1;
         }
-        if j + 1 - i >= MIN_SPELLED_LETTERS {
-            out.push_str(&text[copied..letters[i].0]);
-            out.extend(
-                letters[i..=j]
-                    .iter()
-                    .map(|&(_, _, c)| c.to_ascii_lowercase()),
-            );
-            copied = letters[j].1;
+        let run = &tokens[i..=j];
+        // Au moins trois lettres seules, dont deux qui ne sont pas les mots
+        // « a » ou « y » : « il y a elle, A ou B » n'est pas épelé.
+        let letters = run.iter().filter(|t| t.3);
+        let strong = letters
+            .clone()
+            .filter(|t| !matches!(t.2, 'a' | 'y'))
+            .count();
+        if letters.count() >= MIN_SPELLED_LETTERS && strong >= 2 {
+            out.push_str(&text[copied..run[0].0]);
+            out.extend(run.iter().map(|t| t.2.to_ascii_lowercase()));
+            copied = run[run.len() - 1].1;
         }
         i = j + 1;
     }
     out.push_str(&text[copied..]);
     out
+}
+
+/// Nom d'une lettre écrit en toutes lettres (« ku » pour Q, « bé » pour B),
+/// tel que le moteur de transcription l'écrit parfois au milieu d'un mot
+/// épelé. Seulement des formes rares hors épellation : ni « de », ni
+/// « en », ni « ce ».
+fn letter_name(word: &str) -> Option<char> {
+    let letter = match word.to_lowercase().as_str() {
+        "bé" => 'b',
+        "cé" => 'c',
+        "dé" => 'd',
+        "effe" | "èfe" => 'f',
+        "gé" => 'g',
+        "ache" | "hache" => 'h',
+        "ji" => 'j',
+        "ka" => 'k',
+        "elle" | "èle" => 'l',
+        "emme" | "ème" => 'm',
+        "enne" | "ène" => 'n',
+        "pé" => 'p',
+        "qu" | "ku" | "cu" | "kü" => 'q',
+        "erre" | "ère" => 'r',
+        "esse" | "èsse" => 's',
+        "té" => 't',
+        "vé" => 'v',
+        "ixe" | "iks" => 'x',
+        "igrec" => 'y',
+        "zède" | "zed" => 'z',
+        _ => return None,
+    };
+    Some(letter)
 }
 
 /// Commande en fin de morceau : longueur (en octets) de sa partie dictée.
@@ -332,6 +394,30 @@ mod tests {
             join_spelled_letters("A B C, puis X Y Z"),
             "abc, puis xyz",
             "deux mots épelés"
+        );
+    }
+
+    #[test]
+    fn spelled_letter_names_are_recognised() {
+        // Q transcrit « ku » ou « qu », collé à la lettre suivante.
+        assert_eq!(
+            join_spelled_letters("A, ku, U, A, D, R, O, X."),
+            "aquadrox."
+        );
+        assert_eq!(join_spelled_letters("A QU U A D R O X"), "aquadrox");
+        assert_eq!(join_spelled_letters("D, U, P, O, enne, T"), "dupont");
+        assert_eq!(
+            join_spelled_letters("bé, O, B"),
+            "bé, O, B",
+            "deux lettres seules"
+        );
+        assert_eq!(
+            join_spelled_letters("Il y a elle et moi."),
+            "Il y a elle et moi."
+        );
+        assert_eq!(
+            join_spelled_letters("Il y a elle, A ou B."),
+            "Il y a elle, A ou B."
         );
     }
 

@@ -376,8 +376,9 @@
                       <p class="hint">« Détecter », puis appuyez sur la touche voulue (ou sur le bouton de la manette associé à une touche dans Steam Input). Pour les raccourcis plus bas : « Détecter », puis la combinaison (Échap annule).</p>
                       <p class="hint warning" id="hk-wayland" hidden>
                         Session Wayland : pour que la touche marche dans toutes les applications, autorisez-la dans
-                        KDE : Configuration du système → Autorisations des applications → Prise en charge des
-                        anciennes applications X11 → « Toujours ».
+                        KDE (Configuration du système → Autorisations des applications → Prise en charge des
+                        anciennes applications X11 → « Toujours »), ou cochez « Déclarer les touches au bureau »
+                        ci-dessous.
                       </p>
                     </div>
                     <div class="field">
@@ -397,6 +398,10 @@
                   <label class="option field">
                     <input id="hk-handsfree" type="checkbox" />
                     <span><strong>Mains libres</strong><small>Deux appuis courts : dictée sans tenir la touche. Nouvel appui pour terminer, Échap pour annuler.</small></span>
+                  </label>
+                  <label class="option field" id="hk-system-row" hidden>
+                    <input id="hk-system" type="checkbox" />
+                    <span><strong>Déclarer les touches au bureau (Wayland)</strong><small>La dictée et le Command Mode deviennent des raccourcis de KDE, vus dans toutes les applications sans le réglage des anciennes applications X11. KDE demande une confirmation la première fois ; la touche se change ensuite aussi dans Configuration du système → Raccourcis → VoiceToText. AltGr, Ctrl ou Maj seuls ne peuvent pas être des raccourcis de KDE : choisissez une touche comme F13 ou Pause.</small></span>
                   </label>
                 </div>
 

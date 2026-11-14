@@ -368,6 +368,7 @@ fn run(
 
     let (keys_tx, keys) = mpsc::channel();
     vtt_platform::spawn_keyboard_hook(keys_tx)?;
+    declare_global_keys(&config.hotkey, ptt.trigger());
     log::info!("prêt, raccourci : {}", config.hotkey.key);
     reporter.set(Status::Idle);
 
@@ -417,6 +418,7 @@ fn run(
                     Ok(new) => {
                         ptt = new;
                         hotkey = latest.hotkey.clone();
+                        declare_global_keys(&hotkey, ptt.trigger());
                         log::info!("raccourci : {}", hotkey.key);
                     }
                     Err(e) => log::error!("{e}"),
@@ -447,6 +449,18 @@ fn spawn_level_meter(
 }
 
 /// Touche du Command Mode (`hotkey.command_key`, vide : désactivé).
+/// Touches de dictée et de commande pour les raccourcis déclarés au bureau
+/// (Linux, Wayland, si l'option est cochée).
+fn declare_global_keys(hotkey: &HotkeyConfig, trigger: u32) {
+    vtt_platform::set_global_keys(
+        hotkey.system_shortcut,
+        trigger,
+        &hotkey.key,
+        command_key(hotkey),
+        &hotkey.command_key,
+    );
+}
+
 fn command_key(hotkey: &HotkeyConfig) -> Option<u32> {
     let name = hotkey.command_key.trim();
     if name.is_empty() {

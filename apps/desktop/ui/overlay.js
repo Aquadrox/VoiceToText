@@ -143,17 +143,14 @@ window.__TAURI__.event.listen("level", (event) => {
 // Linux : au repos, la fenêtre est vraiment masquée (une fenêtre
 // transparente laissée affichée peut y rester figée) ; sans effet sous
 // Windows. Masquée après le fondu de la pastille.
+// Envoyé à chaque changement d'état : l'application peut aussi la garder
+// masquée (capture commentée en cours, sous Linux).
 const HIDE_AFTER_MS = 200;
-let windowShown = null;
 let hideTimer;
 function syncWindow() {
   const visible = pill.dataset.state !== "idle";
   clearTimeout(hideTimer);
-  const send = (value) => {
-    if (windowShown === value) return;
-    windowShown = value;
-    window.__TAURI__.core.invoke("overlay_visible", { visible: value });
-  };
+  const send = (value) => window.__TAURI__.core.invoke("overlay_visible", { visible: value });
   if (visible) send(true);
   else hideTimer = setTimeout(() => send(false), HIDE_AFTER_MS);
 }

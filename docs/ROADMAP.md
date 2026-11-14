@@ -412,15 +412,23 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
 - ⬜ À valider sur le Steam Deck : pastille masquée au repos, détection des raccourcis, listes en mode sombre, icône dans la zone de notification de KDE, KWallet, vitesse de Whisper Vulkan, mise à jour automatique
 - Pas encore sous Linux : styles par application pour les applications Wayland (fenêtre active vue seulement si elle est X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
 
-## v0.33 — Linux : confort, épellation 🚧
+## v0.33 — Linux : confort, épellation ✅
 
 - ✅ **Parakeet par défaut sur le Steam Deck** (premier lancement) : plus léger, plus rapide et meilleur à l'essai que Whisper sur le Deck (retour du propriétaire). Deck reconnu par ses informations DMI (Valve, « Jupiter » LCD ou « Galileo » OLED), noté dans le rapport de session ; une installation existante garde son modèle
 - ✅ **Épeler un mot** (toutes plateformes, dans `vtt-core`, avec les commandes vocales) : au moins trois lettres isolées à la suite, séparées par des espaces, virgules, points ou tirets (« A Q U A D R O X », « A, Q, U, A… », « A-Q-U-A… », selon le moteur) → « aquadrox », avant le LLM. « il y a », « A ou B », « le plan B », « l'e-mail » restent du texte ; limite : une énumération de trois lettres seules (« A, B, C ») devient « abc ». 4 tests (dont le passage dans le pipeline)
 - ✅ **Pause de la musique** sous Linux par MPRIS (D-Bus, zbus) : seuls les lecteurs qui jouaient sont mis en pause puis relancés ; propriétés lues sans cache (pas d'abonnement aux lecteurs). Vérifié avec deux faux lecteurs sur un bus de test (l'un en lecture, mis en pause puis relancé ; l'autre déjà en pause, pas touché)
 - ✅ **Détection des appels** sous Linux : flux d'enregistrement par `pactl -f json list source-outputs` (repli `pw-dump`), flux en sourdine et VoiceToText lui-même ignorés ; noms Linux des applications ajoutés aux services reconnus (Discord, Zoom, Slack, Signal, Telegram, Teams for Linux, Skype, Webex, navigateurs Chromium / Firefox / Brave / Edge / Vivaldi / Opera). Vérifié avec PulseAudio et un programme nommé « zoom » qui enregistre
-- ⬜ Capture commentée : capture d'écran (portail sous Wayland), clics, collage d'image
-- ⬜ Session Wayland sans réglage KDE : raccourci par le portail « raccourcis globaux » (appui et relâchement) ; fenêtre active des applications Wayland (styles par application)
+- ✅ Capture commentée, fenêtre active des applications Wayland et raccourcis sans réglage KDE : livrés en v0.33.1
 - ⬜ À valider sur le Steam Deck : Parakeet au premier lancement (nouvelle installation), pause de Spotify / du navigateur, proposition d'enregistrer un appel Discord
+
+## v0.33.1 — Linux : capture commentée, Wayland ✅
+
+- ✅ **Capture commentée sous Linux** : capture d'écran directe sous X11 (GetImage, BGRX → RGBA), par le portail du bureau sous Wayland (`org.freedesktop.portal.Screenshot`, non interactif ; KDE fait autoriser la première fois ; image PNG décodée puis supprimée, pour ne pas en accumuler une par seconde) ; clics par XInput2 (boutons gauche et droit, molette ignorée, position du pointeur) ; rectangle de la fenêtre active avec bordures et barre de titre (`_NET_FRAME_EXTENTS`) ; image collée par le presse-papier et Ctrl+V. La pastille est masquée pendant l'enregistrement (une fenêtre ne peut pas être exclue des captures sous Linux)
+- ✅ **Fenêtre active sous Wayland** par un script KWin (méthode de kdotool) : chargé par D-Bus (`org.kde.kwin.Scripting`), il appelle un service D-Bus de VoiceToText à chaque changement de fenêtre active, de titre ou de plein écran (classe, titre, plein écran, position, en texte pour éviter les conversions de nombres de Qt). Styles par application, mémoire graphique libérée en plein écran et zone « fenêtre » valent aussi pour les applications Wayland ; ancien script retiré au lancement suivant ; repli X11 hors KDE
+- ✅ **Raccourcis déclarés au bureau** (option `hotkey.system_shortcut`, case dans Réglages → Raccourcis, visible sous Wayland, désactivée par défaut pour ne pas changer une configuration qui marche) : portail `GlobalShortcuts` (CreateSession, BindShortcuts avec la touche proposée : F13, Pause, Scroll_Lock…), appui (`Activated`) et relâchement (`Deactivated`) transmis comme les touches réelles et pris en compte pour l'état « enfoncée » ; identité de l'application annoncée au portail (`Registry.Register`, xdg-desktop-portal 1.19+)
+- ✅ **Épellation plus robuste** (retour du Deck : « Q U » souvent transcrit en un seul U) : le nom d'une lettre écrit en toutes lettres (« ku », « qu », « cu », « bé », « erre », « ixe »…) compte au milieu d'un mot épelé ; il faut au moins trois lettres seules dont deux autres que « a » et « y » (« il y a elle, A ou B » reste du texte). Conseil dans le README : une courte pause entre les lettres, le Dictionnaire pour un mot fréquent. Un Q fondu dans le U par le moteur ne peut pas être retrouvé dans le texte
+- ✅ Vérifié sur le serveur : faux portail et faux KWin (Python, bus de test) : capture par le portail (image reçue, fichier supprimé), fenêtre active reçue de KWin (classe, titre, plein écran, rectangle), raccourci déclaré (appui et relâchement reçus, touche tenue) ; sous Xvfb : capture X11, clic enregistré, molette ignorée, rectangle de la fenêtre active, image dans le presse-papier
+- ⬜ À valider sur le Steam Deck (KDE réel) : autorisation de la capture d'écran, script KWin (styles dans Firefox), fenêtre de KDE pour les raccourcis et relâchement de la touche, mot épelé avec pause
 
 ## Outillage ✅
 
@@ -443,5 +451,5 @@ Accélérer la CI sans baisser la garde :
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
-- Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain), à étudier une fois le mode Bureau éprouvé.
+- Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain) : prochaine étape, à étudier maintenant que le mode Bureau est éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).
