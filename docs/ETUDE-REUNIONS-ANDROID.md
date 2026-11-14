@@ -174,7 +174,7 @@ Une réplique par bloc, nom en couleur (couleurs du PC). Toucher un nom → le r
 
 ## Contraintes propres au téléphone
 
-- **Batterie et chaleur** : transcription et analyse des voix au fil de l'eau. Avec Parakeet sur le Xiaomi 17T Pro, un bloc de 6 à 15 s se transcrit en bien moins de temps qu'il ne dure : charge modérée. Réglage proposé « Transcrire : pendant l'enregistrement / à la fin » pour les longs cours ou les téléphones modestes (l'audio va alors sur le disque, chiffré).
+- **Batterie et chaleur** : transcription et analyse des voix au fil de l'eau. Retenu : transcription à la fin (voir les décisions), le téléphone ne fait qu'enregistrer pendant la réunion. Avec Parakeet sur le Xiaomi 17T Pro, une heure devrait se transcrire en quelques minutes (à mesurer).
 - **Téléphone qui tue l'appli** (vu en v0.26.1 sur HyperOS) : un service au premier plan avec notification est beaucoup mieux protégé que la bulle. Avec l'audio « temporaire », reprise après une coupure comme sur le PC ; avec « en mémoire seulement », l'enregistrement est perdu (à dire clairement dans le réglage).
 - **Mémoire** : un seul modèle de transcription chargé (règle de v0.18) ; les modèles de diarisation (32 Mo) s'y ajoutent pendant la réunion seulement.
 - **Démarrage** : Android interdit de lancer un enregistrement micro depuis l'arrière-plan ; il part toujours d'un geste de l'utilisateur (écran Réunions, raccourci de l'icône, notification). Pas de détection d'appel ni d'enregistrement automatique : de toute façon impossible ici (voir plus haut).
@@ -190,12 +190,16 @@ Une réplique par bloc, nom en couleur (couleurs du PC). Toucher un nom → le r
 
 Les étapes 1 et 2 forment une première version utile ; 3 et 4 sont indépendantes l'une de l'autre.
 
-## À trancher par le propriétaire
+## Décisions du propriétaire (14/11/2026)
 
-1. **Périmètre** : accepter « micro seul » (réunions en présentiel, cours, import), sans piste « Eux » pour les appels passés sur le téléphone.
-2. **Audio par défaut** : en mémoire seulement (rien sur le disque, perdu si le téléphone tue l'appli) ou temporaire chiffré (reprise possible) — le PC est en « temporaire ».
-3. **Transcription en direct** par défaut, ou à la fin (batterie).
-4. **Éditions** : réunions dans les deux APK (clavier et bulle) — rien ne demande l'accessibilité.
+1. **Périmètre** : micro seul (réunions en présentiel, cours, import), sans piste « Eux » pour les appels passés sur le téléphone. Accepté.
+2. **Audio** : au choix pour chaque réunion (garder sur le téléphone, effacer après la transcription, en mémoire seulement) ; **par défaut, gardé sur le téléphone** (chiffré), ce qui permet la réécoute, la reprise après une coupure et une nouvelle transcription.
+3. **Transcription à la fin** de l'enregistrement, pas en direct : pendant la réunion, le téléphone ne fait qu'enregistrer (batterie, chaleur). L'écran d'enregistrement n'affiche donc pas de texte ; après l'arrêt, un écran suit la transcription, les intervenants puis le compte rendu, et une notification prévient quand c'est prêt.
+4. **Éditions** : réunions dans les deux APK (clavier et bulle), rien ne demande l'accessibilité.
+
+Ajouté avec les maquettes : **« Marquer un moment »** pendant l'enregistrement (bouton et notification) ; le repère apparaît dans la transcription, pour retrouver un passage important sans texte en direct.
+
+Maquettes visuelles (10 écrans, clair et sombre) : accueil, liste, nouvelle réunion, enregistrement, transcription en cours, compte rendu, transcription, intervenants, notifications. À valider avant de coder.
 
 ## À vérifier sur le téléphone
 
