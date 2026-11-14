@@ -49,7 +49,7 @@ VoiceToText/
 |---|---|---|
 | `Transcriber` | audio → texte brut | Whisper local ; plus tard cloud (Groq, Voxtral) |
 | `PostProcessor` | texte brut → texte propre | LLM OpenAI-compatible ; plus tard LLM local |
-| `TextSink` | insertion dans l'appli active | presse-papier + Ctrl+V (Windows) ; plus tard X11/Wayland, IME Android |
+| `TextSink` | insertion dans l'appli active | presse-papier + Ctrl+V (Windows ; Linux X11 par XTest) ; plus tard Wayland ; IME Android |
 
 Le cœur reste sans code spécifique à un OS pour pouvoir être réutilisé tel quel sur Linux et Android (via UniFFI).
 

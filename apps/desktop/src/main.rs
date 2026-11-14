@@ -234,11 +234,17 @@ fn show_overlay(overlay: &WebviewWindow) -> tauri::Result<()> {
         let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
         overlay.set_position(PhysicalPosition::new(x, y))?;
     }
+    #[cfg(not(target_os = "linux"))]
     overlay.set_ignore_cursor_events(true)?;
     // La pastille ne doit pas apparaître sur les captures commentées.
     #[cfg(windows)]
     if let Ok(hwnd) = overlay.hwnd() {
         vtt_platform::exclude_from_capture(hwnd.0 as isize);
     }
-    overlay.show()
+    overlay.show()?;
+    // GTK : une fenêtre ne laisse passer les clics qu'une fois affichée
+    // (avant, tao s'arrête net sur une fenêtre GDK absente).
+    #[cfg(target_os = "linux")]
+    overlay.set_ignore_cursor_events(true)?;
+    Ok(())
 }

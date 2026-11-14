@@ -1,5 +1,5 @@
 //! Intégration système : capture micro (toutes plateformes), hook clavier et
-//! insertion de texte (Windows ; les autres OS viendront plus tard).
+//! insertion de texte (Windows, Linux sous X11 ; pas encore les autres OS).
 
 pub mod audio;
 pub mod capture;
@@ -32,9 +32,40 @@ pub use windows::{
     suppress_menu_activation,
 };
 
+#[cfg(target_os = "linux")]
+mod autostart_linux;
+#[cfg(target_os = "linux")]
+pub use autostart_linux::{autostart_enabled, set_autostart};
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{
+    ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_target,
+    fullscreen_app_running, key_code, key_is_down, modifiers_down, spawn_keyboard_hook,
+    suppress_menu_activation,
+};
+#[cfg(target_os = "linux")]
+mod secrets_linux;
+#[cfg(target_os = "linux")]
+pub use secrets_linux::{
+    delete_secret, list_secrets, load_secret, protect, store_secret, unprotect,
+};
+#[cfg(target_os = "linux")]
+mod sound;
+#[cfg(target_os = "linux")]
+pub use sound::play_sound;
+// Linux : capture commentée, contrôles multimédias et applications qui
+// utilisent le micro viendront plus tard.
+#[cfg(target_os = "linux")]
+pub use unsupported::{
+    ClickRecorder, MediaPauser, exclude_from_capture, foreground_rect, microphone_apps,
+    paste_image, screenshot,
+};
+
 #[cfg(not(windows))]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod unsupported;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub use unsupported::{
     ClickRecorder, ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys,
     copy_selection, copy_text, delete_secret, exclude_from_capture, foreground_rect,
@@ -49,7 +80,8 @@ use std::time::Instant;
 /// Appui ou relâchement d'une touche physique.
 #[derive(Debug, Clone, Copy)]
 pub struct KeyEvent {
-    /// Code de touche de la plateforme (virtual-key sous Windows).
+    /// Code de touche de la plateforme (virtual-key sous Windows, code evdev
+    /// du noyau sous Linux).
     pub key: u32,
     pub down: bool,
     /// Horodatage en millisecondes, même horloge que [`now_ms`].

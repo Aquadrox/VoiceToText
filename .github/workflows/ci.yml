@@ -142,6 +142,72 @@ jobs:
             D:\t\release\bundle\nsis\*.exe.sig
           if-no-files-found: error
 
+  # Application Linux (Steam Deck en mode Bureau, PC sous X11) : AppImage,
+  # un seul fichier, rien à installer (SteamOS ne garde pas les paquets
+  # installés à la main). PR et `main` : AppImage de test ; tags : AppImage
+  # signée pour la mise à jour automatique. Pas obligatoire pour merger,
+  # mais la release l'attend.
+  appimage:
+    # La plus ancienne image disponible : une AppImage ne démarre qu'avec une
+    # glibc au moins aussi récente que celle de la compilation.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Fichiers modifiés
+        id: changes
+        shell: bash
+        run: .github/scripts/changes.sh
+      - name: Dépendances système (WebKitGTK, ALSA, outils AppImage)
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libasound2-dev patchelf libfuse2 file
+      # Vulkan récent (en-têtes et glslc) : celui d'Ubuntu 22.04 est trop
+      # ancien pour ggml-vulkan.
+      - name: SDK Vulkan (compilation de whisper.cpp pour le GPU)
+        if: steps.changes.outputs.code == 'true'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime: false
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.code == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.code == 'true'
+        with:
+          prefix-key: v1-appimage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: AppImage
+        if: steps.changes.outputs.code == 'true' && !startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@^2 build --bundles appimage --features vulkan
+      # Release : AppImage signée (même clé que l'installeur Windows). Les
+      # secrets ne sont lus qu'ici (tags), jamais dans les PR.
+      - name: AppImage signée (release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::secret TAURI_SIGNING_PRIVATE_KEY absent : impossible de signer la release"
+            exit 1
+          fi
+          npx --yes @tauri-apps/cli@^2 build --bundles appimage --features vulkan --config updater.conf.json
+      - uses: actions/upload-artifact@v7
+        if: steps.changes.outputs.code == 'true'
+        with:
+          name: VoiceToText-linux
+          # .sig : signature de l'AppImage (releases uniquement).
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/appimage/*.AppImage.sig
+          if-no-files-found: error
+
   # Application Android : moteur Rust (vtt-android) compilé pour ARM64, puis
   # APK. PR et `main` : APK de test (identifiant .test, installable à côté de
   # la version publiée) ; tags : APK de release signé avec la clé du projet.
@@ -226,7 +292,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows, android]
+    needs: [linux, windows, appimage, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -239,6 +305,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-installeur-windows
+      - uses: actions/download-artifact@v8
+        with:
+          name: VoiceToText-linux
       - uses: actions/download-artifact@v8
         with:
           name: VoiceToText-android
@@ -280,7 +349,7 @@ jobs:
           } >> notes.md
           for platform in windows android; do
             case "$platform" in
-              windows) file=latest.json label=Windows ;;
+              windows) file=latest.json label="PC (Windows, Linux)" ;;
               android) file=latest-android.json label=Android ;;
             esac
             changed=true
@@ -307,29 +376,40 @@ jobs:
           echo >> notes.md
           cat notes.md
       # Manifeste lu par l'application (releases/latest/download/latest.json) :
-      # version, URL de l'installeur et sa signature, notes de version
-      # (`changelog` ; `notes` reste l'adresse de la release).
+      # version, URL de l'installeur Windows et de l'AppImage Linux avec leur
+      # signature, notes de version (`changelog` ; `notes` reste l'adresse de
+      # la release).
       - name: Manifeste de mise à jour
         if: steps.platforms.outputs.windows == 'true'
         env:
           TAG: ${{ github.ref_name }}
         run: |
           exe=$(ls *.exe)
-          test -f "$exe.sig" || { echo "::error::signature $exe.sig absente"; exit 1; }
-          EXE="$exe" python3 - <<'PY'
+          appimage=$(ls *.AppImage)
+          for file in "$exe" "$appimage"; do
+            test -f "$file.sig" || { echo "::error::signature $file.sig absente"; exit 1; }
+          done
+          EXE="$exe" APPIMAGE_FILE="$appimage" python3 - <<'PY'
           import json, os
           from datetime import datetime, timezone
-          tag, exe = os.environ["TAG"], os.environ["EXE"]
-          entry = {
-              "signature": open(f"{exe}.sig").read().strip(),
-              "url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{exe}",
-          }
+          tag = os.environ["TAG"]
+          def entry(name):
+              return {
+                  "signature": open(f"{name}.sig").read().strip(),
+                  "url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{name}",
+              }
+          windows, linux = entry(os.environ["EXE"]), entry(os.environ["APPIMAGE_FILE"])
           manifest = {
               "version": tag.removeprefix("v"),
               "notes": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{tag}",
               "changelog": open("changelog.txt", encoding="utf-8").read().strip(),
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "platforms": {"windows-x86_64": entry, "windows-x86_64-nsis": entry},
+              "platforms": {
+                  "windows-x86_64": windows,
+                  "windows-x86_64-nsis": windows,
+                  "linux-x86_64": linux,
+                  "linux-x86_64-appimage": linux,
+              },
           }
           json.dump(manifest, open("latest.json", "w"), indent=2)
           PY
@@ -373,4 +453,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" *.exe *.exe.sig *.apk latest.json latest-android.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --generate-notes
+        run: gh release create "$TAG" *.exe *.exe.sig *.AppImage *.AppImage.sig *.apk latest.json latest-android.json --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --generate-notes

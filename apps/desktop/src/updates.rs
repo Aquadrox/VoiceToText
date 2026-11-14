@@ -264,7 +264,8 @@ async fn install(app: &AppHandle, updates: &Updates) -> Result<(), String> {
     let mut received: u64 = 0;
     let mut last_percent = None;
     // Signature vérifiée avant l'exécution de l'installeur ; sous Windows,
-    // l'installeur ferme l'application puis la relance.
+    // l'installeur ferme l'application puis la relance. Sous Linux, le
+    // fichier AppImage est remplacé sur place, puis relancé ci-dessous.
     let result = update
         .download_and_install(
             |chunk, total| {

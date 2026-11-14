@@ -209,6 +209,6 @@ fn unload_choices(current: u32) -> Vec<u32> {
 #[tauri::command]
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     vtt_platform::set_autostart(enabled)?;
-    log::info!("démarrage avec Windows : {enabled}");
+    log::info!("démarrage avec la session : {enabled}");
     Ok(())
 }

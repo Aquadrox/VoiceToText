@@ -835,9 +835,22 @@ impl Default for Style {
 
 impl Style {
     pub fn matches(&self, app: Option<&str>, title: Option<&str>) -> bool {
+        // Sans `.exe` de part et d'autre : un style écrit sous Windows
+        // (« slack.exe ») vaut aussi pour Linux (« Slack »), et inversement.
+        let stem = |name: &str| {
+            let name = name.trim();
+            match name.len().checked_sub(4) {
+                Some(at)
+                    if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe") =>
+                {
+                    name[..at].to_owned()
+                }
+                _ => name.to_owned(),
+            }
+        };
         let app_matches = app.is_some_and(|app| {
-            let app = app.rsplit(['\\', '/']).next().unwrap_or(app);
-            self.apps.iter().any(|a| a.trim().eq_ignore_ascii_case(app))
+            let app = stem(app.rsplit(['\\', '/']).next().unwrap_or(app));
+            self.apps.iter().any(|a| stem(a).eq_ignore_ascii_case(&app))
         });
         let title_matches = title.is_some_and(|title| {
             let title = title.to_lowercase();
@@ -1277,6 +1290,15 @@ mod tests {
         assert!(!style.matches(None, None));
         // Un titre vide dans la liste ne correspond pas à tout.
         assert!(!style.matches(None, Some("n'importe quoi")));
+        // Linux : classe de fenêtre sans `.exe`, dans un sens comme dans l'autre.
+        assert!(style.matches(Some("Slack"), None));
+        assert!(!style.matches(Some("Slackware"), None));
+        let linux = Style {
+            apps: vec!["firefox".into()],
+            ..Style::default()
+        };
+        assert!(linux.matches(Some("Firefox.EXE"), None));
+        assert!(!linux.matches(Some(".exe"), None));
     }
 
     #[test]

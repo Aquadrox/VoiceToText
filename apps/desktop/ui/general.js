@@ -89,7 +89,7 @@ function fillGeneral(view) {
   if (configured && !view.microphones.includes(configured)) {
     microphones.unshift(option(configured, `${configured} (introuvable : micro par défaut utilisé)`));
   }
-  $("audio-device").replaceChildren(option("", "Micro par défaut de Windows"), ...microphones);
+  $("audio-device").replaceChildren(option("", "Micro par défaut du système"), ...microphones);
   $("audio-device").value = configured;
 
   // Un groupe par moteur ; un modèle placé à la main reste proposé.
@@ -304,8 +304,8 @@ $("autostart").addEventListener("change", async () => {
   try {
     await invoke("set_autostart", { enabled: checkbox.checked });
     $("autostart-status").textContent = checkbox.checked
-      ? "✓ VoiceToText démarrera avec Windows."
-      : "VoiceToText ne démarrera plus avec Windows.";
+      ? "✓ VoiceToText démarrera avec la session."
+      : "VoiceToText ne démarrera plus avec la session.";
   } catch (e) {
     checkbox.checked = !checkbox.checked;
     $("autostart-status").textContent = String(e);

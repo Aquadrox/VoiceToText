@@ -38,3 +38,10 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 [target.'cfg(windows)'.dependencies]
 vtt-asr = { path = "../../crates/vtt-asr", features = ["vulkan"] }
+
+[features]
+# Whisper sur la carte graphique (Vulkan) sous Linux : activé pour l'AppImage
+# publiée (pilote AMD du Steam Deck, Mesa, NVIDIA), pas pour les
+# vérifications de la CI, plus rapides sans compiler ggml-vulkan. Toujours
+# actif sous Windows.
+vulkan = ["vtt-asr/vulkan"]

@@ -377,6 +377,37 @@ Quelqu'un se présente pendant la réunion (« Bonjour, je m'appelle Marie ») :
 - Limites : seulement quand l'intervenant se présente lui-même (pas « je laisse la parole à Paul », ni « merci Marie ») ; pas en direct (les intervenants sont distingués à la fin) ; un nom mal transcrit est repris tel quel ; réunions enregistrées avant : changer le nombre d'intervenants pour relancer la recherche
 - À vérifier : vraies réunions en français (tour de table), rendu Windows du bloc Intervenants, fenêtre Android
 
+## v0.32 — Linux et Steam Deck (mode Bureau) ✅
+
+Première version Linux de l'application PC, pensée pour le Steam Deck en mode Bureau (KDE Plasma, session X11) et valable pour tout PC Linux sous X11. Une seule AppImage, rien à installer : SteamOS efface à chaque mise à jour les paquets ajoutés au système.
+
+- ✅ `vtt-platform` pour Linux (session X11), sans bibliothèque système en plus (x11rb, zbus : Rust pur) :
+  - touches globales par XInput2 (événements « bruts », reçus quelle que soit la fenêtre, sans droit particulier) ; codes de touche du noyau (evdev) ; nos frappes simulées (périphérique XTEST) ignorées, celles de Steam Input (manette changée en clavier) gardées
+  - Ctrl+V / Ctrl+C / Ctrl+Z simulés par XTest, avec la touche qui produit la lettre dans la disposition active (AZERTY, QWERTZ…)
+  - presse-papier (arboard) gardé ouvert : sous X11, c'est le programme qui a copié qui fournit le contenu ; ancien contenu remis après le collage
+  - Command Mode : sélection copiée, attente du changement de propriétaire du presse-papier (XFixes, équivalent du numéro de séquence de Windows) ; sans sélection, rien ne change
+  - fenêtre active : classe de fenêtre (`WM_CLASS`, fiable aussi pour les applications Flatpak du Deck) ou exécutable, titre ; plein écran (`_NET_WM_STATE_FULLSCREEN`) pour libérer la mémoire graphique
+  - clés API dans le trousseau de la session (Secret Service : KWallet, GNOME Keyring), une par fournisseur ; liste sans déverrouiller ni lire les clés
+  - chiffrement des réunions et des empreintes vocales (remplace DPAPI) : ChaCha20-Poly1305, clé aléatoire gardée dans le trousseau
+  - sons de dictée sur la sortie par défaut (cpal), flux fermé dès la fin du son
+  - démarrage avec la session : `~/.config/autostart/voicetotext.desktop`, qui lance le fichier AppImage lui-même
+- ✅ Styles par application : `slack.exe` vaut aussi pour `Slack` (le `.exe` est ignoré des deux côtés)
+- ✅ Whisper sur la carte graphique par Vulkan (AMD du Deck, Mesa, NVIDIA) dans l'AppImage (`--features vulkan`)
+- ✅ Corrigé : la pastille plantait au démarrage sous GTK (clics traversants demandés avant l'affichage)
+- ✅ Textes de l'interface sans « Windows » codé en dur (trousseau, micro par défaut, démarrage avec la session)
+- ✅ CI : job `appimage` (Ubuntu 22.04 pour une glibc ancienne, SDK Vulkan) ; AppImage de test sur les PR, signée sur les tags ; `latest.json` annonce aussi `linux-x86_64` : mise à jour automatique sur Linux, avec la même signature
+- ✅ Vérifié sur le serveur (Xvfb, openbox, PulseAudio, GNOME Keyring) : dictée complète touche → micro → Vosk → texte collé dans une fenêtre ; collage avec accents et presse-papier remis ; Command Mode avec et sans sélection ; touches enfoncées ; clés API (enregistrer, remplacer, lister, supprimer) ; chiffrement ; démarrage avec la session ; application lancée jusqu'à « prêt »
+- ⬜ À valider sur le Steam Deck : AppImage, icône dans la zone de notification de KDE, pastille, gâchette arrière (Steam Input → F13), KWallet, vitesse de Whisper Vulkan, mise à jour automatique
+- Pas encore sous Linux : session Wayland (le raccourci n'est vu que dans les applications X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
+
+## v0.33 — Linux : confort ⬜
+
+- ⬜ Pause de la musique et des vidéos pendant la dictée (MPRIS, D-Bus)
+- ⬜ Capture commentée : capture d'écran, clics, collage d'image (X11)
+- ⬜ Détection des appels : programmes qui utilisent le micro (PipeWire / PulseAudio)
+- ⬜ Steam Deck : conseils dans l'application (choisir F13, configurer une gâchette arrière dans Steam Input)
+- ⬜ Session Wayland : raccourci par le portail « raccourcis globaux » de KDE, collage par le portail « bureau à distance » ou `uinput`
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
@@ -395,5 +426,6 @@ Accélérer la CI sans baisser la garde :
 ## Plus tard
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, Linux, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain), à étudier une fois le mode Bureau éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).

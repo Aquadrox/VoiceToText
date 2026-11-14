@@ -8,6 +8,14 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.32.0 — 2026-11-14
+
+- [PC] VoiceToText fonctionne sous Linux, Steam Deck compris (mode Bureau) : un seul fichier AppImage à télécharger depuis la page des versions, à rendre exécutable puis à lancer, sans rien installer. Il faut une session X11.
+- [PC] Steam Deck : une gâchette arrière peut servir de touche de dictée. Dans Steam, associez-la à la touche F13, puis choisissez F13 dans Réglages → Raccourcis : maintenir la gâchette dicte, la relâcher colle le texte.
+- [PC] Sous Linux, les clés API sont rangées dans le trousseau de la session (KWallet, GNOME Keyring), Whisper utilise la carte graphique, et les mises à jour s'installent comme sur Windows, signées.
+- [PC] Pas encore sous Linux : la capture commentée, la pause de la musique pendant la dictée et la détection des appels.
+- [PC] Styles par application : un style prévu pour « slack.exe » s'applique aussi à Slack sous Linux, et inversement.
+
 ## 0.31.0 — 2026-11-14
 
 - Réunions : un intervenant qui se présente est nommé tout seul. « Bonjour, je m'appelle Marie », « Moi c'est Paul », « Karim à l'appareil » : « Intervenant 2 » devient Marie dans la transcription, la copie, l'export et le compte rendu. Il faut avoir activé « Distinguer les intervenants » ; les noms apparaissent à la fin de l'enregistrement, avec les intervenants.

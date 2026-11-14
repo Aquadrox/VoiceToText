@@ -590,8 +590,9 @@
                     <button id="delete" type="button" class="danger">Supprimer la clé</button>
                   </div>
                   <p class="hint">
-                    Une clé par adresse, enregistrée tout de suite dans le Gestionnaire d'identifiants
-                    Windows : jamais en clair sur le disque, jamais envoyée en HTTP hors de ce PC.
+                    Une clé par adresse, enregistrée tout de suite dans le trousseau du système
+                    (Gestionnaire d'identifiants Windows ; KWallet ou GNOME Keyring sous Linux) :
+                    jamais en clair sur le disque, jamais envoyée en HTTP hors de ce PC.
                     « Tester ces réglages » utilise la clé saisie ici si elle est remplie.
                   </p>
                   <div id="result" class="result" hidden></div>
@@ -657,7 +658,7 @@
                 <div class="group">
                   <h3>Clés enregistrées</h3>
                   <p class="hint">
-                    Une clé par fournisseur, dans le Gestionnaire d'identifiants Windows. Elles ne sont
+                    Une clé par fournisseur, dans le trousseau du système. Elles ne sont
                     jamais affichées, ni en entier ni en partie : seulement le fournisseur.
                   </p>
                   <ul id="api-keys" class="api-keys"></ul>
@@ -730,7 +731,7 @@
                   </label>
                   <label class="choice">
                     <input type="radio" name="meeting-audio" value="temporaire" />
-                    <span><strong>Fichier temporaire chiffré (recommandé)</strong><small>Chiffré par Windows pendant la réunion (reprise après une coupure), supprimé une fois la transcription terminée.</small></span>
+                    <span><strong>Fichier temporaire chiffré (recommandé)</strong><small>Chiffré pour votre session pendant la réunion (reprise après une coupure), supprimé une fois la transcription terminée.</small></span>
                   </label>
                   <label class="choice">
                     <input type="radio" name="meeting-audio" value="conserve" />
@@ -851,7 +852,7 @@
                   <h3>Démarrage</h3>
                   <label class="option">
                     <input id="autostart" type="checkbox" />
-                    <span><strong>Lancer VoiceToText à l'ouverture de session Windows</strong><small>Discret, dans la zone de notification. Appliqué immédiatement.</small></span>
+                    <span><strong>Lancer VoiceToText à l'ouverture de session</strong><small>Discret, dans la zone de notification. Appliqué immédiatement.</small></span>
                   </label>
                   <p id="autostart-status" class="hint"></p>
                 </div>
