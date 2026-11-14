@@ -104,7 +104,7 @@ Toucher une ligne ouvre la réunion ; balayer ou appui long → supprimer (confi
 
 - Le rappel de consentement s'efface après une minute.
 - L'écran peut s'éteindre : l'enregistrement continue (service au premier plan), la notification affiche `Réunion · 12:34 [Arrêter]`.
-- Les dernières phrases défilent seules ; la transcription complète est dans le détail.
+- (Remplacé par les maquettes : transcription à la fin, donc pas de texte pendant l’enregistrement ; bouton « Marquer un moment ».)
 - Pendant l'enregistrement, le clavier et la bulle affichent « Réunion en cours » au lieu de dicter (le micro est déjà pris).
 
 ### 3. Réunion : compte rendu
@@ -174,7 +174,7 @@ Une réplique par bloc, nom en couleur (couleurs du PC). Toucher un nom → le r
 
 ## Contraintes propres au téléphone
 
-- **Batterie et chaleur** : transcription et analyse des voix au fil de l'eau. Retenu : transcription à la fin (voir les décisions), le téléphone ne fait qu'enregistrer pendant la réunion. Avec Parakeet sur le Xiaomi 17T Pro, une heure devrait se transcrire en quelques minutes (à mesurer).
+- **Batterie et chaleur** : retenu, transcription à la fin (voir les décisions), le téléphone ne fait qu'enregistrer pendant la réunion. Avec Parakeet sur le Xiaomi 17T Pro, une heure devrait se transcrire en quelques minutes (à mesurer).
 - **Téléphone qui tue l'appli** (vu en v0.26.1 sur HyperOS) : un service au premier plan avec notification est beaucoup mieux protégé que la bulle. Avec l'audio « temporaire », reprise après une coupure comme sur le PC ; avec « en mémoire seulement », l'enregistrement est perdu (à dire clairement dans le réglage).
 - **Mémoire** : un seul modèle de transcription chargé (règle de v0.18) ; les modèles de diarisation (32 Mo) s'y ajoutent pendant la réunion seulement.
 - **Démarrage** : Android interdit de lancer un enregistrement micro depuis l'arrière-plan ; il part toujours d'un geste de l'utilisateur (écran Réunions, raccourci de l'icône, notification). Pas de détection d'appel ni d'enregistrement automatique : de toute façon impossible ici (voir plus haut).
