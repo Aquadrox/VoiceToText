@@ -5851,7 +5851,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voicetotext"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "dirs 6.0.0",
  "flate2",
@@ -5902,7 +5902,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-android"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "android_logger",
  "jni 0.21.1",
@@ -5919,7 +5919,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-asr"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "hound",
  "libloading 0.8.9",
@@ -5932,7 +5932,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-core"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "log",
  "serde",
@@ -5943,7 +5943,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-llm"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "base64 0.22.1",
  "log",
@@ -5955,7 +5955,7 @@ dependencies = [
 
 [[package]]
 name = "vtt-platform"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "arboard",
  "cpal",

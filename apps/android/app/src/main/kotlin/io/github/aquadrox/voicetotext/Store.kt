@@ -150,6 +150,11 @@ class Store(private val context: Context) {
 
     fun hasKey(host: String): Boolean = prefs.contains("key:$host")
 
+    /** Fournisseurs (hôtes) ayant une clé : seuls les noms sont lus, jamais déchiffrés. */
+    fun keyHosts(): List<String> =
+        prefs.all.keys.filter { it.startsWith(KEY_PREFIX) }.map { it.removePrefix(KEY_PREFIX) }
+            .filter { it.isNotEmpty() }.sorted()
+
     fun key(host: String): String? {
         val stored = prefs.getString("key:$host", null) ?: return null
         return runCatching {
@@ -195,5 +200,6 @@ class Store(private val context: Context) {
         const val ALIAS = "voicetotext-api-keys"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_SIZE = 12
+        const val KEY_PREFIX = "key:"
     }
 }

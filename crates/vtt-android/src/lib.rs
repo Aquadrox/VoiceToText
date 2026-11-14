@@ -10,6 +10,7 @@
 pub mod engine;
 pub mod meetings;
 pub mod models;
+pub mod providers;
 pub mod settings;
 
 use std::path::PathBuf;
@@ -92,6 +93,58 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_settings<'a>(
                 serde_json::from_str::<serde_json::Value>(&v).map_err(|e| e.to_string())
             }))
         });
+    java(&mut env, &json)
+}
+
+/// Clé à enregistrer pour l'adresse saisie (hôte, préréglage reconnu…).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_keyTarget<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    base_url: JString<'a>,
+) -> jstring {
+    let base_url = text(&mut env, &base_url);
+    let json = protect(|| reply(Ok(providers::key_target(&base_url))));
+    java(&mut env, &json)
+}
+
+/// Teste des réglages LLM saisis (bloquant, réseau) : diagnostic JSON.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_testLlm<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+    request: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let request = text(&mut env, &request);
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<providers::TestRequest>(&request)
+                .map_err(|e| e.to_string())
+                .and_then(|r| providers::test(&toml, &r)),
+        )
+    });
+    java(&mut env, &json)
+}
+
+/// Clés enregistrées (`hosts` : tableau JSON des hôtes) et leur usage.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_apiKeys<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+    hosts: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let hosts = text(&mut env, &hosts);
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<Vec<String>>(&hosts)
+                .map_err(|e| e.to_string())
+                .and_then(|h| providers::keys(&toml, &h)),
+        )
+    });
     java(&mut env, &json)
 }
 
