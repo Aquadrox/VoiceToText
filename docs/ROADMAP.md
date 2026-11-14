@@ -333,6 +333,18 @@ Le mode Réunions du PC sur le téléphone, adapté au petit écran (étude et m
 - À vérifier aussi : intervenants avec de vraies voix autour d'une table (seuil réglé sur des appels et des réunions au micro-casque), durée de l'analyse d'une heure
 - ⬜ Plus tard, comme sur PC : recherche dans toutes les réunions, questions au LLM sur les enregistrements
 
+## v0.29 — Android : clés API par fournisseur ✅
+
+La gestion des clés du PC (v0.3, v0.6, v0.10) sur le téléphone :
+
+- ✅ Une clé par fournisseur, rangée par hôte de l'adresse (déjà le cas en interne) et chiffrée par le Keystore Android ; la clé d'un fournisseur n'est jamais envoyée à un autre
+- ✅ Carte « Clés API » : fournisseurs ayant une clé (seuls les noms sont lus, jamais déchiffrés), usage (« réglage actif », profils importés du PC, « inutilisée ») ; **Remplacer** (champ masqué, jamais prérempli) et **Supprimer** en deux appuis
+- ✅ Menu « Fournisseur » (préréglages du PC : DeepSeek, GLM, OpenAI, Mistral, OpenRouter, Ollama du réseau local, Autre) qui remplit adresse et modèle ; le menu suit l'adresse saisie ; état de la clé pour l'adresse en cours de saisie (enregistrée, absente, facultative en local, jamais envoyée en http://)
+- ✅ Changement de fournisseur : délai, tarif et `extra_body` suivent le préréglage (plus de `thinking` de DeepSeek envoyé à OpenAI) ; même fournisseur : réglages du PC gardés
+- ✅ Moteur : `vtt-android::providers` (préréglages, `keyTarget`, `apiKeys`), 4 tests + 1 complété
+- ✅ Vérifié sur le serveur : tests Rust, les deux éditions compilent, captures Robolectric en clair et en sombre, comportement du menu et de l'adresse testé (tests temporaires)
+- À vérifier sur le téléphone : enregistrer une clé, passer à un autre fournisseur et revenir, dictée nettoyée avec chacun
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

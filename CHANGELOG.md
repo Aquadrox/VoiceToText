@@ -8,6 +8,13 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.29.0 — 2026-11-14
+
+- [Android] Clés API par fournisseur, comme sur PC : une clé par fournisseur (DeepSeek, GLM, OpenAI, Mistral, OpenRouter…). Changer de fournisseur ne fait plus perdre la clé du précédent, et la clé d'un fournisseur n'est jamais envoyée à un autre.
+- [Android] Nouvelle carte « Clés API » : la liste des clés enregistrées, avec le fournisseur qui les utilise ; « Remplacer » ou « Supprimer » (après confirmation). Les clés ne sont jamais affichées, ni en entier ni en partie.
+- [Android] Nettoyage du texte : menu « Fournisseur » qui remplit l'adresse et le modèle, avec une aide pour chaque fournisseur ; il suit aussi l'adresse saisie à la main. Sous le champ de la clé, on voit tout de suite si une clé est déjà enregistrée pour cette adresse.
+- [Android] En changeant de fournisseur, les réglages propres à l'ancien (délai, tarif, paramètre « réflexion » de DeepSeek et GLM) ne sont plus envoyés au nouveau.
+
 ## 0.28.0 — 2026-11-14
 
 - [Android] Réunions : enregistrez une réunion, un cours ou une conférence avec le téléphone posé sur la table, puis obtenez la transcription et un compte rendu par le LLM choisi. Carte « Réunions » sur l'accueil, ou appui long sur l'icône → « Enregistrer une réunion ».

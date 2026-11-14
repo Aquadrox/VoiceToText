@@ -15,7 +15,9 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.graphics.Typeface
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.View
 import android.view.inputmethod.InputMethodManager
@@ -25,10 +27,12 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
@@ -59,10 +63,15 @@ class MainActivity : Activity() {
     private lateinit var download: Button
     private lateinit var progress: ProgressBar
     private lateinit var llmEnabled: Switch
+    private lateinit var provider: Spinner
+    private lateinit var providerNote: TextView
     private lateinit var baseUrl: EditText
     private lateinit var llmModel: EditText
     private lateinit var apiKey: EditText
     private lateinit var keyStatus: TextView
+    private lateinit var keysList: LinearLayout
+    private lateinit var keysEmpty: TextView
+    private lateinit var keysMessage: TextView
     private lateinit var voiceCommands: Switch
     private lateinit var language: Spinner
     private lateinit var history: Switch
@@ -92,8 +101,17 @@ class MainActivity : Activity() {
     private var askedInstallPermission = false
     private var pendingInstall = false
 
-    /** Hôte de l'API affiché (la clé est rangée par hôte). */
-    private var host = ""
+    /** Préréglages des fournisseurs (moteur Rust), dans l'ordre du menu. */
+    private var providers = emptyList<JSONObject>()
+
+    /** Adresse changée par le code : pas de réaction en retour. */
+    private var syncing = false
+
+    /**
+     * Position du menu posée par le code. Android signale la sélection plus
+     * tard (au prochain affichage) : elle est reconnue ici et ignorée.
+     */
+    private var shownProvider = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -232,18 +250,27 @@ class MainActivity : Activity() {
 
         card("Nettoyage du texte (LLM)", R.drawable.ic_spell_check_2).apply {
             llmEnabled = option("Nettoyer et ponctuer avec un LLM")
+            text("Fournisseur", 15f).setPadding(0, dp(8), 0, 0)
+            provider = Spinner(this@MainActivity).also { addView(it) }
+            providerNote = note("")
             baseUrl = field("Adresse de l'API (ex. https://api.deepseek.com)")
             llmModel = field("Modèle (ex. deepseek-flash)")
-            apiKey = field("Nouvelle clé API (jamais affichée)").apply {
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                // Android passe les champs de mot de passe en police à chasse fixe.
-                typeface = Typeface.DEFAULT
-            }
+            apiKey = keyField("Clé API (jamais affichée)")
             keyStatus = note("")
-            secondary("Supprimer la clé") {
-                if (host.isNotEmpty()) store.deleteKey(host)
-                refresh()
-                say("Clé supprimée.")
+            baseUrl.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    if (!syncing) refreshKeyTarget(selectProvider = true)
+                }
+            })
+            provider.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (position == shownProvider) return
+                    shownProvider = position
+                    chooseProvider(position)
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
             divider()
             promptsStatus = note("")
@@ -252,6 +279,14 @@ class MainActivity : Activity() {
             }
             divider()
             voiceCommands = option("Commandes vocales (« nouvelle ligne », « annule la dernière dictée »)")
+        }
+
+        card("Clés API", R.drawable.ic_lock).apply {
+            note("Une clé par fournisseur, chiffrée par le Keystore Android : changer de fournisseur ne fait pas perdre la clé du précédent, et la clé d'un fournisseur n'est jamais envoyée à un autre. Les clés ne sont jamais affichées, ni en entier ni en partie.")
+            keysList = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            addView(keysList)
+            keysEmpty = note("Aucune clé enregistrée. Saisissez-la dans « Nettoyage du texte », sous l'adresse du fournisseur.")
+            keysMessage = notice()
         }
 
         card("Traduction", R.drawable.ic_languages).apply {
@@ -390,11 +425,17 @@ class MainActivity : Activity() {
         }
         val llm = view.getJSONObject("llm")
         llmEnabled.isChecked = llm.getBoolean("enabled")
+        val list = view.getJSONArray("providers")
+        providers = List(list.length()) { list.getJSONObject(it) }
+        syncing = true
+        provider.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, providers.map { it.getString("label") })
+        shownProvider = -1
         baseUrl.setText(llm.getString("base_url"))
         llmModel.setText(llm.getString("model"))
-        host = llm.getString("host")
+        syncing = false
         apiKey.setText("")
-        keyStatus.text = if (store.hasKey(host)) "✓ Clé enregistrée pour $host" else "Aucune clé pour $host"
+        refreshKeyTarget(selectProvider = true)
+        refreshKeys()
         voiceCommands.isChecked = view.getBoolean("voice_commands")
         history.isChecked = view.getBoolean("history")
         vocabularyStatus.text = "${view.getInt("dictionary")} mot(s), ${view.getInt("snippets")} snippet(s)"
@@ -407,9 +448,9 @@ class MainActivity : Activity() {
         language.setSelection(languages.indexOf(view.getString("translation")))
 
         models.removeAllViews()
-        val list = view.getJSONArray("models")
-        for (i in 0 until list.length()) {
-            val model = list.getJSONObject(i)
+        val modelList = view.getJSONArray("models")
+        for (i in 0 until modelList.length()) {
+            val model = modelList.getJSONObject(i)
             val downloaded = if (model.getBoolean("downloaded")) " · téléchargé" else ""
             models.addView(RadioButton(this).apply {
                 id = View.generateViewId()
@@ -421,7 +462,7 @@ class MainActivity : Activity() {
                 isChecked = model.getString("id") == view.getString("model")
             })
         }
-        val chosen = (0 until list.length()).map { list.getJSONObject(it) }
+        val chosen = (0 until modelList.length()).map { modelList.getJSONObject(it) }
             .firstOrNull { it.getString("id") == view.getString("model") }
         val ready = chosen?.getBoolean("downloaded") == true
         // Nom court (« Parakeet TDT v3, 8 bits ») : la description est dans la carte Modèle.
@@ -436,6 +477,143 @@ class MainActivity : Activity() {
         )
         refreshStatus()
         refreshMeetings()
+    }
+
+    /** Champ de clé : masqué, jamais prérempli, sans suggestions du clavier. */
+    private fun LinearLayout.keyField(hint: String): EditText = field(hint).apply {
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        // Android passe les champs de mot de passe en police à chasse fixe.
+        typeface = Typeface.DEFAULT
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+    }
+
+    /** Préréglage choisi dans le menu : il remplit l'adresse et le modèle. */
+    private fun chooseProvider(position: Int) {
+        val chosen = providers.getOrNull(position) ?: return
+        val current = JSONObject(Native.keyTarget(baseUrl.text.toString())).optJSONObject("ok")
+        providerNote.text = chosen.optString("note")
+        if (current?.optString("provider") == chosen.getString("id")) return
+        syncing = true
+        baseUrl.setText(chosen.optString("base_url"))
+        baseUrl.hint = chosen.optString("hint").ifEmpty { "Adresse de l'API" }
+        llmModel.setText(chosen.optString("model"))
+        llmModel.hint = if (chosen.optString("model").isEmpty()) "Nom exact du modèle" else "Modèle"
+        syncing = false
+        refreshKeyTarget(selectProvider = false)
+        if (chosen.optString("base_url").isEmpty()) baseUrl.requestFocus()
+    }
+
+    /**
+     * État de la clé pour l'adresse saisie (rangée par hôte, comme sur PC) ;
+     * `selectProvider` : menu calé sur le fournisseur reconnu.
+     */
+    private fun refreshKeyTarget(selectProvider: Boolean) {
+        val target = JSONObject(Native.keyTarget(baseUrl.text.toString())).optJSONObject("ok") ?: return
+        val host = target.getString("host")
+        if (selectProvider) {
+            var index = providers.indexOfFirst { it.getString("id") == target.getString("provider") }
+            // Adresse d'Ollama en cours de saisie (http://192.168…) : le choix reste.
+            val current = providers.getOrNull(shownProvider)
+            val typing = !baseUrl.text.trim().startsWith("https://")
+            if (target.getString("provider") == "custom" && current?.optString("id") == "ollama" && typing) {
+                index = shownProvider
+            }
+            if (index >= 0 && index != shownProvider) {
+                shownProvider = index
+                provider.setSelection(index, false)
+            }
+            providerNote.text = providers.getOrNull(index)?.optString("note").orEmpty()
+        }
+        apiKey.hint = if (host.isEmpty()) "Clé API (jamais affichée)" else "Clé API pour $host (jamais affichée)"
+        keyStatus.text = when {
+            host.isEmpty() -> "Saisissez l'adresse de l'API : la clé est rangée par fournisseur."
+            target.getBoolean("cleartext") -> "Adresse en http:// : une clé ne serait jamais envoyée en clair hors du téléphone."
+            store.hasKey(host) -> "✓ Clé enregistrée pour $host. Saisissez-en une autre pour la remplacer."
+            target.getBoolean("optional") -> "Serveur du réseau local : clé facultative."
+            else -> "Aucune clé pour $host : saisissez-la ci-dessus."
+        }
+    }
+
+    /** Carte « Clés API » : une ligne par fournisseur ayant une clé. */
+    private fun refreshKeys() {
+        keysList.removeAllViews()
+        val reply = JSONObject(Native.apiKeys(store.config, JSONArray(store.keyHosts()).toString()))
+        val entries = reply.optJSONArray("ok") ?: run {
+            keysMessage.say(reply.optString("error"))
+            return
+        }
+        for (i in 0 until entries.length()) keyItem(entries.getJSONObject(i))
+        keysEmpty.visibility = if (entries.length() == 0) View.VISIBLE else View.GONE
+    }
+
+    private fun keyItem(entry: JSONObject) {
+        val host = entry.getString("host")
+        val usedBy = entry.getJSONArray("used_by").let { a -> List(a.length()) { a.getString(it) } }
+        val item = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        keysList.addView(item)
+        item.divider(6)
+        val name = entry.optString("provider")
+        item.text(if (name.isEmpty()) host else "$name · $host", 15f, bold = true)
+        item.text(
+            "clé enregistrée · " + if (usedBy.isEmpty()) "inutilisée" else usedBy.joinToString(", "),
+            13f,
+            R.color.muted,
+        )
+        // Nouvelle clé : champ masqué, vide, jamais prérempli.
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        lateinit var input: EditText
+        lateinit var remove: Button
+        var confirming = false
+        val unconfirm = Runnable {
+            confirming = false
+            remove.text = "Supprimer"
+        }
+        val close = {
+            input.setText("")
+            form.visibility = View.GONE
+        }
+        item.row {
+            secondary("Remplacer") {
+                input.setText("")
+                form.visibility = if (form.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                if (form.visibility == View.VISIBLE) input.requestFocus()
+            }
+            // Suppression en deux appuis : « Supprimer » puis « Confirmer ».
+            remove = secondary("Supprimer") {
+                if (!confirming) {
+                    confirming = true
+                    remove.text = "Confirmer"
+                    main.postDelayed(unconfirm, CONFIRM_MS)
+                    return@secondary
+                }
+                main.removeCallbacks(unconfirm)
+                store.deleteKey(host)
+                keysMessage.say("Clé supprimée pour $host.")
+                refreshKeyTarget(selectProvider = false)
+                refreshKeys()
+            }.apply { setTextColor(getColor(R.color.signal)) }
+        }
+        item.addView(form)
+        input = form.keyField("Nouvelle clé pour $host")
+        form.row {
+            primary("Enregistrer") {
+                val key = input.text.toString()
+                if (key.isBlank()) {
+                    keysMessage.say("Clé vide : rien n'a changé.")
+                    return@primary
+                }
+                store.saveKey(host, key)
+                close()
+                keysMessage.say("✓ Clé remplacée pour $host.")
+                refreshKeyTarget(selectProvider = false)
+                refreshKeys()
+            }
+            secondary("Annuler") { close() }
+        }
     }
 
     /** Deux dernières réunions dans la carte de l'accueil. */
@@ -525,12 +703,23 @@ class MainActivity : Activity() {
             return false
         }
         store.config = reply.getString("ok")
-        val newHost = JSONObject(Native.settings(store.config, store.modelsDir))
-            .optJSONObject("ok")?.getJSONObject("llm")?.getString("host").orEmpty()
+        val llm = JSONObject(Native.settings(store.config, store.modelsDir))
+            .optJSONObject("ok")?.getJSONObject("llm")
+        val target = JSONObject(Native.keyTarget(llm?.optString("base_url").orEmpty())).optJSONObject("ok")
+        val newHost = target?.optString("host").orEmpty()
         val key = apiKey.text.toString()
-        if (key.isNotBlank() && newHost.isNotEmpty()) store.saveKey(newHost, key)
+        val keyNote = when {
+            key.isBlank() -> ""
+            newHost.isEmpty() -> "\nClé non enregistrée : adresse de l'API invalide."
+            target?.optBoolean("cleartext") == true ->
+                "\nClé non enregistrée : adresse en http://, elle ne serait jamais envoyée en clair hors du téléphone."
+            else -> {
+                store.saveKey(newHost, key)
+                "\n✓ Clé enregistrée pour $newHost."
+            }
+        }
         refresh()
-        say("✓ Enregistré : appliqué à la prochaine ouverture du clavier.")
+        say("✓ Enregistré : appliqué à la prochaine ouverture du clavier.$keyNote")
         return true
     }
 
@@ -695,7 +884,13 @@ class MainActivity : Activity() {
         refresh()
         val notes = ok.getJSONArray("notes")
         val extra = (0 until notes.length()).joinToString("") { "\n• ${notes.getString(it)}" }
-        say("✓ Réglages du PC importés. Saisissez la clé API ci-dessus.$extra")
+        val host = JSONObject(Native.settings(store.config, store.modelsDir))
+            .optJSONObject("ok")?.optJSONObject("llm")?.optString("host").orEmpty()
+        val key = when {
+            host.isEmpty() || store.hasKey(host) -> ""
+            else -> " Saisissez la clé API de $host dans « Nettoyage du texte » (les clés ne sont jamais exportées)."
+        }
+        say("✓ Réglages du PC importés.$key$extra")
     }
 
     @Deprecated("API Activity simple, sans AndroidX")
@@ -715,5 +910,7 @@ class MainActivity : Activity() {
     private companion object {
         const val IMPORT = 2
         const val NOTIFICATIONS = 3
+        /** Délai pour confirmer la suppression d'une clé. */
+        const val CONFIRM_MS = 4000L
     }
 }

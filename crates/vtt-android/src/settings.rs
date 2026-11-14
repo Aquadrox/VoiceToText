@@ -10,6 +10,7 @@ use vtt_core::config::{
 };
 
 use crate::models;
+use crate::providers::{self, PROVIDERS, Provider};
 
 /// Configuration du téléphone ; un modèle de PC introuvable ici est remplacé
 /// par le modèle par défaut du téléphone.
@@ -52,11 +53,15 @@ struct LlmView<'a> {
     model: &'a str,
     /// Hôte de l'API : la clé est rangée par hôte, comme sur PC.
     host: &'a str,
+    /// Préréglage reconnu dans l'adresse (`custom` sinon).
+    provider: &'static str,
 }
 
 #[derive(Serialize)]
 struct View<'a> {
     llm: LlmView<'a>,
+    /// Préréglages des fournisseurs, dans l'ordre du menu.
+    providers: &'static [Provider],
     model: &'a str,
     models: Vec<models::ModelChoice>,
     dictionary: usize,
@@ -84,7 +89,9 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
             base_url: &config.llm.base_url,
             model: &config.llm.model,
             host: config.llm.host().unwrap_or_default(),
+            provider: providers::provider_of(&config.llm.base_url).id,
         },
+        providers: PROVIDERS,
         model: &config.asr.model,
         models: models::catalog(models_dir),
         dictionary: config.dictionary.len(),
@@ -125,6 +132,9 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     llm.base_url = update.base_url.trim().to_owned();
     llm.base_url = llm.normalized_base_url();
     llm.model = update.llm_model.trim().to_owned();
+    if llm.host() != config.llm.host() {
+        providers::adopt(&mut llm);
+    }
     if llm.enabled {
         llm.validate()?;
         if llm.model.is_empty() {
@@ -318,6 +328,8 @@ mod tests {
         assert!(notes.is_empty());
         let json = view("", Path::new("/nulle-part")).unwrap();
         assert!(json.contains("\"host\":\"api.deepseek.com\""));
+        assert!(json.contains("\"provider\":\"deepseek\""));
+        assert!(json.contains("\"label\":\"Mistral\""));
     }
 
     #[test]
@@ -350,6 +362,23 @@ mod tests {
         assert_eq!(config.asr.model, "ggml-base-q8_0.bin");
         assert_eq!(config.llm.base_url, "https://api.z.ai/api/paas/v4");
         assert!(update("", &update_with("inconnu.bin", "https://api.z.ai")).is_err());
+        // Autre fournisseur : paramètres propres à DeepSeek retirés ;
+        // même fournisseur : réglages du PC gardés.
+        let toml = update(
+            "",
+            &update_with(models::DEFAULT_MODEL, "https://api.openai.com/v1"),
+        )
+        .unwrap();
+        let (config, _) = parse(&toml).unwrap();
+        assert!(config.llm.extra_body.is_empty());
+        let mut pc = Config::default();
+        pc.llm.timeout_ms = 7000;
+        let toml = update(
+            &pc.to_toml().unwrap(),
+            &update_with(models::DEFAULT_MODEL, "https://api.deepseek.com/"),
+        )
+        .unwrap();
+        assert_eq!(parse(&toml).unwrap().0.llm.timeout_ms, 7000);
         assert!(
             update(
                 "",
