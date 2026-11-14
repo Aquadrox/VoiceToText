@@ -335,5 +335,6 @@ Accélérer la CI sans baisser la garde :
 ## Plus tard
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, Linux, nettoyage local, réunions sur le téléphone. Pas de macOS (pas de Mac pour tester).
+- Anglais, Linux, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Réunions sur le téléphone : faisabilité et maquettes dans `ETUDE-REUNIONS-ANDROID.md` (micro seul : réunions en présentiel, cours, import ; Android interdit de capter le son des appels)
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).
