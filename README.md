@@ -9,27 +9,40 @@ Dictée vocale pour Windows et Linux (Steam Deck compris), inspirée de Wispr Fl
 
 ## Sommaire
 
-1. [Installation](#installation)
+1. [Démarrage rapide](#démarrage-rapide)
+2. [Installation](#installation)
    - [Sur Linux et Steam Deck](#sur-linux-et-steam-deck)
    - [Sur Android](#sur-android)
-2. [Premiers pas](#premiers-pas)
-3. [Dicter](#dicter)
-4. [Commandes vocales](#commandes-vocales)
-5. [Command Mode](#command-mode)
-6. [Coller la version brute](#coller-la-version-brute)
-7. [Réessayer une dictée](#réessayer-une-dictée)
-8. [Mode traduction](#mode-traduction)
-9. [Réunions](#réunions)
-10. [Capture commentée](#capture-commentée)
-11. [La fenêtre principale](#la-fenêtre-principale)
-12. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
-13. [Mises à jour](#mises-à-jour)
-14. [Confidentialité et sécurité](#confidentialité-et-sécurité)
-15. [Fichiers et emplacements](#fichiers-et-emplacements)
-16. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
-17. [Dépannage](#dépannage)
-18. [Développement](#développement)
-19. [Licence](#licence)
+3. [Premiers pas](#premiers-pas)
+4. [Dicter](#dicter)
+5. [Commandes vocales](#commandes-vocales)
+6. [Command Mode](#command-mode)
+7. [Coller la version brute](#coller-la-version-brute)
+8. [Réessayer une dictée](#réessayer-une-dictée)
+9. [Mode traduction](#mode-traduction)
+10. [Réunions](#réunions)
+11. [Capture commentée](#capture-commentée)
+12. [La fenêtre principale](#la-fenêtre-principale)
+13. [Nettoyage du texte (LLM)](#nettoyage-du-texte-llm)
+14. [Mises à jour](#mises-à-jour)
+15. [Confidentialité et sécurité](#confidentialité-et-sécurité)
+16. [Fichiers et emplacements](#fichiers-et-emplacements)
+17. [Configuration avancée (config.toml)](#configuration-avancée-configtoml)
+18. [Dépannage](#dépannage)
+19. [Développement](#développement)
+20. [Licence](#licence)
+
+## Démarrage rapide
+
+Pour dicter en dix secondes, sans lire la suite :
+
+1. **Installer et lancer** : `VoiceToText_x.y.z_x64-setup.exe` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) (Windows), ou l'AppImage sous Linux et sur le Steam Deck ([détails](#sur-linux-et-steam-deck)). Une icône apparaît près de l'horloge.
+2. **Modèle local** : il se télécharge tout seul au premier lancement (Whisper ; Parakeet sur le Steam Deck), la progression s'affiche dans la pastille en bas de l'écran. Pour en choisir un autre : icône → **Réglages → Micro et transcription** (Whisper avec une carte graphique, Parakeet sans, Vosk pour un vieux PC). La transcription se fait sur votre ordinateur.
+3. **Dicter** : cliquer là où le texte doit aller, **maintenir AltGr**, parler, **relâcher** : le texte est collé.
+4. **Commande** : sélectionner un texte, maintenir **AltGr + Ctrl droit**, dire la consigne (« traduis en anglais », « rends ça plus formel »), relâcher : la sélection est remplacée. Demande un LLM (étape 5).
+5. **Nettoyage par LLM (facultatif)** : icône → **Réglages → Nettoyage par LLM**, choisir un fournisseur (DeepSeek, OpenAI, Mistral…) et coller sa clé API, ou un modèle local Ollama : ponctuation, majuscules et hésitations corrigées. Sans LLM, le texte transcrit est collé tel quel.
+
+Sur le Steam Deck, sans touche AltGr : une gâchette arrière fait office de touche (voir [Sur Linux et Steam Deck](#sur-linux-et-steam-deck)). Toutes les touches se changent dans **Réglages → Raccourcis** (bouton **Détecter**).
 
 ## Installation
 
