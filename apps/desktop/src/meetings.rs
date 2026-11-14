@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_dialog::DialogExt;
@@ -35,7 +35,6 @@ use crate::raw_paste;
 use crate::settings::{self, SharedConfig};
 use crate::speakers::{self, VoiceFeed, VoicesState};
 
-const RECORD_FILE: &str = "meeting.json";
 /// L'audio capté est découpé et transcrit chaque seconde.
 const TICK: Duration = Duration::from_secs(1);
 /// Durée enregistrée dans meeting.json pendant l'enregistrement.
@@ -67,227 +66,26 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MeetingStatus {
-    Enregistrement,
-    Transcription,
-    Terminee,
-    /// L'application s'est arrêtée pendant l'enregistrement, sans audio
-    /// pour reprendre.
-    Interrompue,
-}
+pub use vtt_core::meeting::{
+    MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE,
+};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeetingSummary {
-    pub text: String,
-    pub at_ms: u64,
-    pub model: String,
-    pub cost: Option<f64>,
-    pub currency: String,
-}
-
-/// Ce qui a été enregistré.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MeetingKind {
-    /// Appel : « Moi » (micro) et « Eux » (son du PC).
-    #[default]
-    Reunion,
-    /// Conférence, cours, webinaire : micro, son du PC ou les deux.
-    Conference,
-    /// Fichier audio ou vidéo importé.
-    Fichier,
-}
-
-/// Ce que l'utilisateur veut obtenir d'une conférence ou d'un fichier.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Output {
-    #[default]
-    LesDeux,
-    Transcription,
-    /// Compte rendu seul : la transcription est effacée une fois résumée.
-    CompteRendu,
-}
-
-/// Contenu de `meeting.json`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeetingRecord {
-    pub id: String,
-    pub title: String,
-    pub started_at_ms: u64,
-    pub duration_ms: u64,
-    pub status: MeetingStatus,
-    pub audio: MeetingAudio,
-    /// Le son du PC a été capté (piste « Eux »).
-    pub system: bool,
-    pub segments: Vec<Segment>,
-    #[serde(default)]
-    pub summary: Option<MeetingSummary>,
-    #[serde(default)]
-    pub summary_error: Option<String>,
-    /// Blocs dont la transcription a échoué.
-    #[serde(default)]
-    pub failed_chunks: u32,
-    /// Remarques (son du PC non capté, audio non chiffrable…).
-    #[serde(default)]
-    pub notes: Vec<String>,
-    /// Écho écarté de la piste « Moi » (appel sur haut-parleurs).
-    #[serde(default = "enabled")]
-    pub echo_filter: bool,
-    /// Blocs du micro écartés comme écho.
-    #[serde(default)]
-    pub echo_chunks: u32,
-    #[serde(default)]
-    pub kind: MeetingKind,
-    #[serde(default)]
-    pub output: Output,
-    /// Le micro a été capté (piste « Moi »).
-    #[serde(default = "enabled")]
-    pub mic: bool,
-    /// Fichier importé (nom seulement : il n'est ni copié ni modifié).
-    #[serde(default)]
-    pub source: Option<String>,
-    /// Chemin du fichier importé, pour réécouter un passage (s'il existe
-    /// toujours).
-    #[serde(default)]
-    pub source_path: Option<String>,
-    /// Lecture du fichier importé (pourcentage), pendant l'import.
-    #[serde(default)]
-    pub progress: Option<u8>,
-    /// Piste dont les intervenants sont distingués (diarisation).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub speaker_track: Option<Track>,
-    /// Tours de parole des intervenants sur cette piste.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub speaker_turns: Vec<diarize::Turn>,
-    /// Noms donnés aux intervenants (vide : « Intervenant N »).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub speaker_names: Vec<String>,
-    /// Nombre d'intervenants imposé (`None` : déduit des voix).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub speaker_count: Option<usize>,
-    /// Intervenants en cours d'identification.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub identifying: bool,
-}
-
-fn enabled() -> bool {
-    true
-}
-
-impl MeetingRecord {
-    /// Un passage peut être réécouté : audio conservé, ou fichier importé
-    /// toujours présent.
-    fn replayable(&self, dir: &Path) -> bool {
-        match self.kind {
-            MeetingKind::Fichier => self
-                .source_path
-                .as_deref()
-                .is_some_and(|p| Path::new(p).is_file()),
-            _ => {
-                self.audio == MeetingAudio::Conserve
-                    && (dir.join(Track::Moi.file()).is_file()
-                        || dir.join(Track::Eux.file()).is_file())
-            }
+/// Audio où relire les voix après coup : la piste conservée, ou le fichier
+/// importé s'il existe toujours.
+fn voice_source(record: &MeetingRecord, dir: &Path) -> Option<VoiceSource> {
+    match record.kind {
+        MeetingKind::Fichier => record
+            .source_path
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|p| p.is_file())
+            .map(VoiceSource::File),
+        _ => {
+            let track = record.voice_track()?;
+            let path = dir.join(track.file());
+            (record.audio == MeetingAudio::Conserve && path.is_file())
+                .then_some(VoiceSource::Track(path))
         }
-    }
-
-    fn load(dir: &Path) -> Result<Self, String> {
-        let path = dir.join(RECORD_FILE);
-        let json = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        serde_json::from_str(&json).map_err(|e| format!("{}: {e}", path.display()))
-    }
-
-    fn save(&self, dir: &Path) {
-        let result = serde_json::to_string_pretty(self)
-            .map_err(|e| e.to_string())
-            .and_then(|json| {
-                let tmp = dir.join("meeting.json.tmp");
-                fs::write(&tmp, json)
-                    .and_then(|()| fs::rename(&tmp, dir.join(RECORD_FILE)))
-                    .map_err(|e| e.to_string())
-            });
-        if let Err(e) = result {
-            log::error!("enregistrement de la réunion {} : {e}", self.id);
-        }
-    }
-
-    /// Segments affichés : sans l'écho si le filtre est actif, répartis
-    /// entre les intervenants s'ils ont été distingués.
-    fn segments(&self) -> Vec<Segment> {
-        let segments = if self.echo_filter {
-            meeting::without_echo(&self.segments)
-        } else {
-            self.segments.clone()
-        };
-        match self.speaker_track {
-            Some(track) if !self.speaker_turns.is_empty() => {
-                meeting::with_speakers(&segments, track, &self.speaker_turns)
-            }
-            _ => segments,
-        }
-    }
-
-    /// Piste dont on distingue les intervenants : « Eux » pour un appel
-    /// (« Moi », c'est l'utilisateur), la source unique d'une conférence ou
-    /// d'un fichier (le son du PC si les deux sont captés).
-    fn voice_track(&self) -> Option<Track> {
-        match self.kind {
-            MeetingKind::Reunion => self.system.then_some(Track::Eux),
-            MeetingKind::Conference if self.system => Some(Track::Eux),
-            MeetingKind::Conference => self.mic.then_some(Track::Moi),
-            MeetingKind::Fichier => Some(Track::Eux),
-        }
-    }
-
-    /// Audio où relire les voix après coup : la piste conservée, ou le
-    /// fichier importé s'il existe toujours.
-    fn voice_source(&self, dir: &Path) -> Option<VoiceSource> {
-        match self.kind {
-            MeetingKind::Fichier => self
-                .source_path
-                .as_deref()
-                .map(PathBuf::from)
-                .filter(|p| p.is_file())
-                .map(VoiceSource::File),
-            _ => {
-                let track = self.voice_track()?;
-                let path = dir.join(track.file());
-                (self.audio == MeetingAudio::Conserve && path.is_file())
-                    .then_some(VoiceSource::Track(path))
-            }
-        }
-    }
-
-    /// Les empreintes vocales peuvent être enregistrées (chiffrées) : pas
-    /// pour une réunion « en mémoire seulement », qui promet de ne rien
-    /// écrire de sensible sur le disque (un fichier importé y est déjà).
-    fn keeps_voices(&self) -> bool {
-        self.kind == MeetingKind::Fichier || self.audio != MeetingAudio::Memoire
-    }
-
-    /// Tours de parole d'après l'analyse des voix (nombre imposé ou non).
-    fn set_speakers(&mut self, analysis: &diarize::Analysis) {
-        self.speaker_track = self.voice_track();
-        self.speaker_turns = analysis.turns(&speakers::options(self.speaker_count));
-        let count = self.speaker_turns.iter().map(|t| t.speaker + 1).max();
-        log::info!(
-            "{} : {} intervenant(s) distingué(s)",
-            self.id,
-            count.unwrap_or(0)
-        );
-    }
-
-    /// Fin de la transcription déjà faite, par piste (reprise).
-    fn transcribed_until(&self, track: Track) -> u64 {
-        self.segments
-            .iter()
-            .filter(|s| s.track == track)
-            .map(|s| s.end_ms)
-            .max()
-            .unwrap_or(0)
     }
 }
 
@@ -679,6 +477,8 @@ impl Meetings {
             speaker_names: Vec::new(),
             speaker_count: None,
             identifying: false,
+            marks: Vec::new(),
+            conference: None,
         };
         record.save(&dir);
         log::info!(
@@ -1034,6 +834,8 @@ impl Meetings {
             speaker_names: Vec::new(),
             speaker_count: None,
             identifying: false,
+            marks: Vec::new(),
+            conference: None,
         };
         record.save(&dir);
         let session = self.new_session(dir, record);
@@ -1277,7 +1079,7 @@ impl Meetings {
         let config = self.config();
         let cleaner = settings::summarizer(&config)
             .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
-        let transcript = meeting::transcript_text(&record.segments(), &record.speaker_names);
+        let transcript = meeting::transcript_text(&record.segments(), &record.speaker_names, true);
         let language = language
             .unwrap_or_else(|| config.meetings.summary_language.clone())
             .trim()
@@ -1291,7 +1093,7 @@ impl Meetings {
             &record.title,
             &transcript,
             Some(language.as_str()).filter(|l| !l.is_empty()),
-            record.kind != MeetingKind::Reunion,
+            record.conference_summary(),
         ) {
             Ok(cleaned) => {
                 let pricing = &config.llm.pricing;
@@ -1613,7 +1415,7 @@ pub fn meeting_detail(
             && record.status == MeetingStatus::Terminee
             && record.speaker_turns.is_empty()
             && voices.installed()
-            && (voices_kept || record.voice_source(&dir).is_some()),
+            && (voices_kept || voice_source(&record, &dir).is_some()),
         voices_kept,
         busy,
         replay: record.replayable(&dir),
@@ -1932,8 +1734,7 @@ impl Meetings {
         if let Ok(analysis) = speakers::load_analysis(&dir) {
             return self.update(id, |r| r.set_speakers(&analysis));
         }
-        let source = record
-            .voice_source(&dir)
+        let source = voice_source(&record, &dir)
             .ok_or("audio non conservé : impossible de distinguer les intervenants après coup")?;
         let voices = self.app.state::<VoicesState>();
         let feed = voices.feed().ok_or(
@@ -2099,7 +1900,7 @@ pub fn copy_meeting(
     let (record, _) = meetings.load(&id)?;
     let text = match part.as_str() {
         "summary" => record.summary.map(|s| s.text).unwrap_or_default(),
-        "transcript" => meeting::transcript_text(&record.segments(), &record.speaker_names),
+        "transcript" => meeting::transcript_text(&record.segments(), &record.speaker_names, true),
         _ => markdown(&record),
     };
     vtt_platform::copy_text(&text)
@@ -2124,6 +1925,7 @@ fn markdown(record: &MeetingRecord) -> String {
         record.summary.as_ref().map(|s| s.text.as_str()),
         &record.segments(),
         &record.speaker_names,
+        true,
     )
 }
 
@@ -2275,6 +2077,8 @@ mod tests {
             speaker_names: Vec::new(),
             speaker_count: None,
             identifying: false,
+            marks: Vec::new(),
+            conference: None,
         }
     }
 
@@ -2312,24 +2116,6 @@ mod tests {
         let read: MeetingRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(read.speaker_turns, record.speaker_turns);
         assert_eq!(read.speaker_names, ["Paul"]);
-    }
-
-    #[test]
-    fn voices_come_from_the_other_side_or_the_only_source() {
-        let mut record = record();
-        assert_eq!(record.voice_track(), Some(Track::Eux));
-        record.system = false;
-        assert_eq!(record.voice_track(), None, "appel sans le son du PC");
-        record.kind = MeetingKind::Conference;
-        assert_eq!(
-            record.voice_track(),
-            Some(Track::Moi),
-            "conférence au micro"
-        );
-        record.system = true;
-        assert_eq!(record.voice_track(), Some(Track::Eux));
-        record.kind = MeetingKind::Fichier;
-        assert_eq!(record.voice_track(), Some(Track::Eux));
     }
 
     #[test]

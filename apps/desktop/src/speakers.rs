@@ -38,14 +38,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Réglages de la diarisation pour un nombre d'intervenants imposé ou non.
-pub fn options(speakers: Option<usize>) -> Options {
-    Options {
-        speakers,
-        ..Options::default()
-    }
-}
-
 /// État du téléchargement des modèles.
 #[derive(Debug, Clone, Default, Serialize)]
 struct Download {
@@ -424,7 +416,7 @@ mod tests {
             at = end;
         }
         let analysis = feed.finish().unwrap();
-        let turns = analysis.turns(&options(None));
+        let turns = analysis.turns(&Options::default());
         let speakers = turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0);
         eprintln!("{speakers} intervenant(s), {} tours", turns.len());
         assert!(speakers >= 2, "{turns:?}");

@@ -239,6 +239,20 @@ Page **Réunions** → **Conférence ou fichier audio / vidéo…** :
 
 Autres réglages : capter ou non le son du PC, écarter l'écho, distinguer les intervenants, détection d'appel et choix par service, compte rendu automatique ou à la demande et sa langue, durée de conservation des réunions (7, 30, 90, 365 jours ou toujours).
 
+### Réunions sur Android
+
+Carte **Réunions** de l'accueil, ou appui long sur l'icône de l'application → **Enregistrer une réunion**.
+
+- **Enregistrer** : posez le téléphone sur la table (réunion en présentiel, cours, conférence). Avant de commencer : un titre (facultatif), le **type de compte rendu** (réunion : décisions, actions ; cours ou conférence : plan, idées clés), l'**audio** et le compte rendu à la fin. Un grand chrono, lisible de loin, et le niveau du micro s'affichent ; **Marquer un moment** pose un repère dans la transcription (aussi depuis la notification). L'écran peut s'éteindre : l'enregistrement continue, et s'arrête par **Arrêter**, sur l'écran ou dans la notification. Prévenez les participants.
+- **Importer** : un mémo vocal, une note vocale WhatsApp, l'enregistrement d'un appel fait par le téléphone, un cours, une vidéo… (MP3, M4A, Opus, OGG, AMR, WAV, FLAC, MP4…, tout ce que les décodeurs d'Android lisent). Aussi depuis une autre application : **Partager → VoiceToText**.
+- **À la fin** : transcription sur le téléphone, avec le modèle de la dictée, puis compte rendu par le LLM choisi. Pendant ce temps, vous pouvez quitter l'application (une notification prévient quand c'est prêt) et continuer à dicter : la transcription s'interrompt le temps de chaque dictée. Si le téléphone arrête l'application, la transcription reprend à la prochaine ouverture de la page Réunions.
+- **Intervenants** : avec **Distinguer les intervenants** (dans la feuille « Nouvelle réunion »), les voix sont séparées à la fin, sur le téléphone : « Intervenant 1, 2… ». La première fois, deux petits modèles (33 Mo) se téléchargent. Dans la transcription, touchez un intervenant pour les **nommer** (temps de parole, première phrase et ▶ pour écouter sa voix) ou imposer leur **nombre** ; le nom est repris partout et dans le prochain compte rendu (**⋯ → Refaire le compte rendu**). Pour une réunion faite sans, **⋯ → Distinguer les intervenants** (audio gardé).
+- **Une réunion** : onglets **Compte rendu** et **Transcription** (toucher une phrase pour la copier, ▶ pour la réécouter si l'audio est gardé, moments marqués), **Partager** (mail, messagerie, Drive…) et **Copier** ; menu **⋯** : renommer, intervenants, changer de type de compte rendu, refaire le compte rendu, partager le tout en Markdown, supprimer.
+
+Audio, au choix à chaque réunion : **gardé sur le téléphone** (par défaut ; stockage privé de l'application, chiffré par Android ; réécoute, reprise après une coupure), **effacé après la transcription**, ou **en mémoire seulement** (rien sur le stockage, perdu si le téléphone ferme l'application). Pendant un enregistrement, le micro est pris : le clavier et la bulle ne dictent pas.
+
+Limites : seul le micro du téléphone est enregistré. Android ne laisse aucune application capter le son d'un appel passé sur le téléphone (Teams, WhatsApp, appel classique) : pour un appel, utilisez le PC, ou importez l'enregistrement que fait le téléphone lui-même (HyperOS, Samsung…).
+
 ## Capture commentée
 
 Montrer plutôt qu'écrire : expliquer un bug, une idée ou une consigne en parlant et en dessinant sur l'écran, puis coller le résultat (Slack, Jira, mail, ChatGPT, Claude…).
@@ -433,6 +447,7 @@ Les versions antérieures à la 0.21 ne savent pas se mettre à jour : installer
 | Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
 | Réunions | Transcription et compte rendu dans `meetings\` sur le PC (en clair, comme l'historique) ; audio en mémoire, ou chiffré par Windows (DPAPI) et supprimé ou conservé selon le réglage ; jamais d'audio en clair sur le disque (sauf export WAV demandé) |
 | Compte rendu de réunion | La transcription est envoyée au fournisseur LLM choisi |
+| Réunions sur Android | Transcription, compte rendu et audio (selon le choix) dans le stockage privé de l'application, chiffré par Android, inaccessible aux autres applications ; fichiers importés lus sans être copiés ni modifiés ; empreintes vocales des intervenants gardées avec la réunion (jamais pour une réunion « en mémoire seulement »), effacées avec elle ; l'audio et les voix ne quittent jamais le téléphone |
 | Voix des intervenants (si activé) | Analysées sur le PC ; empreintes vocales chiffrées par Windows dans le dossier de la réunion (jamais pour une réunion « en mémoire seulement »), effacées avec elle ; **jamais envoyées** |
 | Fichiers audio / vidéo importés | Lus sur le PC, ni copiés ni modifiés ; seule leur transcription est gardée (et envoyée au LLM pour le compte rendu) |
 | Questions sur les enregistrements | Les passages qui correspondent à la question sont envoyés au fournisseur LLM choisi |

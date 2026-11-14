@@ -74,7 +74,8 @@ object Dictation {
      * principal.
      */
     fun release() {
-        if (loaded < 0 || loading) return
+        // Réunion en cours de transcription : le modèle reste chargé.
+        if (loaded < 0 || loading || MeetingService.processing != null) return
         loaded = -1
         worker.execute { runCatching { Native.release() } }
     }

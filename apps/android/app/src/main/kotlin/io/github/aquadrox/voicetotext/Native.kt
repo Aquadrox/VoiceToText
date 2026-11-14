@@ -72,6 +72,80 @@ object Native {
      */
     external fun releaseNotes(changelog: String, after: String, upTo: String): String
 
+    // Réunions (dossier `root`) : réponses `{"ok": …}` ou `{"error": "…"}`.
+
+    /**
+     * Nouvelle réunion : `{"ok": "<id>"}`. `audio` : « conserve », « temporaire »
+     * ou « memoire » ; `source` : nom du fichier importé, vide pour un enregistrement.
+     */
+    external fun meetingCreate(
+        root: String,
+        title: String,
+        conference: Boolean,
+        audio: String,
+        summary: Boolean,
+        source: String,
+        speakers: Boolean,
+    ): String
+
+    /** Audio reçu (PCM 16 bits entrelacé, `count` valeurs) : `{"ok": <durée en ms>}`. */
+    external fun meetingFeed(root: String, id: String, pcm: ShortArray, count: Int, rate: Int, channels: Int): String
+
+    /** Lecture d'un fichier importé (pourcentage). */
+    external fun meetingProgress(root: String, id: String, percent: Int): String
+
+    /** Moment marqué : `{"ok": <position en ms>}`. */
+    external fun meetingMark(root: String, id: String): String
+
+    /** Fin de l'enregistrement ou de la lecture du fichier. */
+    external fun meetingStop(root: String, id: String): String
+
+    /** Après un arrêt de l'application : `{"ok": [ids à transcrire]}`. */
+    external fun meetingRecover(root: String): String
+
+    /** Transcription, intervenants si demandés, puis compte rendu (bloquant, des minutes). */
+    external fun meetingProcess(root: String, id: String, toml: String, modelsDir: String): String
+
+    /** Distingue les intervenants après coup (audio gardé ; bloquant). */
+    external fun meetingIdentify(root: String, id: String, modelsDir: String): String
+
+    /** Nombre d'intervenants imposé (0 : selon les voix), recalculé aussitôt. */
+    external fun meetingSpeakerCount(root: String, id: String, count: Int): String
+
+    /** Nom d'un intervenant (vide : « Intervenant N »). */
+    external fun meetingRenameSpeaker(root: String, id: String, index: Int, name: String): String
+
+    /** Ne plus distinguer : tours de parole, noms et empreintes effacés. */
+    external fun meetingForgetSpeakers(root: String, id: String): String
+
+    /** Modèles des intervenants (bloquant) : `{"ok": null}` ou erreur. */
+    external fun downloadVoices(modelsDir: String): String
+
+    /** Progression de ce téléchargement (0–100). */
+    external fun voicesProgress(): Int
+
+    /** (Re)fait le compte rendu (bloquant). `language` vide : celle des réglages. */
+    external fun meetingSummarize(root: String, id: String, toml: String, language: String): String
+
+    /** Liste, la plus récente d'abord : `{"ok": [{"id", "title", "status", …}]}`. */
+    external fun meetings(root: String, toml: String): String
+
+    /** Réunion ouverte : répliques, compte rendu, moments marqués… */
+    external fun meeting(root: String, id: String): String
+
+    external fun meetingRename(root: String, id: String, title: String): String
+
+    /** Modèle de compte rendu : conférence (cours, exposé) ou réunion. */
+    external fun meetingSetConference(root: String, id: String, conference: Boolean): String
+
+    external fun meetingDelete(root: String, id: String): String
+
+    /** Texte à partager : `what` « markdown », « summary » ou « transcript ». */
+    external fun meetingExport(root: String, id: String, what: String, date: String): String
+
+    /** Passage de l'audio conservé (PCM 16 bits 16 kHz mono), vide si indisponible. */
+    external fun meetingClip(root: String, id: String, startMs: Long, endMs: Long): ShortArray?
+
     const val DICTATE = 0
     const val TRANSLATE = 1
     const val COMMAND = 2

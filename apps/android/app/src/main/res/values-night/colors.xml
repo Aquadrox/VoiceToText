@@ -10,6 +10,8 @@
     <color name="accent">#EDEBE6</color>
     <color name="accent_fg">#141416</color>
     <color name="signal">#FF6A45</color>
+    <!-- Texte sur un fond vermillon (bouton Arrêter). -->
+    <color name="on_signal">#141416</color>
     <color name="ok">#4CC38A</color>
     <color name="danger">#F47B7B</color>
     <color name="warning_bg">#33290F</color>

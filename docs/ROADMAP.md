@@ -317,6 +317,22 @@ Retour du propriétaire après une vraie réunion : 2 participants, 5 intervenan
 - Limites : un participant qui ne dit que quelques mots (moins de 3 empreintes sûres) n'est pas distingué ; deux voix très proches au téléphone peuvent encore être confondues (nombre à imposer) ; entre 0,6 et 0,7 de distance, vrais et faux petits locuteurs se recouvrent (réglé pour ne pas perdre de vrais participants)
 - À vérifier sur le PC : vraies réunions Teams / Meet en français
 
+## v0.28 — Android : réunions ✅
+
+Le mode Réunions du PC sur le téléphone, adapté au petit écran (étude et maquettes : `ETUDE-REUNIONS-ANDROID.md`). Android ne laisse capter que le micro : réunions en présentiel, cours, conférences, et import d'enregistrements ; pas de piste « Eux » pour un appel passé sur le téléphone.
+
+- ✅ Format commun : fiche `meeting.json` (`MeetingRecord`) déplacée du PC vers `vtt-core` (`meeting::record`), même fichier sur les deux plateformes ; moments marqués (`marks`) et modèle de compte rendu choisi (`conference`) ajoutés, champs facultatifs ignorés par une version précédente. Transcription et Markdown sans nom de piste quand il n'y a qu'une source
+- ✅ Moteur (`vtt-android::meetings`, JNI) : création, réception de l'audio au fil de l'eau (16 kHz mono, rééchantillonnage sans décalage cumulé d'un envoi à l'autre, 8 à 48 kHz, mono ou multicanal), moments marqués, arrêt, transcription **à la fin** par blocs de 6 à 15 s coupés aux pauses (moteur de la dictée pris bloc par bloc : les dictées passent entre deux), reprise là où elle s'est arrêtée, compte rendu (prompts réunion et conférence du PC), liste, purge selon `meetings.keep_days`, renommer, supprimer, export Markdown / compte rendu / transcription, extrait audio pour la réécoute ; 7 tests
+- ✅ Audio au choix à chaque réunion, **gardé par défaut** : stockage privé de l'application (chiffré par Android), effacé après la transcription, ou en mémoire seulement (16 bits, 115 Mo par heure) ; reprise après un arrêt de l'application (`recover`), audio en mémoire perdu signalé
+- ✅ Service au premier plan (`MeetingService`, types micro puis traitement de données) : enregistrement écran éteint, notification avec chrono, « Marquer un moment » et « Arrêter » ; lecture du fichier importé et transcription, avec progression ; notification « Compte rendu prêt » ; modèle gardé en mémoire pendant la transcription ; clavier et bulle refusent de dicter pendant un enregistrement (micro pris)
+- ✅ Import : bouton « Importer » (audio ou vidéo) et « Partager → VoiceToText » ; décodage par Android (`MediaExtractor` / `MediaCodec` : MP3, AAC, Opus, AMR, FLAC, vidéos…), sortie 16 bits ou flottante
+- ✅ Écrans d'après les maquettes, sans bibliothèque : carte Réunions de l'accueil et raccourci de l'icône, liste groupée par période (progression), feuille « Nouvelle réunion » (titre, type de compte rendu, audio, compte rendu à la fin, rappel de consentement ; refus sans modèle téléchargé), enregistrement (chrono, anneau de niveau, informations, Marquer / Arrêter), suivi après l'arrêt (étapes cochées, premières phrases), réunion (onglets Compte rendu / Transcription, Markdown mis en forme, moments marqués, ▶ réécoute, Partager / Copier, menu ⋯)
+- ✅ Intervenants (diarisation du PC, v0.20 et v0.27.1) : interrupteur « Distinguer les intervenants » dans la feuille (piste notée dans la fiche dès la création, donc gardé après une coupure) ; modèles pyannote segmentation 3.0 et WeSpeaker ResNet34-LM (33 Mo, mêmes révisions et empreintes que le PC) téléchargés sur accord, ONNX Runtime de l'APK ; analyse **après la transcription**, audio relu par morceaux de 30 s (moitié des cœurs, progression) ; analyse gardée (`voix.bin`, stockage privé) sauf « en mémoire seulement » ; après coup depuis le menu ⋯ (audio gardé) ; pastilles colorées dans la transcription et fenêtre Intervenants des maquettes (nom, temps de parole, première phrase, ▶ écouter sa voix, nombre imposé recalculé sans l'audio, « Ne plus distinguer ») ; noms repris dans la transcription, le partage et le compte rendu ; 2 tests de plus
+- ✅ Vérifié sur le serveur : tests Rust (Linux), les deux éditions compilent, captures Robolectric en clair et en sombre (liste, nouvelle réunion, enregistrement, suivi, compte rendu, transcription, import); captures des intervenants (pastilles, fenêtre, feuille, suivi)
+- À vérifier sur le téléphone : une heure écran éteint sans arrêt par HyperOS ; qualité de la transcription micro sur la table ; durée de la transcription d'une heure ; import d'une note vocale WhatsApp (Opus) et d'un enregistrement d'appel HyperOS ; notification et partage
+- À vérifier aussi : intervenants avec de vraies voix autour d'une table (seuil réglé sur des appels et des réunions au micro-casque), durée de l'analyse d'une heure
+- ⬜ Plus tard, comme sur PC : recherche dans toutes les réunions, questions au LLM sur les enregistrements
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
@@ -335,5 +351,5 @@ Accélérer la CI sans baisser la garde :
 ## Plus tard
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, Linux, nettoyage local, réunions sur le téléphone. Pas de macOS (pas de Mac pour tester).
+- Anglais, Linux, nettoyage local. Pas de macOS (pas de Mac pour tester).
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).
