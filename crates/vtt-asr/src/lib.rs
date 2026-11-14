@@ -7,6 +7,8 @@ mod diarize;
 mod parakeet;
 #[cfg(feature = "vosk")]
 mod vosk;
+#[cfg(all(feature = "vulkan", target_os = "linux"))]
+mod vulkan_probe;
 
 #[cfg(feature = "parakeet")]
 pub use diarize::Diarizer;
@@ -92,6 +94,14 @@ impl WhisperTranscriber {
         options: WhisperOptions,
     ) -> Result<Self, Error> {
         whisper_rs::install_logging_hooks();
+        // Sans pilote Vulkan, whisper.cpp arrêterait tout le programme.
+        #[cfg(all(feature = "vulkan", target_os = "linux"))]
+        if let Err(e) = vulkan_probe::driver_available() {
+            return Err(Error::Asr(format!(
+                "Whisper demande un pilote Vulkan sur cet ordinateur ({e}) : \
+                 choisir Parakeet ou Vosk dans les réglages"
+            )));
+        }
         #[cfg(feature = "vulkan")]
         for device in whisper_rs::vulkan::list_devices() {
             log::info!(

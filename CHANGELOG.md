@@ -8,6 +8,18 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.32.0 — 2026-11-14
+
+- [PC] VoiceToText fonctionne sous Linux, Steam Deck compris (mode Bureau) : un seul fichier AppImage à télécharger depuis la page des versions, à rendre exécutable puis à lancer, sans rien installer. Sessions X11 et Wayland (KDE) ; sous Wayland, un réglage de KDE rappelé dans Réglages → Raccourcis permet à la touche de dictée de marcher partout.
+- [PC] Touches et raccourcis détectés : dans Réglages → Raccourcis, cliquez sur « Détecter » puis appuyez sur la touche ou la combinaison voulue (par exemple Alt+Maj+V), même si elle n'est pas dans la liste.
+- [PC] Mode sombre : les listes déroulantes des réglages sont de nouveau lisibles.
+- [PC] Steam Deck : une gâchette arrière peut servir de touche de dictée. Dans Steam, associez-la à une touche du clavier, puis « Détecter » dans VoiceToText et appuyez sur la gâchette : maintenir la gâchette dicte, la relâcher colle le texte.
+- [PC] Linux : si l'application se ferme toute seule, la cause est notée dans les journaux (~/.local/share/VoiceToText/logs/).
+- [PC] Linux : la pastille disparaît bien après chaque dictée.
+- [PC] Sous Linux, les clés API sont rangées dans le trousseau de la session (KWallet, GNOME Keyring), Whisper utilise la carte graphique, et les mises à jour s'installent comme sur Windows, signées.
+- [PC] Pas encore sous Linux : la capture commentée, la pause de la musique pendant la dictée et la détection des appels.
+- [PC] Styles par application : un style prévu pour « slack.exe » s'applique aussi à Slack sous Linux, et inversement.
+
 ## 0.31.0 — 2026-11-14
 
 - Réunions : un intervenant qui se présente est nommé tout seul. « Bonjour, je m'appelle Marie », « Moi c'est Paul », « Karim à l'appareil » : « Intervenant 2 » devient Marie dans la transcription, la copie, l'export et le compte rendu. Il faut avoir activé « Distinguer les intervenants » ; les noms apparaissent à la fin de l'enregistrement, avec les intervenants.

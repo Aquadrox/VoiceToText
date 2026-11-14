@@ -5,6 +5,8 @@ mod annotate;
 mod app_settings;
 mod controller;
 mod costs;
+#[cfg(target_os = "linux")]
+mod crash;
 mod decode;
 mod dictation_report;
 mod export;
@@ -50,12 +52,21 @@ use crate::updates::Updates;
 const OVERLAY_MARGIN: f64 = 24.0;
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    crash::prepare_session();
     let paths = Paths::resolve();
     if let Err(e) = paths.create_dirs() {
         eprintln!("création des dossiers : {e}");
     }
     logging::init(&paths.logs_dir);
     log::info!("VoiceToText {} démarre", env!("CARGO_PKG_VERSION"));
+    #[cfg(target_os = "linux")]
+    {
+        crash::capture_stderr(&paths.logs_dir);
+        for line in vtt_platform::session_report() {
+            log::info!("{line}");
+        }
+    }
 
     // Réglages déjà là : l'application a déjà servi (mise à jour ou réinstallation).
     let existing_install = paths.config_file.exists();
@@ -94,6 +105,9 @@ fn main() {
             app_settings::app_settings_view,
             app_settings::save_app_settings,
             app_settings::set_autostart,
+            app_settings::capture_hotkey,
+            app_settings::capture_shortcut,
+            app_settings::overlay_visible,
             export::export_settings,
             export::import_settings,
             meetings::meetings_view,
@@ -234,11 +248,17 @@ fn show_overlay(overlay: &WebviewWindow) -> tauri::Result<()> {
         let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
         overlay.set_position(PhysicalPosition::new(x, y))?;
     }
+    #[cfg(not(target_os = "linux"))]
     overlay.set_ignore_cursor_events(true)?;
     // La pastille ne doit pas apparaître sur les captures commentées.
     #[cfg(windows)]
     if let Ok(hwnd) = overlay.hwnd() {
         vtt_platform::exclude_from_capture(hwnd.0 as isize);
     }
-    overlay.show()
+    overlay.show()?;
+    // GTK : une fenêtre ne laisse passer les clics qu'une fois affichée
+    // (avant, tao s'arrête net sur une fenêtre GDK absente).
+    #[cfg(target_os = "linux")]
+    overlay.set_ignore_cursor_events(true)?;
+    Ok(())
 }

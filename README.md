@@ -1,15 +1,16 @@
 # VoiceToText
 
-Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler, relâcher**. Le texte est transcrit sur votre PC, nettoyé (hésitations, ponctuation, auto-corrections) puis collé dans l'application active : traitement de texte, messagerie, navigateur, e-mail…
+Dictée vocale pour Windows et Linux (Steam Deck compris), inspirée de Wispr Flow : **maintenir AltGr, parler, relâcher**. Le texte est transcrit sur votre PC, nettoyé (hésitations, ponctuation, auto-corrections) puis collé dans l'application active : traitement de texte, messagerie, navigateur, e-mail…
 
 - **Transcription locale** : Whisper tourne sur votre carte graphique (ou Parakeet / Vosk sur un PC sans carte graphique), l'audio ne quitte jamais le PC.
 - **Nettoyage par LLM** (DeepSeek par défaut, ou GLM, OpenAI, Mistral, OpenRouter, un modèle local Ollama…), désactivable.
 - **Mains libres**, **Command Mode** (« traduis ça en anglais »), **snippets**, **dictionnaire**, **styles par application**, **historique**, **statistiques**, **suivi du coût**.
-- Français pour l'instant ; Windows d'abord, Linux et Android plus tard.
+- Français pour l'instant ; Windows, Linux (dont le Steam Deck en mode Bureau) et Android.
 
 ## Sommaire
 
 1. [Installation](#installation)
+   - [Sur Linux et Steam Deck](#sur-linux-et-steam-deck)
    - [Sur Android](#sur-android)
 2. [Premiers pas](#premiers-pas)
 3. [Dicter](#dicter)
@@ -38,7 +39,35 @@ Dictée vocale pour Windows, inspirée de Wispr Flow : **maintenir AltGr, parler
 
 L'application est **discrète** : une icône dans la zone de notification (à côté de l'horloge) et une pastille qui n'apparaît que pendant la dictée. La fenêtre principale ne s'ouvre jamais d'elle-même.
 
-Pour la lancer à chaque ouverture de session : **Réglages → Application → Lancer VoiceToText à l'ouverture de session Windows**.
+Pour la lancer à chaque ouverture de session : **Réglages → Application → Lancer VoiceToText à l'ouverture de session**.
+
+### Sur Linux et Steam Deck
+
+Une **AppImage** : un seul fichier, rien à installer, ce qui convient au Steam Deck (SteamOS efface à chaque mise à jour les paquets ajoutés au système). Elle fonctionne en session **X11** et en session **Wayland** de KDE Plasma, celle du mode Bureau depuis SteamOS 3.8. Sous Wayland, un réglage de KDE est nécessaire pour que la touche de dictée marche dans toutes les applications (voir ci-dessous).
+
+1. Steam Deck : passer en **mode Bureau** (bouton Steam → Alimentation → Passer au bureau).
+2. Télécharger `VoiceToText_x.y.z_amd64.AppImage` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) et le ranger dans un dossier personnel, par exemple `~/Applications` (le fichier doit rester modifiable : la mise à jour automatique le remplace sur place).
+3. Le rendre exécutable : clic droit → **Propriétés → Droits → Est exécutable** (ou `chmod +x VoiceToText_*.AppImage`), puis double-clic.
+4. Au premier lancement, le modèle Whisper se télécharge comme sur Windows. Whisper utilise la carte graphique par **Vulkan** (celle du Deck comprise) ; si la transcription est trop lente, choisir **Parakeet** ou **Whisper Small** dans **Réglages → Micro et transcription**.
+
+L'icône apparaît dans la zone de notification (en bas à droite sur le Deck) ; tout le reste fonctionne comme sur Windows : pastille, fenêtre principale, réglages.
+
+**Clés API** : rangées dans le trousseau de la session (**KWallet** sur le Deck et KDE, **GNOME Keyring** ailleurs). À la première clé, KWallet peut proposer de créer un portefeuille : l'accepter. Sans trousseau actif, la clé ne peut pas être enregistrée ; un modèle local (Ollama) ou le nettoyage désactivé fonctionnent quand même.
+
+**Session Wayland (SteamOS 3.8 et plus, Plasma 6)** : Wayland ne laisse pas une application écouter le clavier quand une autre est au premier plan. Pour que la touche de dictée soit vue partout : **Configuration du système → Autorisations des applications → Prise en charge des anciennes applications X11 → « Toujours »** (selon la version de KDE, ce réglage peut s'appeler un peu autrement : chercher « X11 » dans la Configuration du système). Le texte est collé par un clavier virtuel, ce qui marche dans toutes les applications ; la page **Réglages → Raccourcis** rappelle ce réglage quand la session est Wayland.
+
+**Dicter sans clavier sur le Steam Deck** : le Deck n'a pas de touche AltGr. Faire d'une **gâchette arrière** une touche de clavier :
+1. dans Steam (ouvert en mode Bureau) : **Paramètres → Contrôleur → Disposition du bureau** (*Desktop Layout*) **→ Modifier** ;
+2. choisir **L4** (ou R4) → **Clavier** → une touche inutilisée (**F13** si elle est proposée, sinon **Pause**, **Arrêt défil**, **Inser**…) ;
+3. dans VoiceToText : **Réglages → Raccourcis → Dictée → Détecter**, puis appuyer sur la gâchette : la touche qu'elle envoie est reconnue toute seule ; **Appliquer**.
+
+Maintenir L4 dicte, relâcher colle le texte, exactement comme AltGr. Avec un clavier branché, AltGr fonctionne aussi.
+
+Démarrage automatique : **Réglages → Application → Lancer VoiceToText à l'ouverture de session** (crée `~/.config/autostart/voicetotext.desktop`).
+
+Pas encore sous Linux : la **capture commentée**, la **pause de la musique** pendant la dictée, la **détection des appels** (proposition d'enregistrer la réunion), les **styles par application** pour les applications Wayland (ils marchent pour les applications X11) et le **mode Jeu** du Steam Deck.
+
+**Si l'application se ferme toute seule** : les journaux sont dans `~/.local/share/VoiceToText/logs/` (dossier caché : dans Dolphin, **Ctrl+H** pour l'afficher). `voicetotext.log` décrit la session au démarrage (système, X11 ou Wayland…) et, après un plantage, recopie au lancement suivant la fin de `stderr.precedent.log`, où les bibliothèques (GTK, WebKit, pilote graphique) écrivent leurs erreurs. Ce sont ces fichiers à envoyer.
 
 ### Sur Android
 
@@ -322,7 +351,7 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 Un menu à gauche découpe les réglages en sections ; une seule est affichée à la fois :
 
-- **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée).
+- **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée). Chaque touche et chaque raccourci a un bouton **Détecter** : cliquer, puis appuyer sur la touche ou la combinaison voulue (Échap annule) ; les raccourcis actuels sont suspendus pendant la détection. Une lettre seule est refusée (elle empêcherait de taper).
 - **Reconnaissance locale** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Dictée et traduction** : sons, pause de la musique et des vidéos, commandes vocales, langue du mode traduction.
 - **Nettoyage par LLM** : activer ou non, profils, fournisseur, modèle, délai, **Tester ces réglages**, clé API de l'adresse saisie, profil de secours, tarif, paramètres avancés.
@@ -409,7 +438,7 @@ Pour garder le nettoyage **sans rien envoyer sur Internet** : installer [Ollama]
 
 VoiceToText vérifie les nouvelles versions une minute après le démarrage puis toutes les 6 heures (désactivable dans **Réglages → Application**). Quand une version est disponible :
 
-- une notification Windows l'annonce (une fois par version) ;
+- une notification l'annonce (une fois par version) ;
 - le menu de l'icône propose **Installer la version x.y.z…** et l'accueil affiche un bandeau **Mettre à jour**, avec la liste des **nouveautés** (celles des versions sautées comprises).
 
 Rien n'est installé sans votre clic. Chaque mise à jour est **signée** : la signature (et la version qu'elle couvre) est vérifiée avant l'installation, l'application redémarre ensuite toute seule.
@@ -446,9 +475,9 @@ Les versions antérieures à la 0.21 ne savent pas se mettre à jour : installer
 | Audio | **Reste sur le PC** (transcription locale) ; seule la dernière dictée est gardée, en mémoire, pour « Réessayer » |
 | Texte transcrit | Envoyé au fournisseur LLM choisi (rien avec Ollama ou le nettoyage désactivé) |
 | Texte sélectionné (Command Mode) | Envoyé au fournisseur LLM avec la consigne |
-| Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`), jamais en clair sur le disque |
+| Clé API | Gestionnaire d'identifiants Windows (`VoiceToText/llm-api-key…`) ; sous Linux, trousseau de la session (KWallet, GNOME Keyring) ; jamais en clair sur le disque |
 | Historique | `history.jsonl` sur le PC, en clair, protégé par votre session Windows ; désactivable, effaçable |
-| Réunions | Transcription et compte rendu dans `meetings\` sur le PC (en clair, comme l'historique) ; audio en mémoire, ou chiffré par Windows (DPAPI) et supprimé ou conservé selon le réglage ; jamais d'audio en clair sur le disque (sauf export WAV demandé) |
+| Réunions | Transcription et compte rendu dans `meetings\` sur le PC (en clair, comme l'historique) ; audio en mémoire, ou chiffré pour votre session (Windows : DPAPI ; Linux : clé aléatoire gardée dans le trousseau) et supprimé ou conservé selon le réglage ; jamais d'audio en clair sur le disque (sauf export WAV demandé) |
 | Compte rendu de réunion | La transcription est envoyée au fournisseur LLM choisi |
 | Réunions sur Android | Transcription, compte rendu et audio (selon le choix) dans le stockage privé de l'application, chiffré par Android, inaccessible aux autres applications ; fichiers importés lus sans être copiés ni modifiés ; empreintes vocales des intervenants gardées avec la réunion (jamais pour une réunion « en mémoire seulement »), effacées avec elle ; l'audio et les voix ne quittent jamais le téléphone |
 | Voix des intervenants (si activé) | Analysées sur le PC ; empreintes vocales chiffrées par Windows dans le dossier de la réunion (jamais pour une réunion « en mémoire seulement »), effacées avec elle ; **jamais envoyées** |
@@ -476,9 +505,11 @@ Les versions antérieures à la 0.21 ne savent pas se mettre à jour : installer
 | Réglages remplacés par un import | `%APPDATA%\VoiceToText\config.avant-import.toml` |
 | Journal | `%LOCALAPPDATA%\VoiceToText\logs\voicetotext.log` (purgé au-delà de 3 Mo, les 100 dernières lignes sont gardées) |
 
+Sous Linux : `~/.config/VoiceToText/` pour la configuration, `~/.local/share/VoiceToText/` pour le reste (modèles, historique, réunions, statistiques, journaux).
+
 Menu de l'icône : **Modifier la configuration** (ouvre config.toml), **Ouvrir les journaux**, **Redémarrer**.
 
-Désinstaller : Paramètres Windows → Applications → VoiceToText. Les fichiers ci-dessus et la clé API (Gestionnaire d'identifiants Windows → Identifiants Windows → `VoiceToText/…`) peuvent ensuite être supprimés à la main.
+Désinstaller : Paramètres Windows → Applications → VoiceToText. Les fichiers ci-dessus et la clé API (Gestionnaire d'identifiants Windows → Identifiants Windows → `VoiceToText/…`) peuvent ensuite être supprimés à la main. Sous Linux : supprimer le fichier AppImage, les deux dossiers ci-dessus et `~/.config/autostart/voicetotext.desktop` ; les clés sont dans le trousseau (KWallet : entrées `VoiceToText/…`).
 
 ## Configuration avancée (config.toml)
 
@@ -604,6 +635,7 @@ extra_body = {}
 
 | Problème | Piste |
 |---|---|
+| La touche de dictée n'est pas dans la liste | **Réglages → Raccourcis → Détecter**, puis appuyer sur la touche (ou le bouton de manette associé à une touche) : elle est reconnue, même sans nom (« Touche détectée (code 183) »). |
 | Rien n'est collé dans une application | Application lancée **en administrateur** : Windows bloque l'insertion depuis une application normale. La relancer sans droits administrateur, ou copier le texte depuis l'**Historique**. |
 | La pastille affiche une erreur | Message complet dans le journal (menu **Ouvrir les journaux**). |
 | Texte non nettoyé (badge *non nettoyé*) | Clé absente ou refusée (401), solde épuisé (402), délai dépassé : **Réglages → Nettoyage par LLM → Tester ces réglages** affiche la cause et des pistes. |
@@ -614,10 +646,17 @@ extra_body = {}
 | Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
 | Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
 | Téléchargement du modèle échoué | Vérifier la connexion puis cliquer **Appliquer** dans **Réglages** (le téléchargement recommence). |
+| Linux : le raccourci ne marche que dans certaines fenêtres | Session **Wayland** : autoriser les anciennes applications X11 à lire le clavier (**Configuration du système → Autorisations des applications → Prise en charge des anciennes applications X11 → « Toujours »**). |
+| Linux : rien n'est collé sous Wayland | Le clavier virtuel (`/dev/uinput`) est inaccessible : le journal l'indique au démarrage. Sur le Steam Deck, Steam l'ouvre à l'utilisateur ; ailleurs, ajouter l'utilisateur au groupe `input`. Le texte reste dans le presse-papier (Ctrl+V). |
+| Linux : l'application se ferme au démarrage | Voir les journaux (`~/.local/share/VoiceToText/logs/`) : `voicetotext.log`, puis `stderr.log` / `stderr.precedent.log`. |
+| Linux : « trousseau de la session introuvable » | Aucun KWallet ni GNOME Keyring actif : l'activer (KDE : Paramètres → Portefeuille KDE), ou utiliser Ollama / le nettoyage désactivé. |
+| Steam Deck : la gâchette arrière ne fait rien | Steam doit être ouvert en mode Bureau (c'est lui qui transforme la manette en clavier) ; vérifier que la touche choisie dans Steam Input (F13, Pause…) est la même que dans **Réglages → Raccourcis**. |
+| Linux : « Whisper demande un pilote Vulkan » | Pas de pilote Vulkan pour la carte graphique (machine virtuelle, NVIDIA sans pilote propriétaire) : installer le pilote (Mesa, NVIDIA), ou choisir **Parakeet** (rapide sans carte graphique) ou **Vosk** dans **Réglages → Micro et transcription**. Le Steam Deck a son pilote. |
+| Linux : l'AppImage ne se lance pas | La rendre exécutable (Propriétés → Droits) ; sur une distribution sans FUSE 2, installer `libfuse2` ou lancer avec `--appimage-extract-and-run`. |
 
 ## Développement
 
-Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows : clavier, micro, presse-papier), `apps/desktop` (application PC), et pour Android `vtt-android` (moteur appelé en JNI) et `apps/android` (clavier, bulle et réglages en Kotlin). Les installeurs et l'APK sont produits par la CI GitHub Actions ; une PR qui ne touche que le PC ne recompile pas Android, et inversement.
+Le code (Rust, Tauri 2) est organisé en crates : `vtt-core` (logique portable), `vtt-asr` (Whisper, Parakeet, Vosk), `vtt-llm` (nettoyage), `vtt-platform` (Windows et Linux X11 : clavier, micro, presse-papier, trousseau), `apps/desktop` (application PC), et pour Android `vtt-android` (moteur appelé en JNI) et `apps/android` (clavier, bulle et réglages en Kotlin). Les installeurs et l'APK sont produits par la CI GitHub Actions ; une PR qui ne touche que le PC ne recompile pas Android, et inversement.
 
 Android (SDK avec `ndk;29.0.14206865` et `cmake;3.31.6`, cible Rust `aarch64-linux-android`, `cargo-ndk`) :
 

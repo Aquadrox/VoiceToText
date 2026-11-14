@@ -92,6 +92,11 @@ pub const HOTKEY_NAMES: &[&str] = &[
     "ScrollLock",
     "Pause",
     "Insert",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "NumLock",
     "Menu",
     "F1",
     "F2",
@@ -121,11 +126,33 @@ pub const HOTKEY_NAMES: &[&str] = &[
 
 pub const MIN_HOLD_RANGE_MS: std::ops::RangeInclusive<u32> = 50..=1000;
 
+/// Touche donnée par son code brut, `#183` : touche détectée dans les
+/// réglages qui n'a pas de nom ci-dessus (touche envoyée par une manette via
+/// Steam Input, touche multimédia…). Le code est celui de la plateforme
+/// (virtual-key sous Windows, evdev sous Linux) : il ne vaut que sur le
+/// système où il a été détecté.
+pub fn raw_key_code(name: &str) -> Option<u32> {
+    let digits = name.trim().strip_prefix('#')?;
+    if digits.is_empty() || digits.len() > 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits
+        .parse()
+        .ok()
+        .filter(|&code| (1..=1023).contains(&code))
+}
+
+/// Nom utilisable comme touche de dictée ou de commande.
+pub fn is_hotkey_name(name: &str) -> bool {
+    let name = name.trim();
+    HOTKEY_NAMES.iter().any(|k| k.eq_ignore_ascii_case(name)) || raw_key_code(name).is_some()
+}
+
 impl HotkeyConfig {
     /// Vérifie une configuration saisie dans les réglages (la syntaxe des
     /// raccourcis globaux est vérifiée par l'application).
     pub fn validate(&self) -> Result<(), String> {
-        let known = |name: &str| HOTKEY_NAMES.iter().any(|k| k.eq_ignore_ascii_case(name));
+        let known = is_hotkey_name;
         if !known(&self.key) {
             return Err(format!("raccourci de dictée inconnu : {}", self.key));
         }
@@ -835,9 +862,22 @@ impl Default for Style {
 
 impl Style {
     pub fn matches(&self, app: Option<&str>, title: Option<&str>) -> bool {
+        // Sans `.exe` de part et d'autre : un style écrit sous Windows
+        // (« slack.exe ») vaut aussi pour Linux (« Slack »), et inversement.
+        let stem = |name: &str| {
+            let name = name.trim();
+            match name.len().checked_sub(4) {
+                Some(at)
+                    if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe") =>
+                {
+                    name[..at].to_owned()
+                }
+                _ => name.to_owned(),
+            }
+        };
         let app_matches = app.is_some_and(|app| {
-            let app = app.rsplit(['\\', '/']).next().unwrap_or(app);
-            self.apps.iter().any(|a| a.trim().eq_ignore_ascii_case(app))
+            let app = stem(app.rsplit(['\\', '/']).next().unwrap_or(app));
+            self.apps.iter().any(|a| stem(a).eq_ignore_ascii_case(&app))
         });
         let title_matches = title.is_some_and(|title| {
             let title = title.to_lowercase();
@@ -1264,6 +1304,20 @@ mod tests {
     }
 
     #[test]
+    fn raw_key_codes() {
+        assert_eq!(raw_key_code("#183"), Some(183));
+        assert_eq!(raw_key_code(" #1 "), Some(1));
+        assert_eq!(raw_key_code("#0"), None);
+        assert_eq!(raw_key_code("#"), None);
+        assert_eq!(raw_key_code("#-5"), None);
+        assert_eq!(raw_key_code("#99999"), None);
+        assert_eq!(raw_key_code("183"), None);
+        assert!(is_hotkey_name("altgr"));
+        assert!(is_hotkey_name("#42"));
+        assert!(!is_hotkey_name("Espace"));
+    }
+
+    #[test]
     fn style_matches_app_or_title() {
         let style = Style {
             apps: vec!["Slack.exe".into()],
@@ -1277,6 +1331,15 @@ mod tests {
         assert!(!style.matches(None, None));
         // Un titre vide dans la liste ne correspond pas à tout.
         assert!(!style.matches(None, Some("n'importe quoi")));
+        // Linux : classe de fenêtre sans `.exe`, dans un sens comme dans l'autre.
+        assert!(style.matches(Some("Slack"), None));
+        assert!(!style.matches(Some("Slackware"), None));
+        let linux = Style {
+            apps: vec!["firefox".into()],
+            ..Style::default()
+        };
+        assert!(linux.matches(Some("Firefox.EXE"), None));
+        assert!(!linux.matches(Some(".exe"), None));
     }
 
     #[test]
@@ -1402,6 +1465,8 @@ mod tests {
         };
         assert!(with(&|h| h.key = "F13".into()).is_ok());
         assert!(with(&|h| h.key = "Espace".into()).is_err());
+        assert!(with(&|h| h.key = "#183".into()).is_ok(), "touche détectée");
+        assert!(with(&|h| h.key = "PageDown".into()).is_ok());
         assert!(
             with(&|h| h.command_key = String::new()).is_ok(),
             "commande désactivée"

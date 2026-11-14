@@ -140,6 +140,26 @@ window.__TAURI__.event.listen("level", (event) => {
   });
 });
 // Rattrape l'état émis avant le chargement de la page (téléchargement du modèle…).
+// Linux : au repos, la fenêtre est vraiment masquée (une fenêtre
+// transparente laissée affichée peut y rester figée) ; sans effet sous
+// Windows. Masquée après le fondu de la pastille.
+const HIDE_AFTER_MS = 200;
+let windowShown = null;
+let hideTimer;
+function syncWindow() {
+  const visible = pill.dataset.state !== "idle";
+  clearTimeout(hideTimer);
+  const send = (value) => {
+    if (windowShown === value) return;
+    windowShown = value;
+    window.__TAURI__.core.invoke("overlay_visible", { visible: value });
+  };
+  if (visible) send(true);
+  else hideTimer = setTimeout(() => send(false), HIDE_AFTER_MS);
+}
+new MutationObserver(syncWindow).observe(pill, { attributes: true, attributeFilter: ["data-state"] });
+syncWindow();
+
 window.__TAURI__.core.invoke("current_status").then(render);
 window.__TAURI__.core.invoke("meeting_state").then(setMeeting);
 window.__TAURI__.core.invoke("annotate_state").then(setAnnotate);

@@ -39,6 +39,8 @@ pub struct AppSettingsView {
     microphones: Vec<String>,
     models: Vec<ModelChoice>,
     autostart: bool,
+    /// Session Wayland (Linux) : réglage de KDE à signaler pour le raccourci.
+    wayland: bool,
 }
 
 #[tauri::command(async)]
@@ -69,6 +71,9 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         microphones: vtt_platform::audio::input_devices(),
         models: model::catalog(&paths.models_dir),
         autostart: vtt_platform::autostart_enabled(),
+        wayland: cfg!(target_os = "linux")
+            && (std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"))
+                || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())),
     })
 }
 
@@ -209,6 +214,68 @@ fn unload_choices(current: u32) -> Vec<u32> {
 #[tauri::command]
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     vtt_platform::set_autostart(enabled)?;
-    log::info!("démarrage avec Windows : {enabled}");
+    log::info!("démarrage avec la session : {enabled}");
     Ok(())
+}
+
+/// Temps laissé pour appuyer sur la touche à détecter.
+const CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Détection de la touche de dictée : attend le prochain appui (touche du
+/// clavier, ou bouton de manette changé en touche par Steam Input) et
+/// renvoie son nom pour la configuration (« F13 », ou `#183` pour une
+/// touche sans nom).
+#[tauri::command]
+pub async fn capture_hotkey() -> Result<String, String> {
+    let code = tauri::async_runtime::spawn_blocking(|| vtt_platform::capture_key(CAPTURE_TIMEOUT))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("aucune touche détectée en 10 secondes")?;
+    let name = vtt_platform::key_name(code);
+    log::info!("touche détectée : {name} (code {code})");
+    Ok(name)
+}
+
+/// Détection d'un raccourci global (coller la version brute, réessayer…) :
+/// attend une combinaison, comme « Alt+Shift+V ». Les raccourcis actuels
+/// sont suspendus pendant la détection, puis remis.
+#[tauri::command]
+pub async fn capture_shortcut(app: AppHandle) -> Result<String, String> {
+    app.state::<Shortcuts>().suspend(&app);
+    let result =
+        tauri::async_runtime::spawn_blocking(|| vtt_platform::capture_shortcut(CAPTURE_TIMEOUT))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+    let hotkey = crate::settings::read(&app.state::<SharedConfig>())
+        .hotkey
+        .clone();
+    for error in app.state::<Shortcuts>().apply(&app, &hotkey) {
+        log::warn!("{error}");
+    }
+    if let Ok(shortcut) = &result {
+        log::info!("raccourci détecté : {shortcut}");
+    }
+    result
+}
+
+/// Pastille affichée ou masquée par sa page (Linux) : au repos, elle est
+/// vraiment masquée. Sous Linux, une fenêtre transparente qui reste affichée
+/// peut ne plus se redessiner (bulle grise figée sur l'écran). Sous Windows,
+/// la pastille reste affichée (transparente au repos) : la montrer à chaque
+/// dictée risquerait de voler le focus de l'application cible.
+#[tauri::command]
+pub fn overlay_visible(window: tauri::WebviewWindow, visible: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        if visible {
+            let _ = window.show();
+            // Les clics traversent la pastille (à refaire après affichage sous GTK).
+            let _ = window.set_ignore_cursor_events(true);
+        } else {
+            let _ = window.hide();
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (window, visible);
 }

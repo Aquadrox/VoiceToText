@@ -9,8 +9,49 @@ const KEY_LABELS = {
   CapsLock: "Verr. Maj",
   ScrollLock: "Arrêt défil.",
   Insert: "Inser",
+  Home: "Début",
+  End: "Fin",
+  PageUp: "Page préc.",
+  PageDown: "Page suiv.",
+  NumLock: "Verr. Num",
 };
-const keyLabel = (key) => KEY_LABELS[key] ?? key;
+const keyLabel = (key) =>
+  KEY_LABELS[key] ?? (key.startsWith("#") ? `Touche détectée (code ${key.slice(1)})` : key);
+
+/** Ajoute à la liste une touche qui n'y est pas (touche détectée, `#183`). */
+function ensureKeyOption(select, key) {
+  if (key && ![...select.options].some((o) => o.value === key)) {
+    select.append(option(key, keyLabel(key)));
+  }
+}
+
+/**
+ * « Détecter » : attend l'appui sur une touche (touche de dictée ou de
+ * commande, choisie dans la liste) ou sur une combinaison (raccourcis
+ * globaux, écrits dans le champ).
+ */
+for (const button of document.querySelectorAll("button[data-detect]")) {
+  button.addEventListener("click", async () => {
+    const field = $(button.dataset.detect);
+    const shortcut = button.hasAttribute("data-shortcut-detect");
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = shortcut ? "Appuyez sur la combinaison…" : "Appuyez sur la touche…";
+    try {
+      const key = await invoke(shortcut ? "capture_shortcut" : "capture_hotkey");
+      if (!shortcut) ensureKeyOption(field, key);
+      field.value = key;
+      field.dispatchEvent(new Event(shortcut ? "input" : "change", { bubbles: true }));
+      const shown = shortcut ? key : keyLabel(key);
+      SettingsUI.showResult("raccourcis", `Détecté : ${shown}. Cliquez sur « Appliquer ».`, false);
+    } catch (e) {
+      SettingsUI.showResult("raccourcis", String(e), true);
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+  });
+}
 
 function option(value, label) {
   const element = document.createElement("option");
@@ -51,11 +92,14 @@ $("asr-model").addEventListener("change", showEngineNote);
 function fillGeneral(view) {
   const keys = view.keys.map((k) => option(k, keyLabel(k)));
   $("hk-key").replaceChildren(...keys);
+  ensureKeyOption($("hk-key"), view.hotkey.key);
   $("hk-key").value = view.hotkey.key;
+  $("hk-wayland").hidden = !view.wayland;
   $("hk-command").replaceChildren(
     option("", "Désactivé"),
     ...view.keys.map((k) => option(k, keyLabel(k))),
   );
+  ensureKeyOption($("hk-command"), view.hotkey.command_key);
   $("hk-command").value = view.hotkey.command_key;
   $("hk-paste").value = view.hotkey.paste_raw;
   $("hk-retry").value = view.hotkey.retry;
@@ -89,7 +133,7 @@ function fillGeneral(view) {
   if (configured && !view.microphones.includes(configured)) {
     microphones.unshift(option(configured, `${configured} (introuvable : micro par défaut utilisé)`));
   }
-  $("audio-device").replaceChildren(option("", "Micro par défaut de Windows"), ...microphones);
+  $("audio-device").replaceChildren(option("", "Micro par défaut du système"), ...microphones);
   $("audio-device").value = configured;
 
   // Un groupe par moteur ; un modèle placé à la main reste proposé.
@@ -304,8 +348,8 @@ $("autostart").addEventListener("change", async () => {
   try {
     await invoke("set_autostart", { enabled: checkbox.checked });
     $("autostart-status").textContent = checkbox.checked
-      ? "✓ VoiceToText démarrera avec Windows."
-      : "VoiceToText ne démarrera plus avec Windows.";
+      ? "✓ VoiceToText démarrera avec la session."
+      : "VoiceToText ne démarrera plus avec la session.";
   } catch (e) {
     checkbox.checked = !checkbox.checked;
     $("autostart-status").textContent = String(e);

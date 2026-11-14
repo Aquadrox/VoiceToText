@@ -377,6 +377,49 @@ Quelqu'un se présente pendant la réunion (« Bonjour, je m'appelle Marie ») :
 - Limites : seulement quand l'intervenant se présente lui-même (pas « je laisse la parole à Paul », ni « merci Marie ») ; pas en direct (les intervenants sont distingués à la fin) ; un nom mal transcrit est repris tel quel ; réunions enregistrées avant : changer le nombre d'intervenants pour relancer la recherche
 - À vérifier : vraies réunions en français (tour de table), rendu Windows du bloc Intervenants, fenêtre Android
 
+## v0.32 — Linux et Steam Deck (mode Bureau) ✅
+
+Première version Linux de l'application PC, pensée pour le Steam Deck en mode Bureau (KDE Plasma, session X11) et valable pour tout PC Linux sous X11. Une seule AppImage, rien à installer : SteamOS efface à chaque mise à jour les paquets ajoutés au système.
+
+- ✅ `vtt-platform` pour Linux (session X11), sans bibliothèque système en plus (x11rb, zbus : Rust pur) :
+  - touches globales par XInput2 (événements « bruts », reçus quelle que soit la fenêtre, sans droit particulier) ; codes de touche du noyau (evdev) ; nos frappes simulées (périphérique XTEST) ignorées, celles de Steam Input (manette changée en clavier) gardées
+  - Ctrl+V / Ctrl+C / Ctrl+Z simulés par XTest, avec la touche qui produit la lettre dans la disposition active (AZERTY, QWERTZ…)
+  - presse-papier (arboard) gardé ouvert : sous X11, c'est le programme qui a copié qui fournit le contenu ; ancien contenu remis après le collage
+  - Command Mode : sélection copiée, attente du changement de propriétaire du presse-papier (XFixes, équivalent du numéro de séquence de Windows) ; sans sélection, rien ne change
+  - fenêtre active : classe de fenêtre (`WM_CLASS`, fiable aussi pour les applications Flatpak du Deck) ou exécutable, titre ; plein écran (`_NET_WM_STATE_FULLSCREEN`) pour libérer la mémoire graphique
+  - clés API dans le trousseau de la session (Secret Service : KWallet, GNOME Keyring), une par fournisseur ; liste sans déverrouiller ni lire les clés
+  - chiffrement des réunions et des empreintes vocales (remplace DPAPI) : ChaCha20-Poly1305, clé aléatoire gardée dans le trousseau
+  - sons de dictée sur la sortie par défaut (cpal), flux fermé dès la fin du son
+  - démarrage avec la session : `~/.config/autostart/voicetotext.desktop`, qui lance le fichier AppImage lui-même
+- ✅ Styles par application : `slack.exe` vaut aussi pour `Slack` (le `.exe` est ignoré des deux côtés)
+- ✅ Whisper sur la carte graphique par Vulkan (AMD du Deck, Mesa, NVIDIA) dans l'AppImage (`--features vulkan`)
+- ✅ Corrigé : sans pilote Vulkan (machine virtuelle, NVIDIA sans pilote), whisper.cpp arrêtait tout le programme par une exception C++, même GPU décoché. Une instance Vulkan de test (API C, qui renvoie un code d'erreur) est créée avant : Whisper refusé avec un message clair (« choisir Parakeet ou Vosk »), l'application reste ouverte
+- ✅ Corrigé : la pastille plantait au démarrage sous GTK (clics traversants demandés avant l'affichage)
+- ✅ Textes de l'interface sans « Windows » codé en dur (trousseau, micro par défaut, démarrage avec la session)
+- ✅ CI : job `appimage` (Ubuntu 22.04 pour une glibc ancienne, SDK Vulkan) ; AppImage de test sur les PR, signée sur les tags ; `latest.json` annonce aussi `linux-x86_64` : mise à jour automatique sur Linux, avec la même signature
+- ✅ Vérifié sur le serveur (Xvfb, openbox, PulseAudio, GNOME Keyring) : dictée complète touche → micro → Vosk → texte collé dans une fenêtre ; collage avec accents et presse-papier remis ; Command Mode avec et sans sélection ; touches enfoncées ; clés API (enregistrer, remplacer, lister, supprimer) ; chiffrement ; démarrage avec la session ; AppImage construite (91 Mo, chargeur Vulkan inclus) et lancée jusqu'à « prêt » ; Whisper sans pilote Vulkan → message au lieu du plantage
+- ✅ Premier essai sur le Steam Deck : l'application se fermait presque aussitôt, sans trace. SteamOS 3.8 (juin 2026) est passé à **Wayland** en mode Bureau (Plasma 6.4), contrairement à ce qui était supposé. Réponse :
+  - contournement recommandé par Tauri du plantage de WebKitGTK sous Wayland et sur certains pilotes (« Could not create default EGL display », « Error 71 ») : `WEBKIT_DISABLE_DMABUF_RENDERER=1`, et `GDK_BACKEND=x11` (nos fenêtres passent par XWayland, comme le reste) ; une valeur posée par l'utilisateur est respectée
+  - **journal de plantage** : sortie d'erreur recopiée dans `logs/stderr.log` (celle du lancement précédent dans `stderr.precedent.log`), signal fatal noté (une seule ligne, même si WebKit chaîne son gestionnaire), et au lancement suivant la fin de la sortie recopiée dans `voicetotext.log` ; rapport de session au démarrage (système, X11 / Wayland, variables d'affichage, XInput, accès à `/dev/uinput`, AppImage). Vérifié sur le serveur avec un SIGSEGV provoqué
+  - **Wayland** : frappes simulées (Ctrl+V, Ctrl+C, Ctrl+Z) par un clavier virtuel du noyau (uinput, ouvert à l'utilisateur par la règle udev de Steam sur SteamOS), qui atteint toutes les applications ; leur écho par XWayland ignoré par le suivi du clavier ; repli sur XTest. Presse-papier par le protocole « data control » (arboard). Raccourci par XWayland : réglage KDE « Prise en charge des anciennes applications X11 → Toujours », rappelé dans les réglages
+- ✅ **Détection de la touche** (Windows et Linux) : bouton « Détecter » à côté de la touche de dictée et de la touche de commande ; on appuie sur la touche, ou sur le bouton de manette que Steam Input transforme en touche. Indépendant du suivi du clavier (marche même pendant le téléchargement du modèle). Touche sans nom gardée par son code (`#183`, propre au système) ; nouveaux noms : Début, Fin, Page préc., Page suiv., Verr. Num. Vérifié sous Xvfb (Page préc. → `PageUp`, lettre → `#48`)
+- ✅ Validé sur le Steam Deck par le propriétaire : démarrage, dictée, gâchette arrière détectée
+- ✅ Retours du Deck :
+  - pastille restée affichée, grise et figée, après une dictée (fenêtre transparente qui ne se redessine plus sous Linux) : sous Linux, la pastille est vraiment masquée au repos (après son fondu) et réaffichée au besoin, depuis sa page ; Windows inchangé (masquer risquerait d'y voler le focus). Vérifié sous Xvfb : masquée au repos, visible pendant l'écoute et la transcription, texte toujours collé dans la bonne fenêtre
+  - **Détecter** aussi pour les raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée) : combinaison détectée au format « Alt+Shift+V », lettre selon la disposition active (AZERTY compris), Échap annule, lettre ou chiffre seul refusé ; raccourcis actuels suspendus pendant la détection puis remis. Vérifié sous Xvfb (Alt+Maj+V, Ctrl+F9, Ctrl+Q en AZERTY)
+  - listes déroulantes blanc sur blanc en mode sombre (rendu natif de WebKitGTK) : listes dessinées par la page (fond, texte et flèche aux couleurs du thème) et `color-scheme: light dark` pour les contrôles natifs
+- ✅ Plantage SIGILL (instruction illégale) d'une AppImage de test sur le Deck, rapport de plantage collé dans la PR : whisper.cpp était compilé pour le processeur exact du serveur de la CI (`-march=native`) ; selon le serveur attribué par GitHub (AVX-512 ou non), l'AppImage marchait ou plantait. `GGML_NATIVE=OFF` pour toute la CI : jeu d'instructions fixe AVX2 / FMA / F16C / BMI2 (vérifié dans les options de compilation), présent sur le Zen 2 du Deck ; vaut aussi pour l'installeur Windows (même risque sur un vieux processeur). Caches de compilation Windows et AppImage repartis de zéro (le changement de variable ne recompile pas whisper.cpp)
+- ⬜ À valider sur le Steam Deck : pastille masquée au repos, détection des raccourcis, listes en mode sombre, icône dans la zone de notification de KDE, KWallet, vitesse de Whisper Vulkan, mise à jour automatique
+- Pas encore sous Linux : styles par application pour les applications Wayland (fenêtre active vue seulement si elle est X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
+
+## v0.33 — Linux : confort ⬜
+
+- ⬜ Pause de la musique et des vidéos pendant la dictée (MPRIS, D-Bus)
+- ⬜ Capture commentée : capture d'écran, clics, collage d'image (X11)
+- ⬜ Détection des appels : programmes qui utilisent le micro (PipeWire / PulseAudio)
+- ⬜ Steam Deck : conseils dans l'application (choisir F13, configurer une gâchette arrière dans Steam Input)
+- ⬜ Session Wayland sans réglage KDE : raccourci par le portail « raccourcis globaux » (appui et relâchement) ; fenêtre active des applications Wayland (styles par application)
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
@@ -395,5 +438,7 @@ Accélérer la CI sans baisser la garde :
 ## Plus tard
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, Linux, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
+- Épeler un mot : « A Q U A D R O X » dicté lettre par lettre, distinctement, donne « aquadrox » (lettres isolées regroupées en un mot, par règles locales comme les commandes vocales ; à étudier : Whisper écrit souvent « A, Q, U… » ou « AQUADROX », le LLM peut aussi recoller les lettres ; noms propres et sigles, majuscule si demandée).
+- Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain), à étudier une fois le mode Bureau éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).

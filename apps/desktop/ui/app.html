@@ -369,11 +369,23 @@
                   <div class="fields">
                     <div class="field">
                       <label for="hk-key">Touche de dictée (maintenir)</label>
-                      <select id="hk-key"></select>
+                      <div class="row key-row">
+                        <select id="hk-key"></select>
+                        <button type="button" id="hk-key-detect" data-detect="hk-key">Détecter</button>
+                      </div>
+                      <p class="hint">« Détecter », puis appuyez sur la touche voulue (ou sur le bouton de la manette associé à une touche dans Steam Input). Pour les raccourcis plus bas : « Détecter », puis la combinaison (Échap annule).</p>
+                      <p class="hint warning" id="hk-wayland" hidden>
+                        Session Wayland : pour que la touche marche dans toutes les applications, autorisez-la dans
+                        KDE : Configuration du système → Autorisations des applications → Prise en charge des
+                        anciennes applications X11 → « Toujours ».
+                      </p>
                     </div>
                     <div class="field">
                       <label for="hk-command">Command Mode (avec la touche de dictée)</label>
-                      <select id="hk-command"></select>
+                      <div class="row key-row">
+                        <select id="hk-command"></select>
+                        <button type="button" id="hk-command-detect" data-detect="hk-command">Détecter</button>
+                      </div>
                       <p class="hint">Consigne dictée appliquée au texte sélectionné.</p>
                     </div>
                     <div class="field">
@@ -394,27 +406,45 @@
                   <div class="fields">
                     <div class="field">
                       <label for="hk-paste">Coller la version brute</label>
-                      <input id="hk-paste" type="text" placeholder="Alt+Shift+V" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-paste" type="text" placeholder="Alt+Shift+V" spellcheck="false" />
+                        <button type="button" data-detect="hk-paste" data-shortcut-detect>Détecter</button>
+                      </div>
                     </div>
                     <div class="field">
                       <label for="hk-retry">Réessayer la dernière dictée</label>
-                      <input id="hk-retry" type="text" placeholder="Alt+Shift+R" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-retry" type="text" placeholder="Alt+Shift+R" spellcheck="false" />
+                        <button type="button" data-detect="hk-retry" data-shortcut-detect>Détecter</button>
+                      </div>
                     </div>
                     <div class="field">
                       <label for="hk-translate">Mode traduction (activer / couper)</label>
-                      <input id="hk-translate" type="text" placeholder="Alt+Shift+T" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-translate" type="text" placeholder="Alt+Shift+T" spellcheck="false" />
+                        <button type="button" data-detect="hk-translate" data-shortcut-detect>Détecter</button>
+                      </div>
                     </div>
                     <div class="field">
                       <label for="hk-meeting">Réunion (démarrer / arrêter)</label>
-                      <input id="hk-meeting" type="text" placeholder="Alt+Shift+M" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-meeting" type="text" placeholder="Alt+Shift+M" spellcheck="false" />
+                        <button type="button" data-detect="hk-meeting" data-shortcut-detect>Détecter</button>
+                      </div>
                     </div>
                     <div class="field">
                       <label for="hk-meeting-copy">Coller les nouvelles répliques</label>
-                      <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-meeting-copy" type="text" placeholder="Alt+Shift+N" spellcheck="false" />
+                        <button type="button" data-detect="hk-meeting-copy" data-shortcut-detect>Détecter</button>
+                      </div>
                     </div>
                     <div class="field">
                       <label for="hk-annotate">Capture commentée</label>
-                      <input id="hk-annotate" type="text" placeholder="Alt+Shift+A" spellcheck="false" />
+                      <div class="row key-row">
+                        <input id="hk-annotate" type="text" placeholder="Alt+Shift+A" spellcheck="false" />
+                        <button type="button" data-detect="hk-annotate" data-shortcut-detect>Détecter</button>
+                      </div>
                       <p class="hint">Appui : démarrer / arrêter ; maintien : dessiner.</p>
                     </div>
                   </div>
@@ -590,8 +620,9 @@
                     <button id="delete" type="button" class="danger">Supprimer la clé</button>
                   </div>
                   <p class="hint">
-                    Une clé par adresse, enregistrée tout de suite dans le Gestionnaire d'identifiants
-                    Windows : jamais en clair sur le disque, jamais envoyée en HTTP hors de ce PC.
+                    Une clé par adresse, enregistrée tout de suite dans le trousseau du système
+                    (Gestionnaire d'identifiants Windows ; KWallet ou GNOME Keyring sous Linux) :
+                    jamais en clair sur le disque, jamais envoyée en HTTP hors de ce PC.
                     « Tester ces réglages » utilise la clé saisie ici si elle est remplie.
                   </p>
                   <div id="result" class="result" hidden></div>
@@ -657,7 +688,7 @@
                 <div class="group">
                   <h3>Clés enregistrées</h3>
                   <p class="hint">
-                    Une clé par fournisseur, dans le Gestionnaire d'identifiants Windows. Elles ne sont
+                    Une clé par fournisseur, dans le trousseau du système. Elles ne sont
                     jamais affichées, ni en entier ni en partie : seulement le fournisseur.
                   </p>
                   <ul id="api-keys" class="api-keys"></ul>
@@ -730,7 +761,7 @@
                   </label>
                   <label class="choice">
                     <input type="radio" name="meeting-audio" value="temporaire" />
-                    <span><strong>Fichier temporaire chiffré (recommandé)</strong><small>Chiffré par Windows pendant la réunion (reprise après une coupure), supprimé une fois la transcription terminée.</small></span>
+                    <span><strong>Fichier temporaire chiffré (recommandé)</strong><small>Chiffré pour votre session pendant la réunion (reprise après une coupure), supprimé une fois la transcription terminée.</small></span>
                   </label>
                   <label class="choice">
                     <input type="radio" name="meeting-audio" value="conserve" />
@@ -851,7 +882,7 @@
                   <h3>Démarrage</h3>
                   <label class="option">
                     <input id="autostart" type="checkbox" />
-                    <span><strong>Lancer VoiceToText à l'ouverture de session Windows</strong><small>Discret, dans la zone de notification. Appliqué immédiatement.</small></span>
+                    <span><strong>Lancer VoiceToText à l'ouverture de session</strong><small>Discret, dans la zone de notification. Appliqué immédiatement.</small></span>
                   </label>
                   <p id="autostart-status" class="hint"></p>
                 </div>

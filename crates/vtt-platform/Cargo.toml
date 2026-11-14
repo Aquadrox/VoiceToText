@@ -36,3 +36,18 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Presse-papier X11, et Wayland par le protocole « data control » (KDE) : la
+# même bibliothèque que sous Windows.
+arboard = { version = "3", features = ["wayland-data-control"] }
+# Chiffrement des enregistrements de réunion (équivalent de DPAPI) : clé
+# aléatoire gardée dans le trousseau de la session.
+chacha20poly1305 = "0.10"
+# Clavier virtuel (uinput) pour les frappes simulées sous Wayland.
+libc = "0.2"
+# Trousseau de la session (KWallet, GNOME Keyring) via D-Bus, en Rust pur.
+secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }
+# Protocole X11 en Rust pur : touches (XInput2), frappes simulées (XTest),
+# changements du presse-papier (XFixes).
+x11rb = { version = "0.13", features = ["xfixes", "xinput", "xtest"] }

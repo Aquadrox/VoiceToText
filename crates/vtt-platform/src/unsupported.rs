@@ -9,7 +9,19 @@ use crate::KeyEvent;
 
 const MESSAGE: &str = "pas encore pris en charge sur cet OS";
 
-pub fn key_code(_name: &str) -> Option<u32> {
+pub fn key_code(name: &str) -> Option<u32> {
+    vtt_core::config::raw_key_code(name)
+}
+
+pub fn pressed_keys() -> Vec<u32> {
+    Vec::new()
+}
+
+pub fn modifier_of(_code: u32) -> Option<crate::Modifier> {
+    None
+}
+
+pub fn shortcut_key(_code: u32) -> Option<String> {
     None
 }
 
