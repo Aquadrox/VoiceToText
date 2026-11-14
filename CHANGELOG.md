@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.33.2 — 2026-11-14
+
+- [Android] Mise à jour : le premier appui sur « Télécharger et installer » n'échoue plus sur les Xiaomi (« Permission denied ») ; quand le téléphone refuse l'installation sans confirmation, Android la demande aussitôt.
+
 ## 0.33.1 — 2026-11-14
 
 - Épeler un mot : les lettres écrites en toutes lettres par la transcription (« ku » pour Q, « bé », « erre »…) sont reconnues. Marquez une courte pause entre les lettres, surtout Q puis U, qui sont souvent entendus comme un seul U.

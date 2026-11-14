@@ -430,6 +430,13 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
 - ✅ Vérifié sur le serveur : faux portail et faux KWin (Python, bus de test) : capture par le portail (image reçue, fichier supprimé), fenêtre active reçue de KWin (classe, titre, plein écran, rectangle), raccourci déclaré (appui et relâchement reçus, touche tenue) ; sous Xvfb : capture X11, clic enregistré, molette ignorée, rectangle de la fenêtre active, image dans le presse-papier
 - ⬜ À valider sur le Steam Deck (KDE réel) : autorisation de la capture d'écran, script KWin (styles dans Firefox), fenêtre de KDE pour les raccourcis et relâchement de la touche, mot épelé avec pause
 
+## v0.33.2 — Android : mise à jour refusée au premier essai ✅
+
+Sur le Xiaomi (HyperOS), le premier « Télécharger et installer » échouait toujours (« INSTALL_FAILED_ABORTED: Permission denied »), le second réussissait. Cause : l'installation est demandée sans confirmation (`USER_ACTION_NOT_REQUIRED`, Android 12 et plus) et le gestionnaire de paquets de HyperOS refuse d'office ce cas ; au second essai, moins de 30 s après, Android limite les mises à jour silencieuses et demande la confirmation, qui passe.
+
+- ✅ Refus d'une installation sans confirmation : APK gardé jusqu'au résultat, second essai aussitôt avec confirmation (`USER_ACTION_REQUIRED`) ; une annulation par l'utilisateur n'est jamais relancée (l'arrivée de la confirmation efface l'APK) ; APK effacé après la mise à jour
+- À vérifier sur le téléphone : passage 0.33.2 → version suivante en un seul appui, confirmation de HyperOS affichée
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

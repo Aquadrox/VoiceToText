@@ -16,6 +16,8 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -28,7 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * Mises à jour de l'application, comme sur PC : vérification au lancement
  * puis toutes les 6 h, notification une fois par version, installation sur
  * clic seulement (écran de confirmation d'Android, sauf si le téléphone
- * permet à l'application de se mettre à jour elle-même sans le demander).
+ * permet à l'application de se mettre à jour elle-même sans le demander ;
+ * s'il le refuse, comme HyperOS, second essai aussitôt avec confirmation).
  *
  * Sécurité, en plus des contrôles d'Android (une mise à jour doit être
  * signée avec la même clé que l'application en place, celle du projet, et
@@ -51,6 +54,8 @@ object Updater {
     private const val NOTIFY_AVAILABLE = 6002
     private const val NOTIFY_CONFIRM = 6003
     const val ACTION_INSTALL = "io.github.aquadrox.voicetotext.INSTALL_UPDATE"
+    /** Session envoyée sans confirmation : en cas de refus, on réessaie avec. */
+    const val EXTRA_SILENT = "io.github.aquadrox.voicetotext.SILENT_UPDATE"
 
     /** Version de test (PR) : autre identifiant et autre signature, pas de mise à jour. */
     val supported: Boolean
@@ -199,9 +204,19 @@ object Updater {
         return release
     }
 
+    private fun dir(context: Context) = File(context.cacheDir, "update")
+
+    /** APK gardé après une installation sans confirmation, le temps d'en connaître le résultat. */
+    fun kept(context: Context): File? = File(dir(context), "VoiceToText.apk").takeIf { it.isFile }
+
+    /** Efface l'APK téléchargé (plus utile). */
+    fun discard(context: Context) {
+        dir(context).deleteRecursively()
+    }
+
     /** Télécharge et vérifie l'APK (taille, SHA-256, contenu). */
     fun download(context: Context, release: Release): File {
-        val dir = File(context.cacheDir, "update").apply {
+        val dir = dir(context).apply {
             deleteRecursively()
             mkdirs()
         }
@@ -278,9 +293,15 @@ object Updater {
             pm.getPackageInfo(name, PackageManager.GET_SIGNING_CERTIFICATES)
         }
 
-    /** Confie l'APK vérifié à l'installateur d'Android ; le résultat arrive à [UpdateReceiver]. */
-    fun install(context: Context, file: File) {
+    /**
+     * Confie l'APK vérifié à l'installateur d'Android ; le résultat arrive à
+     * [UpdateReceiver]. `silent` : demander l'installation sans confirmation
+     * (Android 12 et plus) ; l'APK est alors gardé pour pouvoir réessayer avec
+     * confirmation si le téléphone la refuse.
+     */
+    fun install(context: Context, file: File, silent: Boolean = true) {
         val installer = context.packageManager.packageInstaller
+        val quiet = silent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
             setSize(file.length())
@@ -288,9 +309,13 @@ object Updater {
             // peut le faire sans écran de confirmation (le clic « Installer »
             // a déjà eu lieu). Sinon, Android demande la confirmation.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                setRequireUserAction(
+                    if (quiet) PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                    else PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+                )
             }
         }
+        var keep = false
         val id = installer.createSession(params)
         try {
             installer.openSession(id).use { session ->
@@ -298,7 +323,7 @@ object Updater {
                     file.inputStream().use { it.copyTo(output) }
                     session.fsync(output)
                 }
-                val intent = Intent(context, UpdateReceiver::class.java)
+                val intent = Intent(context, UpdateReceiver::class.java).putExtra(EXTRA_SILENT, quiet)
                 val pending = PendingIntent.getBroadcast(
                     context,
                     id,
@@ -307,13 +332,15 @@ object Updater {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
                 session.commit(pending.intentSender)
+                keep = quiet
             }
         } catch (error: Exception) {
             runCatching { installer.abandonSession(id) }
             throw error
         } finally {
-            // Android a copié le paquet dans la session.
-            file.parentFile?.deleteRecursively()
+            // Android a copié le paquet dans la session ; gardé seulement pour
+            // un second essai avec confirmation.
+            if (!keep) file.parentFile?.deleteRecursively()
         }
         context.getSystemService(NotificationManager::class.java).cancel(NOTIFY_AVAILABLE)
     }
@@ -436,6 +463,18 @@ class UpdateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val store = Store(context)
+        val silent = intent.getBooleanExtra(Updater.EXTRA_SILENT, false)
+        val apk = Updater.kept(context)
+        // Installation sans confirmation refusée d'office (HyperOS de Xiaomi :
+        // « INSTALL_FAILED_ABORTED: Permission denied ») : même APK, cette fois
+        // avec la confirmation d'Android. Une annulation par l'utilisateur
+        // passe forcément par la confirmation, dont l'arrivée efface l'APK :
+        // elle n'est donc jamais relancée.
+        if (status == PackageInstaller.STATUS_FAILURE_ABORTED && silent && apk != null) {
+            retry(context.applicationContext, apk, store)
+            return
+        }
+        Updater.discard(context)
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -458,6 +497,22 @@ class UpdateReceiver : BroadcastReceiver() {
         }
         Updater.listener?.invoke()
     }
+
+    /** Second essai avec confirmation, hors du fil principal (copie de l'APK). */
+    private fun retry(context: Context, apk: File, store: Store) {
+        val pending = goAsync()
+        UpdatesSettings.installing = true
+        Thread {
+            val result = runCatching { Updater.install(context, apk, silent = false) }
+            Handler(Looper.getMainLooper()).post {
+                UpdatesSettings.installing = false
+                store.updateError = result.exceptionOrNull()
+                    ?.let { "Mise à jour non installée : ${it.message ?: it}" }.orEmpty()
+                Updater.listener?.invoke()
+                pending.finish()
+            }
+        }.start()
+    }
 }
 
 /** Application remplacée par une nouvelle version (envoyé par Android). */
@@ -467,6 +522,7 @@ class UpdatedReceiver : BroadcastReceiver() {
         val store = Store(context)
         store.updateError = ""
         store.updateRelease = ""
+        runCatching { Updater.discard(context) }
         runCatching { Updater.schedule(context) }
         runCatching { Updater.notifyUpdated(context) }
     }
