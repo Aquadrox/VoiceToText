@@ -45,9 +45,9 @@ class HistoryActivity : Activity() {
         // Pourquoi l'historique peut rester vide : dit clairement.
         val settings = JSONObject(Native.settings(store.config, store.modelsDir)).optJSONObject("ok")
         if (settings?.optBoolean("history") == false) {
-            notes.note("Historique coupé dans les réglages (« Garder les dictées sur le téléphone ») : rien n'est gardé.")
+            notes.note("Historique coupé (Réglages → Historique → « Garder les dictées ») : rien n'est gardé.")
         } else if (BuildConfig.BUBBLE && !store.bubbleHistory) {
-            notes.note("Les dictées de la bulle ne sont pas gardées (réglage de la bulle).")
+            notes.note("Les dictées de la bulle ne sont pas gardées (Réglages → Historique).")
         }
         val reply = JSONObject(Native.history(store.historyFile, SHOWN))
         val entries = reply.optJSONArray("ok")

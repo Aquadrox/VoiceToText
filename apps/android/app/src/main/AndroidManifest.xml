@@ -74,6 +74,34 @@
             android:exported="false"
             android:foregroundServiceType="microphone|dataSync" />
 
+        <!-- Réglages : une page par catégorie, ouvertes depuis l'accueil. -->
+        <activity
+            android:name=".DictationSettings"
+            android:exported="false"
+            android:label="Dictée" />
+        <activity
+            android:name=".CleanupSettings"
+            android:exported="false"
+            android:label="Nettoyage du texte"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".BubbleSettings"
+            android:exported="false"
+            android:label="Bulle de dictée" />
+        <activity
+            android:name=".HistorySettings"
+            android:exported="false"
+            android:label="Historique" />
+        <activity
+            android:name=".UpdatesSettings"
+            android:exported="false"
+            android:label="Mises à jour"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".HelpSettings"
+            android:exported="false"
+            android:label="Aide" />
+
         <activity
             android:name=".HistoryActivity"
             android:exported="false"

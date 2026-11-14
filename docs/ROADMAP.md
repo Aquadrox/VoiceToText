@@ -347,6 +347,22 @@ La gestion des clés du PC (v0.3, v0.6, v0.10) sur le téléphone :
 - ✅ Vérifié sur le serveur : tests Rust, les deux éditions compilent, captures Robolectric en clair et en sombre, comportement du menu et de l'adresse, test des réglages contre un faux serveur (tests temporaires)
 - À vérifier sur le téléphone : enregistrer une clé, passer à un autre fournisseur et revenir, dictée nettoyée avec chacun ; « Tester » avec une vraie clé DeepSeek, puis une clé fausse
 
+## v0.30 — Android : réglages repensés ✅
+
+L'accueil empilait une douzaine de cartes (près de dix écrans à faire défiler), avec un bouton « Enregistrer les réglages » qui ne valait que pour une partie d'entre elles. Refonte d'après les conseils de l'article « 9 astuces pour améliorer l'UX de la page paramètres » (graphiste.com) :
+
+- ✅ Catégories (regrouper) : Dictée, Nettoyage du texte, Dictionnaire et snippets, Bulle de dictée, Historique, Mises à jour, Aide et réglages du PC ; une page chacune (`SettingsPage`, `Section`), ouverte depuis une liste de l'accueil
+- ✅ Ordre d'usage (hiérarchiser) : ce qui sert à chaque dictée d'abord ; chaque ligne résume l'état actuel (modèle prêt ou à télécharger, fournisseur et modèle, « clé manquante », nombre de mots, état de la bulle, nouvelle version)
+- ✅ Recherche (« Rechercher un réglage ») : index des réglages avec synonymes (`SettingsIndex`), sans accents ni casse, filtré selon l'édition ; le résultat ouvre la page, la fait défiler jusqu'au réglage et l'entoure un instant
+- ✅ Clarté : titres courts, explication en gris sous chaque réglage (`toggle`), ce que le réglage fait plutôt que comment
+- ✅ Enregistrement confirmé : interrupteurs et choix enregistrés dès qu'on les touche (`Config.save`, mise à jour partielle de config.toml), confirmation qui dit l'effet (« ✓ Nettoyage désactivé : le texte brut sera inséré ») ; seul le formulaire du fournisseur LLM garde « Enregistrer », et demande quoi faire en quittant avec des changements (retour d'Android 13 et plus compris)
+- ✅ Section haute : nouvelle version, bulle arrêtée, mise en route seulement tant qu'il manque le micro, le modèle ou un moyen de dicter
+- ✅ Réglages avancés repliés : « Adresse et modèle (avancé) » (ouvert d'office pour Ollama ou une adresse libre), prompts système dans « Avancé »
+- ✅ Bons contrôles : interrupteur pour une option, boutons radio pour un choix exclusif (modèle, taille de la bulle), menu pour une liste longue (langue, fournisseur) ; toute la ligne d'un interrupteur est touchable, lue en une fois par TalkBack
+- ✅ Autres produits : édition bulle présentée dans l'édition clavier (lien vers la release), VoiceToText pour PC en pied d'accueil et dans Aide
+- ✅ Vérifié sur le serveur : les deux éditions compilent, captures Robolectric de chaque page (clair et sombre, recherche)
+- À vérifier sur le téléphone : retour par geste avec un fournisseur non enregistré, téléchargement d'un modèle en quittant la page Dictée, confirmations
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
