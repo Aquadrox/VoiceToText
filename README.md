@@ -86,7 +86,22 @@ La **pause de la musique** pendant la dictée passe par MPRIS (Spotify, navigate
 
 **Déclarer les touches au bureau (Wayland)** : **Réglages → Raccourcis**, case à cocher visible sous Wayland. La dictée et le Command Mode deviennent des raccourcis de KDE, vus partout sans le réglage des anciennes applications X11 ; KDE les confirme une fois, et la touche se change ensuite aussi dans **Configuration du système → Raccourcis**. AltGr, Ctrl ou Maj seuls ne peuvent pas être des raccourcis de KDE : choisir par exemple F13 ou Pause.
 
-Pas encore sous Linux : le **mode Jeu** du Steam Deck.
+Pas encore sous Linux : le **mode Jeu** du Steam Deck (en préparation, voir ci-dessous).
+
+#### Mode Jeu du Steam Deck : diagnostic
+
+La dictée en mode Jeu (chat du jeu, chat Steam, pseudo à taper dans un jeu) est en préparation. Le mode Jeu n'a ni KDE, ni icône, ni pastille : VoiceToText y tournera en arrière-plan, déclenché par une combinaison **Steam + gâchette arrière**. Une **sonde** observe d'abord ce qui marche sur votre Deck ; elle n'enregistre rien au micro et n'envoie rien.
+
+1. En mode Bureau, dans **Réglages → Raccourcis**, régler la touche de dictée (par exemple **F13**).
+2. Dans Steam : **Paramètres → Contrôleur → disposition des combinaisons du bouton Steam** (*Guide Button Chord Layout*) **→ Modifier** : associer **L4** (ou une autre gâchette) à cette touche. Cette disposition vaut dans tous les jeux.
+3. Toujours en mode Bureau, dans Konsole (adapter le nom du fichier) :
+   ```sh
+   systemd-run --user --unit=voicetotext-sonde ~/Applications/VoiceToText_0.33.3_amd64.AppImage --sonde-mode-jeu
+   ```
+4. Passer en **mode Jeu**, lancer un jeu, ouvrir son chat (ou un champ de pseudo), puis faire **Steam + L4**. La sonde affiche un bandeau orange en haut à gauche, tape « voicetotext » puis « xtest », puis colle « colle ». Noter ce qui apparaît. Recommencer dans le chat Steam si possible.
+5. Revenir au mode Bureau, arrêter la sonde (`systemctl --user stop voicetotext-sonde`) et envoyer `~/.local/share/VoiceToText/logs/sonde-mode-jeu.log` avec vos observations.
+
+Le journal contient la session de jeu (processus gamescope et Steam, écrans), les propriétés de gamescope, les périphériques d'entrée et les touches de la combinaison ; les autres touches sont seulement comptées, jamais notées.
 
 **Si l'application se ferme toute seule** : les journaux sont dans `~/.local/share/VoiceToText/logs/` (dossier caché : dans Dolphin, **Ctrl+H** pour l'afficher). `voicetotext.log` décrit la session au démarrage (système, X11 ou Wayland…) et, après un plantage, recopie au lancement suivant la fin de `stderr.precedent.log`, où les bibliothèques (GTK, WebKit, pilote graphique) écrivent leurs erreurs. Ce sont ces fichiers à envoyer.
 

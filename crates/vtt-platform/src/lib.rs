@@ -46,6 +46,10 @@ pub use linux::{
     suppress_menu_activation,
 };
 #[cfg(target_os = "linux")]
+mod gamemode_linux;
+#[cfg(target_os = "linux")]
+pub use gamemode_linux::{Note, run_game_mode_probe};
+#[cfg(target_os = "linux")]
 mod kwin;
 #[cfg(target_os = "linux")]
 mod portal;

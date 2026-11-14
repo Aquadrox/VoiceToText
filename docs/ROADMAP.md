@@ -437,6 +437,20 @@ Sur le Xiaomi (HyperOS), le premier « Télécharger et installer » échouait t
 - ✅ Refus d'une installation sans confirmation : APK gardé jusqu'au résultat, second essai aussitôt avec confirmation (`USER_ACTION_REQUIRED`) ; une annulation par l'utilisateur n'est jamais relancée (l'arrivée de la confirmation efface l'APK) ; APK effacé après la mise à jour
 - À vérifier sur le téléphone : passage 0.33.2 → version suivante en un seul appui, confirmation de HyperOS affichée
 
+## v0.33.3 — Mode Jeu du Steam Deck : sonde 🚧
+
+Objectif : dicter en mode Jeu dans le chat du jeu, le chat Steam et les champs du jeu (pseudo épelé compris), déclenché par une combinaison **Steam + gâchette arrière** (disposition des combinaisons du bouton Steam, commune à tous les jeux), réglable.
+
+Le mode Jeu n'est pas le mode Bureau : pas de KDE (gamescope compose l'écran, Steam fait office de bureau), pas d'icône de notification, ni de pastille, ni de réglages ; les jeux passent par un ou plusieurs serveurs XWayland de gamescope ; le collage (Ctrl+V) est souvent refusé dans un chat de jeu.
+
+- ✅ **Sonde** (`--sonde-mode-jeu`, journal `logs/sonde-mode-jeu.log`), lancée depuis le mode Bureau comme service utilisateur (`systemd-run --user`) pour savoir aussi si un service survit au passage en mode Jeu. Elle attend gamescope puis note : processus gamescope et Steam avec leurs variables d'affichage, serveurs X, cibles systemd actives, propriétés `GAMESCOPE_*` / `STEAM_*` de chaque écran X, périphériques d'entrée (nom, lisibles ou non), accès à `/dev/uinput`. Elle suit les touches de chaque serveur X : la touche de dictée réglée et les candidates d'une combinaison (F13 à F24, Pause, Arrêt défil., Inser, Menu) sont notées ; les autres seulement comptées. Au relâchement de la touche de dictée : bandeau de surimpression (`GAMESCOPE_EXTERNAL_OVERLAY`, comme MangoHud), « voicetotext » tapé par le clavier virtuel (uinput, d'après la disposition), « xtest » tapé par XTest, « colle » collé par le presse-papier. Rien au micro, rien envoyé
+- ✅ Vérifié sur le serveur avec un faux processus gamescope et Xvfb : détection, connexion à l'écran, touche de dictée vue (autres touches non notées), bandeau créé, « xtest » reçu par une fenêtre ; clavier virtuel et collage en échec faute de `/dev/uinput` (attendu sur le serveur)
+- ⬜ Essai sur le Deck par le propriétaire (procédure dans le README), puis version réelle selon les résultats :
+  - mode sans interface quand gamescope est là, service utilisateur installé depuis les réglages (« Disponible aussi en mode Jeu »), réglages faits en mode Bureau
+  - déclenchement par la combinaison Steam + gâchette (touche réglable, bouton Détecter)
+  - texte **tapé** touche par touche plutôt que collé (accepté par plus de jeux ; épellation d'un pseudo) : clavier virtuel ou XTest selon la sonde, accents d'après la disposition, collage en secours
+  - retour : sons de dictée ; pastille en surimpression gamescope si le bandeau s'affiche
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
@@ -458,5 +472,4 @@ Accélérer la CI sans baisser la garde :
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
-- Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain) : prochaine étape, à étudier maintenant que le mode Bureau est éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).

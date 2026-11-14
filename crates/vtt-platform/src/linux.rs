@@ -37,7 +37,7 @@ use x11rb::wrapper::ConnectionExt as _;
 use crate::{KeyEvent, now_ms};
 
 /// Décalage entre un code evdev et un keycode X11.
-const X_KEYCODE_OFFSET: u32 = 8;
+pub(crate) const X_KEYCODE_OFFSET: u32 = 8;
 
 /// Délai avant de remettre l'ancien contenu du presse-papier : l'application
 /// cible lit le presse-papier de façon asynchrone après le Ctrl+V.

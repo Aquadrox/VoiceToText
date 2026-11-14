@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.33.3 — 2026-11-14
+
+- [PC] Steam Deck : outil de diagnostic du mode Jeu, pour préparer la dictée dans le chat des jeux et le chat Steam. Il n'enregistre rien au micro et n'envoie rien ; procédure dans le guide (README, « Mode Jeu du Steam Deck »).
+
 ## 0.33.2 — 2026-11-14
 
 - [Android] Mise à jour : le premier appui sur « Télécharger et installer » n'échoue plus sur les Xiaomi (« Permission denied ») ; quand le téléphone refuse l'installation sans confirmation, Android la demande aussitôt.
