@@ -17,6 +17,14 @@ pub fn pressed_keys() -> Vec<u32> {
     Vec::new()
 }
 
+pub fn modifier_of(_code: u32) -> Option<crate::Modifier> {
+    None
+}
+
+pub fn shortcut_key(_code: u32) -> Option<String> {
+    None
+}
+
 pub fn companion_keys(_trigger: u32) -> Vec<u32> {
     Vec::new()
 }

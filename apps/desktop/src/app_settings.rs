@@ -235,3 +235,47 @@ pub async fn capture_hotkey() -> Result<String, String> {
     log::info!("touche détectée : {name} (code {code})");
     Ok(name)
 }
+
+/// Détection d'un raccourci global (coller la version brute, réessayer…) :
+/// attend une combinaison, comme « Alt+Shift+V ». Les raccourcis actuels
+/// sont suspendus pendant la détection, puis remis.
+#[tauri::command]
+pub async fn capture_shortcut(app: AppHandle) -> Result<String, String> {
+    app.state::<Shortcuts>().suspend(&app);
+    let result =
+        tauri::async_runtime::spawn_blocking(|| vtt_platform::capture_shortcut(CAPTURE_TIMEOUT))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+    let hotkey = crate::settings::read(&app.state::<SharedConfig>())
+        .hotkey
+        .clone();
+    for error in app.state::<Shortcuts>().apply(&app, &hotkey) {
+        log::warn!("{error}");
+    }
+    if let Ok(shortcut) = &result {
+        log::info!("raccourci détecté : {shortcut}");
+    }
+    result
+}
+
+/// Pastille affichée ou masquée par sa page (Linux) : au repos, elle est
+/// vraiment masquée. Sous Linux, une fenêtre transparente qui reste affichée
+/// peut ne plus se redessiner (bulle grise figée sur l'écran). Sous Windows,
+/// la pastille reste affichée (transparente au repos) : la montrer à chaque
+/// dictée risquerait de voler le focus de l'application cible.
+#[tauri::command]
+pub fn overlay_visible(window: tauri::WebviewWindow, visible: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        if visible {
+            let _ = window.show();
+            // Les clics traversent la pastille (à refaire après affichage sous GTK).
+            let _ = window.set_ignore_cursor_events(true);
+        } else {
+            let _ = window.hide();
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (window, visible);
+}

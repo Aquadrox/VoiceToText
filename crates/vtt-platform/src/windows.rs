@@ -136,6 +136,43 @@ pub fn key_is_down(key: u32) -> bool {
     unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 }
 }
 
+/// Touche de modification d'un raccourci (versions gauche et droite).
+pub fn modifier_of(code: u32) -> Option<crate::Modifier> {
+    use crate::Modifier;
+    match code {
+        0xA0 | 0xA1 => Some(Modifier::Shift),
+        0xA2 | 0xA3 => Some(Modifier::Ctrl),
+        0xA4 | 0xA5 => Some(Modifier::Alt),
+        0x5B | 0x5C => Some(Modifier::Super),
+        _ => None,
+    }
+}
+
+/// Nom de la touche dans la syntaxe des raccourcis globaux (« V », « F9 »,
+/// « PageUp »…). Les lettres suivent la disposition active, comme les
+/// raccourcis eux-mêmes.
+pub fn shortcut_key(code: u32) -> Option<String> {
+    let name = match code {
+        0x41..=0x5A | 0x30..=0x39 => return char::from_u32(code).map(String::from),
+        0x70..=0x87 => return Some(format!("F{}", code - 0x70 + 1)),
+        0x20 => "Space",
+        0x0D => "Enter",
+        0x2D => "Insert",
+        0x2E => "Delete",
+        0x24 => "Home",
+        0x23 => "End",
+        0x21 => "PageUp",
+        0x22 => "PageDown",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x13 => "Pause",
+        _ => return None,
+    };
+    Some(name.to_owned())
+}
+
 /// Touches du clavier enfoncées (détection d'une touche dans les réglages).
 /// Sans les boutons de la souris ni les codes génériques Maj / Ctrl / Alt,
 /// doublons de leurs versions gauche et droite.

@@ -28,8 +28,8 @@ mod windows;
 pub use windows::{
     ClickRecorder, ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text,
     exclude_from_capture, foreground_rect, foreground_target, fullscreen_app_running, key_code,
-    key_is_down, modifiers_down, paste_image, play_sound, pressed_keys, screenshot,
-    spawn_keyboard_hook, suppress_menu_activation,
+    key_is_down, modifier_of, modifiers_down, paste_image, play_sound, pressed_keys, screenshot,
+    shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
 };
 
 #[cfg(target_os = "linux")]
@@ -41,8 +41,8 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_target,
-    fullscreen_app_running, key_code, key_is_down, modifiers_down, pressed_keys, session_report,
-    spawn_keyboard_hook, suppress_menu_activation,
+    fullscreen_app_running, key_code, key_is_down, modifier_of, modifiers_down, pressed_keys,
+    session_report, shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
 };
 #[cfg(target_os = "linux")]
 mod secrets_linux;
@@ -72,8 +72,9 @@ pub use unsupported::{
     ClickRecorder, ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys,
     copy_selection, copy_text, delete_secret, exclude_from_capture, foreground_rect,
     foreground_target, fullscreen_app_running, key_code, key_is_down, list_secrets, load_secret,
-    microphone_apps, modifiers_down, paste_image, play_sound, pressed_keys, protect, screenshot,
-    set_autostart, spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
+    microphone_apps, modifier_of, modifiers_down, paste_image, play_sound, pressed_keys, protect,
+    screenshot, set_autostart, shortcut_key, spawn_keyboard_hook, store_secret,
+    suppress_menu_activation, unprotect,
 };
 
 use std::sync::OnceLock;
@@ -136,6 +137,70 @@ fn named_key(code: u32) -> Option<&'static str> {
         .find(|name| key_code(name) == Some(code))
 }
 
+/// Touche de modification d'un raccourci global.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Modifier {
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+}
+
+impl Modifier {
+    /// Nom dans la syntaxe des raccourcis (« Alt+Shift+V »).
+    fn token(self) -> &'static str {
+        match self {
+            Modifier::Ctrl => "Ctrl",
+            Modifier::Alt => "Alt",
+            Modifier::Shift => "Shift",
+            Modifier::Super => "Super",
+        }
+    }
+}
+
+/// Attend une combinaison (touches de modification puis une touche) et la
+/// renvoie dans la syntaxe des raccourcis globaux : « Alt+Shift+V »,
+/// « Ctrl+F9 »… Échap seule annule. Une lettre, un chiffre ou Espace sans
+/// modificateur est refusé : le raccourci empêcherait de les taper.
+pub fn capture_shortcut(timeout: Duration) -> Result<String, String> {
+    let started = Instant::now();
+    let mut held = pressed_keys();
+    while started.elapsed() < timeout {
+        std::thread::sleep(Duration::from_millis(15));
+        let now = pressed_keys();
+        let pressed = now
+            .iter()
+            .copied()
+            .find(|k| !held.contains(k) && modifier_of(*k).is_none());
+        if let Some(code) = pressed {
+            let mut modifiers: Vec<Modifier> = now.iter().filter_map(|&k| modifier_of(k)).collect();
+            modifiers.sort();
+            modifiers.dedup();
+            return shortcut_text(&modifiers, code);
+        }
+        held = now;
+    }
+    Err("aucun raccourci détecté en 10 secondes".into())
+}
+
+fn shortcut_text(modifiers: &[Modifier], code: u32) -> Result<String, String> {
+    if modifiers.is_empty() && key_code("Escape") == Some(code) {
+        return Err("détection annulée".into());
+    }
+    let key = shortcut_key(code).ok_or(
+        "touche non utilisable dans un raccourci : essayez une lettre, un chiffre ou F1 à F24",
+    )?;
+    let typing = key.len() == 1 || key == "Space" || key == "Enter";
+    if modifiers.is_empty() && typing {
+        return Err(format!(
+            "« {key} » seule empêcherait de taper ce caractère : ajoutez Ctrl, Alt ou Maj"
+        ));
+    }
+    let mut parts: Vec<&str> = modifiers.iter().map(|m| m.token()).collect();
+    parts.push(&key);
+    Ok(parts.join("+"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +214,20 @@ mod tests {
         }
         assert_eq!(key_name(1000), "#1000");
         assert_eq!(key_code(&key_name(1000)), Some(1000));
+    }
+
+    #[test]
+    fn shortcut_texts() {
+        let escape = key_code("Escape");
+        if let Some(escape) = escape {
+            assert!(shortcut_text(&[], escape).is_err());
+        }
+        if let Some(f9) = key_code("F9") {
+            assert_eq!(shortcut_text(&[], f9).unwrap(), "F9");
+            assert_eq!(
+                shortcut_text(&[Modifier::Ctrl, Modifier::Shift], f9).unwrap(),
+                "Ctrl+Shift+F9"
+            );
+        }
     }
 }

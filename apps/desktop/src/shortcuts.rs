@@ -86,6 +86,21 @@ impl Shortcuts {
         }
     }
 
+    /// Libère tous les raccourcis, le temps d'en détecter un nouveau dans les
+    /// réglages : appuyer sur un raccourci existant ne doit pas le déclencher.
+    /// [`Shortcuts::apply`] les réenregistre ensuite.
+    pub fn suspend(&self, app: &AppHandle) {
+        let mut registered = self.registered.lock().unwrap_or_else(|e| e.into_inner());
+        for old in registered.iter_mut() {
+            if !old.is_empty()
+                && let Err(e) = app.global_shortcut().unregister(old.as_str())
+            {
+                log::warn!("libération du raccourci « {old} » : {e}");
+            }
+            old.clear();
+        }
+    }
+
     /// Enregistre les raccourcis de `hotkey` à la place des précédents ;
     /// renvoie les échecs (raccourci déjà pris par une autre application…).
     pub fn apply(&self, app: &AppHandle, hotkey: &HotkeyConfig) -> Vec<String> {

@@ -25,19 +25,25 @@ function ensureKeyOption(select, key) {
   }
 }
 
-/** « Détecter » : attend l'appui sur une touche, puis la choisit dans la liste. */
+/**
+ * « Détecter » : attend l'appui sur une touche (touche de dictée ou de
+ * commande, choisie dans la liste) ou sur une combinaison (raccourcis
+ * globaux, écrits dans le champ).
+ */
 for (const button of document.querySelectorAll("button[data-detect]")) {
   button.addEventListener("click", async () => {
-    const select = $(button.dataset.detect);
+    const field = $(button.dataset.detect);
+    const shortcut = button.hasAttribute("data-shortcut-detect");
     const label = button.textContent;
     button.disabled = true;
-    button.textContent = "Appuyez sur la touche…";
+    button.textContent = shortcut ? "Appuyez sur la combinaison…" : "Appuyez sur la touche…";
     try {
-      const key = await invoke("capture_hotkey");
-      ensureKeyOption(select, key);
-      select.value = key;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      SettingsUI.showResult("raccourcis", `Touche détectée : ${keyLabel(key)}. Cliquez sur « Appliquer ».`, false);
+      const key = await invoke(shortcut ? "capture_shortcut" : "capture_hotkey");
+      if (!shortcut) ensureKeyOption(field, key);
+      field.value = key;
+      field.dispatchEvent(new Event(shortcut ? "input" : "change", { bubbles: true }));
+      const shown = shortcut ? key : keyLabel(key);
+      SettingsUI.showResult("raccourcis", `Détecté : ${shown}. Cliquez sur « Appliquer ».`, false);
     } catch (e) {
       SettingsUI.showResult("raccourcis", String(e), true);
     } finally {

@@ -1,4 +1,7 @@
 :root {
+  /* Contrôles natifs (listes déroulantes, barres de défilement) au thème
+     de la page : sinon WebKitGTK les dessine clairs en mode sombre. */
+  color-scheme: light dark;
   /* Palette tirée du logo : encre, papier chaud, vermillon (le curseur).
      --accent : actions (boutons principaux, interrupteurs) ;
      --signal : ce qui est actif ou en cours (page ouverte, enregistrement). */
@@ -333,6 +336,36 @@ textarea {
   background: var(--bg);
   color: var(--fg);
   font: inherit;
+}
+
+/* Listes déroulantes dessinées par la page : la version native de
+   WebKitGTK (Linux) gardait un fond clair en mode sombre, texte illisible.
+   Flèche en dégradés (la politique de sécurité interdit les images data:). */
+select {
+  appearance: none;
+  padding-right: 30px;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+select option {
+  background-color: var(--card);
+  color: var(--fg);
+}
+
+.key-row {
+  margin-top: 0;
+}
+
+.key-row button {
+  flex: none;
 }
 
 button {

@@ -106,6 +106,8 @@ fn main() {
             app_settings::save_app_settings,
             app_settings::set_autostart,
             app_settings::capture_hotkey,
+            app_settings::capture_shortcut,
+            app_settings::overlay_visible,
             export::export_settings,
             export::import_settings,
             meetings::meetings_view,

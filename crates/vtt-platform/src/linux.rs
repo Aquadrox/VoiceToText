@@ -241,6 +241,99 @@ fn keymap() -> Option<[u8; 32]> {
     Some(conn.query_keymap().ok()?.reply().ok()?.keys)
 }
 
+/// Touche de modification d'un raccourci (versions gauche et droite ; AltGr
+/// compte comme Alt).
+pub fn modifier_of(code: u32) -> Option<crate::Modifier> {
+    use crate::Modifier;
+    match code {
+        key::LEFTSHIFT | key::RIGHTSHIFT => Some(Modifier::Shift),
+        key::LEFTCTRL | key::RIGHTCTRL => Some(Modifier::Ctrl),
+        key::LEFTALT | key::RIGHTALT => Some(Modifier::Alt),
+        key::LEFTMETA | key::RIGHTMETA => Some(Modifier::Super),
+        _ => None,
+    }
+}
+
+/// Lettres de la rangée QWERTY par code evdev (repli si la disposition
+/// active est illisible).
+const QWERTY_LETTERS: [(u32, char); 26] = [
+    (16, 'Q'),
+    (17, 'W'),
+    (18, 'E'),
+    (19, 'R'),
+    (20, 'T'),
+    (21, 'Y'),
+    (22, 'U'),
+    (23, 'I'),
+    (24, 'O'),
+    (25, 'P'),
+    (30, 'A'),
+    (31, 'S'),
+    (32, 'D'),
+    (33, 'F'),
+    (34, 'G'),
+    (35, 'H'),
+    (36, 'J'),
+    (37, 'K'),
+    (38, 'L'),
+    (44, 'Z'),
+    (45, 'X'),
+    (46, 'C'),
+    (47, 'V'),
+    (48, 'B'),
+    (49, 'N'),
+    (50, 'M'),
+];
+
+/// Lettre produite par la touche dans la disposition active (AZERTY : la
+/// touche de A en QWERTY donne Q), comme les raccourcis globaux l'entendent.
+fn layout_letter(code: u32) -> Option<char> {
+    let (conn, _) = display()?;
+    let keycode = Keycode::try_from(code + X_KEYCODE_OFFSET).ok()?;
+    let mapping = conn.get_keyboard_mapping(keycode, 1).ok()?.reply().ok()?;
+    let sym = *mapping.keysyms.first()?;
+    char::from_u32(sym)
+        .filter(char::is_ascii_lowercase)
+        .map(|c| c.to_ascii_uppercase())
+}
+
+/// Nom de la touche dans la syntaxe des raccourcis globaux (« V », « F9 »,
+/// « PageUp »…).
+pub fn shortcut_key(code: u32) -> Option<String> {
+    if let Some(letter) = layout_letter(code).or_else(|| {
+        QWERTY_LETTERS
+            .iter()
+            .find(|(c, _)| *c == code)
+            .map(|(_, l)| *l)
+    }) {
+        return Some(letter.to_string());
+    }
+    let name = match code {
+        // Rangée des chiffres (sans Maj en AZERTY : on garde le chiffre).
+        2..=10 => return Some((code - 1).to_string()),
+        11 => "0",
+        59..=68 => return Some(format!("F{}", code - 58)),
+        key::F11 => "F11",
+        key::F12 => "F12",
+        183..=194 => return Some(format!("F{}", code - 170)),
+        57 => "Space",
+        28 => "Enter",
+        key::INSERT => "Insert",
+        111 => "Delete",
+        key::HOME => "Home",
+        key::END => "End",
+        key::PAGEUP => "PageUp",
+        key::PAGEDOWN => "PageDown",
+        105 => "Left",
+        103 => "Up",
+        106 => "Right",
+        108 => "Down",
+        key::PAUSE => "Pause",
+        _ => return None,
+    };
+    Some(name.to_owned())
+}
+
 /// Touches du clavier enfoncées, en codes evdev (détection d'une touche dans
 /// les réglages).
 pub fn pressed_keys() -> Vec<u32> {

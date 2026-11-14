@@ -351,7 +351,7 @@ Les consignes données au LLM, pour le nettoyage des dictées et pour le Command
 
 Un menu à gauche découpe les réglages en sections ; une seule est affichée à la fois :
 
-- **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée).
+- **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée). Chaque touche et chaque raccourci a un bouton **Détecter** : cliquer, puis appuyer sur la touche ou la combinaison voulue (Échap annule) ; les raccourcis actuels sont suspendus pendant la détection. Une lettre seule est refusée (elle empêcherait de taper).
 - **Reconnaissance locale** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
 - **Dictée et traduction** : sons, pause de la musique et des vidéos, commandes vocales, langue du mode traduction.
 - **Nettoyage par LLM** : activer ou non, profils, fournisseur, modèle, délai, **Tester ces réglages**, clé API de l'adresse saisie, profil de secours, tarif, paramètres avancés.
