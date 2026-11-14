@@ -41,6 +41,14 @@ object Native {
      */
     external fun apiKeys(toml: String, hosts: String): String
 
+    /**
+     * Teste des réglages saisis, sans les enregistrer (bloquant : réseau) :
+     * `request` = `{"base_url", "model", "key"}` (modèle vide : clé seule).
+     * `{"ok": {"ok", "endpoint", "host", "model", "key", "duration_ms", "input",
+     * "output", "error", "usage", "cost", "currency", "models", "models_error", "hints"}}`.
+     */
+    external fun testLlm(toml: String, request: String): String
+
     /** Clé API du fournisseur actif (gardée en mémoire seulement). */
     external fun setApiKey(key: String)
 

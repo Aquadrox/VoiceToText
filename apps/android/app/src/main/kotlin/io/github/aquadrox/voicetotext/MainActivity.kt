@@ -72,6 +72,12 @@ class MainActivity : Activity() {
     private lateinit var keysList: LinearLayout
     private lateinit var keysEmpty: TextView
     private lateinit var keysMessage: TextView
+    private lateinit var testButton: Button
+    private lateinit var testResult: TextView
+    private lateinit var testModels: FlowLayout
+
+    /** Tests des réglages LLM (réseau), à part du téléchargement du modèle. */
+    private val tests = Executors.newSingleThreadExecutor()
     private lateinit var voiceCommands: Switch
     private lateinit var language: Spinner
     private lateinit var history: Switch
@@ -257,6 +263,12 @@ class MainActivity : Activity() {
             llmModel = field("Modèle (ex. deepseek-flash)")
             apiKey = keyField("Clé API (jamais affichée)")
             keyStatus = note("")
+            testButton = secondary("Tester ces réglages") { testForm() }
+            testResult = notice()
+            testModels = FlowLayout(this@MainActivity).apply { visibility = View.GONE }
+            addView(testModels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            })
             baseUrl.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -576,7 +588,18 @@ class MainActivity : Activity() {
             input.setText("")
             form.visibility = View.GONE
         }
+        lateinit var result: TextView
+        lateinit var test: Button
         item.row {
+            // Essai de la clé enregistrée, avec l'adresse et le modèle qui l'utilisent.
+            test = secondary("Tester") {
+                val key = store.key(host)
+                if (key == null) {
+                    result.say("Clé illisible : remplacez-la.")
+                    return@secondary
+                }
+                runTest(entry.getString("base_url"), entry.optString("model"), key, test, result, models = null)
+            }
             secondary("Remplacer") {
                 input.setText("")
                 form.visibility = if (form.visibility == View.VISIBLE) View.GONE else View.VISIBLE
@@ -592,11 +615,13 @@ class MainActivity : Activity() {
                 }
                 main.removeCallbacks(unconfirm)
                 store.deleteKey(host)
+                result.say("")
                 keysMessage.say("Clé supprimée pour $host.")
                 refreshKeyTarget(selectProvider = false)
                 refreshKeys()
             }.apply { setTextColor(getColor(R.color.signal)) }
         }
+        result = item.notice()
         item.addView(form)
         input = form.keyField("Nouvelle clé pour $host")
         form.row {
@@ -614,6 +639,110 @@ class MainActivity : Activity() {
             }
             secondary("Annuler") { close() }
         }
+    }
+
+    /** « Tester ces réglages » : adresse et modèle saisis, clé saisie sinon celle enregistrée. */
+    private fun testForm() {
+        val url = baseUrl.text.toString()
+        val host = JSONObject(Native.keyTarget(url)).optJSONObject("ok")?.optString("host").orEmpty()
+        val key = apiKey.text.toString().trim().ifEmpty { if (host.isEmpty()) "" else store.key(host).orEmpty() }
+        runTest(url, llmModel.text.toString(), key, testButton, testResult, testModels)
+    }
+
+    /**
+     * Test en tâche de fond (réseau), sans rien enregistrer ; la clé ne sort
+     * jamais du moteur, le compte rendu ne la contient pas. `models` : liste
+     * des modèles du serveur, un appui pour choisir (formulaire seulement).
+     */
+    private fun runTest(url: String, model: String, key: String, button: Button, result: TextView, models: FlowLayout?) {
+        button.isEnabled = false
+        result.say("Test en cours…")
+        models?.visibility = View.GONE
+        val request = JSONObject().put("base_url", url).put("model", model).put("key", key).toString()
+        val config = store.config
+        tests.execute {
+            val reply = runCatching { JSONObject(Native.testLlm(config, request)) }
+                .getOrElse { JSONObject().put("error", it.message ?: it.toString()) }
+            main.post {
+                if (isDestroyed) return@post
+                button.isEnabled = true
+                val report = reply.optJSONObject("ok")
+                if (report == null) {
+                    result.say("✗ ${reply.optString("error")}")
+                    return@post
+                }
+                result.say(describe(report))
+                if (models != null) showModels(report, models)
+            }
+        }
+    }
+
+    private fun describe(report: JSONObject): String {
+        val seconds = String.format(java.util.Locale.FRANCE, "%.1f", report.optLong("duration_ms") / 1000.0)
+        val host = report.optString("host")
+        val keyNote = "clé : ${report.optString("key")}"
+        val lines = mutableListOf<String>()
+        val output = report.optString("output").takeIf { !report.isNull("output") }
+        when {
+            report.optBoolean("ok") && output != null -> {
+                lines += "✓ $host répond en $seconds s ($keyNote)."
+                lines += "Exemple : « ${report.optString("input")} »\n→ « $output »"
+                report.optJSONObject("usage")?.let { usage ->
+                    val cost = if (report.isNull("cost")) "" else
+                        " · coût ≈ ${String.format(java.util.Locale.FRANCE, "%.5f", report.optDouble("cost"))} ${report.optString("currency")}"
+                    lines += "Jetons : ${usage.optLong("input_tokens")} envoyés, ${usage.optLong("output_tokens")} reçus$cost"
+                }
+            }
+            report.optBoolean("ok") ->
+                lines += "✓ Clé acceptée par $host : ${report.optJSONArray("models")?.length() ?: 0} modèle(s) disponible(s)."
+            else -> {
+                val error = report.optString("error").takeIf { !report.isNull("error") }
+                    ?: report.optString("models_error")
+                lines += "✗ Échec avec $host ($keyNote) :\n$error"
+            }
+        }
+        val hints = report.optJSONArray("hints")
+        if (hints != null && hints.length() > 0) {
+            lines += "Pistes :\n" + (0 until hints.length()).joinToString("\n") { "• ${hints.getString(it)}" }
+        }
+        if (report.optBoolean("ok") && output != null && !report.isNull("models_error")) {
+            lines += "Liste des modèles indisponible : ${report.optString("models_error")}"
+        }
+        return lines.joinToString("\n\n")
+    }
+
+    /** Modèles annoncés par le serveur : un appui remplit le champ Modèle. */
+    private fun showModels(report: JSONObject, flow: FlowLayout) {
+        flow.removeAllViews()
+        val list = report.optJSONArray("models") ?: return
+        if (list.length() == 0) return
+        val names = List(list.length()) { list.getString(it) }
+        val shown = names.take(MAX_MODELS)
+        flow.addView(TextView(this).apply {
+            text = "Modèles du serveur (toucher pour choisir)" +
+                if (names.size > shown.size) ", ${shown.size} sur ${names.size} :" else " :"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(getColor(R.color.muted))
+        })
+        for (name in shown) {
+            flow.addView(TextView(this).apply {
+                text = name
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(getColor(R.color.fg))
+                val selected = name == llmModel.text.toString().trim()
+                background = pressable(
+                    rounded(getColor(if (selected) R.color.card else R.color.bg), 999f, getColor(if (selected) R.color.signal else R.color.border_strong)),
+                    999f,
+                )
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setOnClickListener {
+                    llmModel.setText(name)
+                    showModels(report, flow)
+                    say("Modèle « $name » choisi : « Enregistrer les réglages » pour l'appliquer.")
+                }
+            })
+        }
+        flow.visibility = View.VISIBLE
     }
 
     /** Deux dernières réunions dans la carte de l'accueil. */
@@ -904,6 +1033,7 @@ class MainActivity : Activity() {
         main.removeCallbacks(bubbleCheck)
         worker.shutdown()
         updates.shutdown()
+        tests.shutdown()
         super.onDestroy()
     }
 
@@ -912,5 +1042,7 @@ class MainActivity : Activity() {
         const val NOTIFICATIONS = 3
         /** Délai pour confirmer la suppression d'une clé. */
         const val CONFIRM_MS = 4000L
+        /** Modèles affichés après un test (OpenRouter en annonce des centaines). */
+        const val MAX_MODELS = 40
     }
 }

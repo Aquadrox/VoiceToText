@@ -341,9 +341,11 @@ La gestion des clés du PC (v0.3, v0.6, v0.10) sur le téléphone :
 - ✅ Carte « Clés API » : fournisseurs ayant une clé (seuls les noms sont lus, jamais déchiffrés), usage (« réglage actif », profils importés du PC, « inutilisée ») ; **Remplacer** (champ masqué, jamais prérempli) et **Supprimer** en deux appuis
 - ✅ Menu « Fournisseur » (préréglages du PC : DeepSeek, GLM, OpenAI, Mistral, OpenRouter, Ollama du réseau local, Autre) qui remplit adresse et modèle ; le menu suit l'adresse saisie ; état de la clé pour l'adresse en cours de saisie (enregistrée, absente, facultative en local, jamais envoyée en http://)
 - ✅ Changement de fournisseur : délai, tarif et `extra_body` suivent le préréglage (plus de `thinking` de DeepSeek envoyé à OpenAI) ; même fournisseur : réglages du PC gardés
-- ✅ Moteur : `vtt-android::providers` (préréglages, `keyTarget`, `apiKeys`), 4 tests + 1 complété
-- ✅ Vérifié sur le serveur : tests Rust, les deux éditions compilent, captures Robolectric en clair et en sombre, comportement du menu et de l'adresse testé (tests temporaires)
-- À vérifier sur le téléphone : enregistrer une clé, passer à un autre fournisseur et revenir, dictée nettoyée avec chacun
+- ✅ « Tester ces réglages », comme sur PC : adresse, modèle et clé saisis (sinon la clé enregistrée pour cette adresse), sans rien enregistrer ; nettoyage de la phrase d'exemple du PC et `GET /models` ; réponse, durée, jetons, coût, ou erreur et pistes (`vtt_llm::hints`) ; modèles du serveur en pastilles, un appui remplit le champ (40 au plus) ; le fournisseur testé reçoit les paramètres qu'il aurait une fois enregistré
+- ✅ « Tester » sur chaque clé de la liste : adresse et modèle du réglage actif ou du profil qui l'utilisent, sinon du préréglage ; sans modèle connu, seule la liste des modèles est demandée (vérifie la clé)
+- ✅ Moteur : `vtt-android::providers` (préréglages, `keyTarget`, `apiKeys`, `testLlm`), 8 tests (dont un faux serveur compatible OpenAI : clé acceptée, refusée, serveur injoignable, clé seule) + 1 complété
+- ✅ Vérifié sur le serveur : tests Rust, les deux éditions compilent, captures Robolectric en clair et en sombre, comportement du menu et de l'adresse, test des réglages contre un faux serveur (tests temporaires)
+- À vérifier sur le téléphone : enregistrer une clé, passer à un autre fournisseur et revenir, dictée nettoyée avec chacun ; « Tester » avec une vraie clé DeepSeek, puis une clé fausse
 
 ## Outillage ✅
 

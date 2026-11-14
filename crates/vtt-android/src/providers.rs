@@ -5,9 +5,14 @@
 //! Les clés elles-mêmes restent côté Kotlin (chiffrées par le Keystore
 //! Android) : ce module ne voit que les noms d'hôte, jamais une clé.
 
-use serde::Serialize;
+use std::time::Instant;
+
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use vtt_core::config::{LlmConfig, Pricing};
+use vtt_core::config::{LlmConfig, Pricing, PromptKind};
+use vtt_core::usage::Usage;
+use vtt_core::{Directives, PostProcessor};
+use vtt_llm::{LlmCleaner, Prompts};
 
 use crate::settings;
 
@@ -211,6 +216,10 @@ pub struct KeyEntry {
     pub provider: &'static str,
     /// « réglage actif » et profils importés du PC qui utilisent ce fournisseur.
     pub used_by: Vec<String>,
+    /// Adresse et modèle essayés par « Tester » : réglage actif, sinon
+    /// profil, sinon préréglage (modèle vide : liste des modèles seulement).
+    pub base_url: String,
+    pub model: String,
 }
 
 /// Liste des clés : `hosts`, les hôtes ayant une clé (lus par Kotlin sans
@@ -231,7 +240,20 @@ pub fn keys(toml: &str, hosts: &[String]) -> Result<Vec<KeyEntry>, String> {
                 .filter(|p| p.llm.host() == Some(host))
                 .map(|p| format!("profil « {} »", p.name));
             let provider = provider_of(&format!("https://{host}"));
+            let (base_url, model) = std::iter::once(&config.llm)
+                .chain(config.llm_profiles.iter().map(|p| &p.llm))
+                .find(|llm| llm.host() == Some(host))
+                .map(|llm| (llm.normalized_base_url(), llm.model.trim().to_owned()))
+                .unwrap_or_else(|| {
+                    if provider.base_url.is_empty() {
+                        (format!("https://{host}"), String::new())
+                    } else {
+                        (provider.base_url.to_owned(), provider.model.to_owned())
+                    }
+                });
             KeyEntry {
+                base_url,
+                model,
                 host: host.to_owned(),
                 provider: if provider.id == CUSTOM {
                     ""
@@ -242,6 +264,143 @@ pub fn keys(toml: &str, hosts: &[String]) -> Result<Vec<KeyEntry>, String> {
             }
         })
         .collect())
+}
+
+/// Phrase d'exemple nettoyée par le test (la même que sur PC).
+const SAMPLE: &str =
+    "euh bonjour, euh je voulais te dire que la réunion c'est mardi, non pardon mercredi à 14h";
+
+/// Réglages à tester, saisis mais pas encore enregistrés.
+#[derive(Debug, Deserialize)]
+pub struct TestRequest {
+    pub base_url: String,
+    /// Vide : seule la liste des modèles est demandée (vérifie la clé).
+    pub model: String,
+    /// Clé saisie, sinon celle enregistrée pour cette adresse (vide : aucune).
+    pub key: String,
+}
+
+/// Compte rendu du test, comme sur PC. Jamais la clé elle-même.
+#[derive(Debug, Serialize)]
+pub struct Diagnostic {
+    pub ok: bool,
+    /// Adresse réellement appelée.
+    pub endpoint: String,
+    pub host: String,
+    pub model: String,
+    /// « envoyée », « aucune », « non envoyée (…) ».
+    pub key: &'static str,
+    pub duration_ms: u64,
+    pub input: &'static str,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub usage: Option<Usage>,
+    pub cost: Option<f64>,
+    pub currency: String,
+    /// Modèles annoncés par le serveur (`GET …/models`).
+    pub models: Vec<String>,
+    pub models_error: Option<String>,
+    pub hints: Vec<String>,
+}
+
+/// Teste des réglages sans les enregistrer : nettoyage de la phrase
+/// d'exemple (si un modèle est donné) et liste des modèles du serveur, avec
+/// des pistes en cas d'erreur. Le fournisseur testé reçoit les paramètres
+/// qu'il aurait une fois enregistré. Bloquant (réseau) : hors du fil
+/// principal.
+pub fn test(toml: &str, request: &TestRequest) -> Result<Diagnostic, String> {
+    let (config, _) = settings::parse(toml)?;
+    let mut llm = config.llm.clone();
+    llm.enabled = true;
+    llm.base_url = request.base_url.trim().to_owned();
+    llm.base_url = llm.normalized_base_url();
+    llm.model = request.model.trim().to_owned();
+    if llm.host() != config.llm.host() {
+        adopt(&mut llm);
+    }
+    let check_only_key = llm.model.is_empty();
+    if check_only_key {
+        // Modèle factice pour la validation : seule la liste est demandée.
+        llm.model = "-".into();
+        llm.validate()?;
+        llm.model.clear();
+    } else {
+        llm.validate()?;
+    }
+    let key = Some(request.key.trim().to_owned()).filter(|k| !k.is_empty());
+    let key_status = match (&key, llm.may_send_key()) {
+        (None, _) => "aucune",
+        (Some(_), true) => "envoyée",
+        (Some(_), false) => "non envoyée (http:// : jamais en clair hors du téléphone)",
+    };
+    let text = |kind, name: &str| config.prompt_text(kind, name).map(str::to_owned);
+    let prompts = Prompts {
+        cleanup: text(PromptKind::Nettoyage, &llm.cleanup_prompt),
+        command: text(PromptKind::Commande, &llm.command_prompt),
+        ..Prompts::default()
+    };
+    let provided = key.clone();
+    let cleaner = LlmCleaner::new(
+        &llm,
+        &config.dictionary,
+        &prompts,
+        Box::new(move || provided.clone()),
+    );
+    let started = Instant::now();
+    let result = (!check_only_key).then(|| cleaner.process(SAMPLE, Directives::default()));
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let (models, models_error) = match vtt_llm::list_models(&llm, key) {
+        Ok(models) => (models, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    let mut diagnostic = Diagnostic {
+        ok: false,
+        endpoint: cleaner.endpoint().to_owned(),
+        host: llm.host().unwrap_or_default().to_owned(),
+        model: llm.model.clone(),
+        key: key_status,
+        duration_ms,
+        input: SAMPLE,
+        output: None,
+        error: None,
+        usage: None,
+        cost: None,
+        currency: llm.pricing.currency.clone(),
+        models,
+        models_error,
+        hints: Vec::new(),
+    };
+    match result {
+        Some(Ok(cleaned)) => {
+            diagnostic.ok = true;
+            diagnostic.cost = cleaned.usage.map(|u| llm.pricing.cost(&u));
+            diagnostic.usage = cleaned.usage;
+            diagnostic.output = Some(cleaned.text);
+        }
+        Some(Err(e)) => {
+            let error = e.to_string();
+            diagnostic.hints = vtt_llm::hints(&llm, &error);
+            diagnostic.error = Some(error);
+        }
+        // Clé seule : la liste des modèles fait foi.
+        None => {
+            diagnostic.ok = diagnostic.models_error.is_none();
+            if let Some(error) = &diagnostic.models_error {
+                diagnostic.hints = vtt_llm::hints(&llm, error);
+            }
+        }
+    }
+    if !check_only_key
+        && !diagnostic.models.is_empty()
+        && !diagnostic.models.iter().any(|m| m == &llm.model)
+    {
+        diagnostic.hints.push(format!(
+            "Le modèle « {} » n'est pas dans la liste annoncée par le serveur : vérifiez son nom \
+             exact.",
+            llm.model
+        ));
+    }
+    Ok(diagnostic)
 }
 
 #[cfg(test)]
@@ -332,19 +491,146 @@ mod tests {
                     host: "api.deepseek.com".into(),
                     provider: "DeepSeek",
                     used_by: vec!["réglage actif".into()],
+                    base_url: "https://api.deepseek.com".into(),
+                    model: "deepseek-flash".into(),
                 },
                 KeyEntry {
                     host: "api.mistral.ai".into(),
                     provider: "Mistral",
                     used_by: vec!["profil « Mistral »".into()],
+                    base_url: "https://api.mistral.ai/v1".into(),
+                    model: "deepseek-flash".into(),
                 },
                 KeyEntry {
                     host: "llm.exemple.fr".into(),
                     provider: "",
                     used_by: vec![],
+                    base_url: "https://llm.exemple.fr".into(),
+                    model: String::new(),
                 },
             ]
         );
         assert!(keys("pas du toml = =", &hosts).is_err());
+    }
+
+    /// Serveur compatible OpenAI jetable (127.0.0.1) : répond à
+    /// `requests` requêtes, renvoie son adresse et les requêtes reçues.
+    fn fake_server(requests: usize) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut buf).unwrap();
+                    request.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&request);
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text[..end]
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let text = String::from_utf8_lossy(&request).into_owned();
+                let (status, body) = if !text.contains("Bearer bonne-cle") {
+                    (401, r#"{"error":{"message":"invalid api key"}}"#)
+                } else if text.starts_with("GET") {
+                    (200, r#"{"data":[{"id":"petit"},{"id":"grand"}]}"#)
+                } else {
+                    (
+                        200,
+                        r#"{"choices":[{"message":{"content":"Bonjour, la réunion est mercredi à 14 h."}}],"usage":{"prompt_tokens":100,"completion_tokens":20}}"#,
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                seen.push(text);
+            }
+            seen
+        });
+        (url, handle)
+    }
+
+    fn request(base_url: &str, model: &str, key: &str) -> TestRequest {
+        TestRequest {
+            base_url: base_url.into(),
+            model: model.into(),
+            key: key.into(),
+        }
+    }
+
+    #[test]
+    fn a_working_key_is_reported_with_the_server_models() {
+        let (url, server) = fake_server(2);
+        let report = test("", &request(&url, "petit", "bonne-cle")).unwrap();
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.key, "envoyée");
+        assert_eq!(report.host, "127.0.0.1");
+        assert_eq!(
+            report.output.as_deref(),
+            Some("Bonjour, la réunion est mercredi à 14 h.")
+        );
+        assert_eq!(report.usage.map(|u| u.output_tokens), Some(20));
+        assert_eq!(report.models, ["grand", "petit"]);
+        assert!(report.hints.is_empty(), "{:?}", report.hints);
+        let seen = server.join().unwrap();
+        // Adresse changée : pas de « thinking » de DeepSeek envoyé.
+        assert!(!seen[0].contains("thinking"), "{}", seen[0]);
+    }
+
+    #[test]
+    fn a_refused_key_gives_a_hint() {
+        let (url, server) = fake_server(2);
+        let report = test("", &request(&url, "inconnu", "mauvaise")).unwrap();
+        assert!(!report.ok);
+        assert!(
+            report.error.as_deref().unwrap_or("").contains("401"),
+            "{report:?}"
+        );
+        assert!(
+            report.hints.iter().any(|h| h.contains("Clé refusée")),
+            "{:?}",
+            report.hints
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn without_a_model_only_the_key_is_checked() {
+        let (url, server) = fake_server(1);
+        let report = test("", &request(&url, "", "bonne-cle")).unwrap();
+        assert!(report.ok, "{report:?}");
+        assert!(report.output.is_none());
+        assert_eq!(report.models.len(), 2);
+        assert_eq!(server.join().unwrap().len(), 1, "seulement GET /models");
+        // Rien n'écoute : échec expliqué.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", closed.local_addr().unwrap());
+        drop(closed);
+        let report = test("", &request(&url, "", "")).unwrap();
+        assert!(!report.ok);
+        assert_eq!(report.key, "aucune");
+        assert!(!report.hints.is_empty(), "{report:?}");
+    }
+
+    #[test]
+    fn invalid_settings_are_refused_before_any_request() {
+        assert!(test("", &request("http://exemple.com", "m", "k")).is_err());
+        assert!(test("", &request("pas une adresse", "m", "k")).is_err());
     }
 }

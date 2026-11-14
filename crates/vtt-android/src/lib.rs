@@ -108,6 +108,26 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_keyTarget<'a>(
     java(&mut env, &json)
 }
 
+/// Teste des réglages LLM saisis (bloquant, réseau) : diagnostic JSON.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_testLlm<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    toml: JString<'a>,
+    request: JString<'a>,
+) -> jstring {
+    let toml = text(&mut env, &toml);
+    let request = text(&mut env, &request);
+    let json = protect(|| {
+        reply(
+            serde_json::from_str::<providers::TestRequest>(&request)
+                .map_err(|e| e.to_string())
+                .and_then(|r| providers::test(&toml, &r)),
+        )
+    });
+    java(&mut env, &json)
+}
+
 /// Clés enregistrées (`hosts` : tableau JSON des hôtes) et leur usage.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_apiKeys<'a>(
