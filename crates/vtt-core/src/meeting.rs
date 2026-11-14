@@ -14,8 +14,10 @@ use crate::audio;
 use crate::diarize;
 use crate::pipeline::SAMPLE_RATE;
 
+mod names;
 mod record;
 
+pub use names::{NameGuess, guess_names, same_person};
 pub use record::{MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE};
 
 /// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).

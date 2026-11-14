@@ -794,32 +794,16 @@ pub fn set_speaker_count(root: &Path, id: &str, count: Option<usize>) -> Result<
 
 /// Nom d'un intervenant (vide : « Intervenant N »).
 pub fn rename_speaker(root: &Path, id: &str, index: usize, name: &str) -> Result<(), String> {
-    const MAX_NAME: usize = 60;
-    if index >= 50 {
-        return Err("intervenant inconnu".into());
-    }
-    let name: String = name.trim().chars().take(MAX_NAME).collect();
-    update(root, id, |r| {
-        if r.speaker_names.len() <= index {
-            r.speaker_names.resize(index + 1, String::new());
-        }
-        r.speaker_names[index] = name;
-        while r.speaker_names.last().is_some_and(String::is_empty) {
-            r.speaker_names.pop();
-        }
-    })
+    let mut result = Ok(());
+    update(root, id, |r| result = r.rename_speaker(index, name))?;
+    result
 }
 
 /// Ne plus distinguer les intervenants : tours, noms et empreintes vocales
 /// effacés.
 pub fn forget_speakers(root: &Path, id: &str) -> Result<(), String> {
     let dir = dir(root, id)?;
-    update(root, id, |r| {
-        r.speaker_track = None;
-        r.speaker_turns.clear();
-        r.speaker_names.clear();
-        r.speaker_count = None;
-    })?;
+    update(root, id, MeetingRecord::forget_speakers)?;
     let _ = fs::remove_file(dir.join(ANALYSIS_FILE));
     Ok(())
 }
@@ -844,7 +828,7 @@ fn write_summary(
     }
     let cleaner = engine::summarizer(config)
         .ok_or("nettoyage par LLM désactivé : activez-le dans les réglages")?;
-    let transcript = meeting::transcript_text(&record.segments(), &record.speaker_names, false);
+    let transcript = meeting::transcript_text(&record.segments(), &record.names(), false);
     let language = language
         .map(str::to_owned)
         .unwrap_or_else(|| config.meetings.summary_language.trim().to_owned());
@@ -1008,6 +992,9 @@ pub struct SpeakerView {
     /// Première réplique, pour reconnaître la voix (début, et moment).
     pub first: String,
     pub first_ms: u64,
+    /// `name` vient de sa présentation : la phrase, et quand.
+    pub found: Option<String>,
+    pub found_ms: Option<u64>,
 }
 
 /// Début d'un texte, coupé sur un caractère.
@@ -1022,6 +1009,7 @@ fn excerpt(text: &str, max: usize) -> String {
 pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
     let (record, dir) = load(root, id)?;
     let turns = meeting::turns(&record.segments());
+    let names = record.names();
     let mut speaker_list: Vec<SpeakerView> = Vec::new();
     for reply in &turns {
         if let Some(index) = reply.speaker
@@ -1030,7 +1018,9 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
             speaker_list.push(SpeakerView {
                 index,
                 label: meeting::speaker_label(reply.track, Some(index), &[]),
-                name: record.speaker_names.get(index).cloned().unwrap_or_default(),
+                name: names.get(index).cloned().unwrap_or_default(),
+                found: record.name_guess(index).map(|g| g.quote.clone()),
+                found_ms: record.name_guess(index).map(|g| g.at_ms),
                 talk_ms: record
                     .speaker_turns
                     .iter()
@@ -1048,7 +1038,7 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
         .map(|r| Reply {
             label: r
                 .speaker
-                .map(|_| meeting::speaker_label(r.track, r.speaker, &record.speaker_names)),
+                .map(|_| meeting::speaker_label(r.track, r.speaker, &names)),
             start_ms: r.start_ms,
             speaker: r.speaker,
             text: r.text,
@@ -1084,7 +1074,7 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
         failed_chunks: record.failed_chunks,
         marks: record.marks.clone(),
         replies,
-        speaker_names: record.speaker_names.clone(),
+        speaker_names: names,
         speaker_list,
         speaker_count: record.speaker_count,
         speakers_pending: record.speaker_track.is_some() && record.speaker_turns.is_empty(),
@@ -1134,18 +1124,14 @@ pub fn export(root: &Path, id: &str, what: &str, date: &str) -> Result<String, S
             .summary
             .map(|s| format!("# {}\n\n{}", record.title, s.text.trim()))
             .ok_or_else(|| "pas encore de compte rendu".to_owned()),
-        "transcript" => Ok(meeting::transcript_text(
-            &segments,
-            &record.speaker_names,
-            false,
-        )),
+        "transcript" => Ok(meeting::transcript_text(&segments, &record.names(), false)),
         _ => Ok(meeting::to_markdown(
             &record.title,
             date,
             record.duration_ms,
             record.summary.as_ref().map(|s| s.text.as_str()),
             &segments,
-            &record.speaker_names,
+            &record.names(),
             false,
         )),
     }
