@@ -17,6 +17,12 @@ env:
   # Détection des fichiers modifiés (voir .github/scripts/changes.sh).
   BASE_SHA: ${{ github.event.pull_request.base.sha }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  # whisper.cpp (ggml) est compilé par défaut pour le processeur exact de la
+  # machine de compilation (-march=native) : un serveur GitHub avec AVX-512
+  # produisait un programme qui plantait (SIGILL, instruction illégale) sur
+  # le Steam Deck. OFF : jeu d'instructions fixe (AVX2, FMA, F16C), présent
+  # sur tous les PC depuis 2013 environ, Deck compris.
+  GGML_NATIVE: "OFF"
 
 jobs:
   linux:
@@ -102,8 +108,8 @@ jobs:
           # sans aucun fichier compilé.
           workspaces: ". -> ../../../t"
           # Changer le préfixe repart d'un cache vide (v1 ne contenait que
-          # les sources téléchargées).
-          prefix-key: v2-rust
+          # les sources téléchargées ; v2, whisper.cpp compilé en natif).
+          prefix-key: v3-rust
           # Cache alimenté par `main` seulement (avec la compilation release),
           # réutilisé par les PR.
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -180,7 +186,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.changes.outputs.code == 'true'
         with:
-          prefix-key: v1-appimage
+          # v1 : whisper.cpp compilé en natif (voir GGML_NATIVE).
+          prefix-key: v2-appimage
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: AppImage
         if: steps.changes.outputs.code == 'true' && !startsWith(github.ref, 'refs/tags/v')
