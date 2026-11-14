@@ -46,8 +46,12 @@ arboard = { version = "3", features = ["wayland-data-control"] }
 chacha20poly1305 = "0.10"
 # Clavier virtuel (uinput) pour les frappes simulées sous Wayland.
 libc = "0.2"
+# Sortie JSON de pactl / pw-dump (détection des appels).
+serde_json.workspace = true
 # Trousseau de la session (KWallet, GNOME Keyring) via D-Bus, en Rust pur.
 secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }
+# Bus D-Bus de la session : contrôle des lecteurs (MPRIS).
+zbus = "5"
 # Protocole X11 en Rust pur : touches (XInput2), frappes simulées (XTest),
 # changements du presse-papier (XFixes).
 x11rb = { version = "0.13", features = ["xfixes", "xinput", "xtest"] }

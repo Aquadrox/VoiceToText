@@ -36,38 +36,89 @@ const fn browser(key: &'static str, label: &'static str) -> Provider {
     }
 }
 
-/// Programmes (en minuscules) → service.
+/// Programmes (en minuscules) → service. Exécutables Windows (`.exe`) et
+/// Linux (nom du binaire, y compris en Flatpak).
 const PROVIDERS: &[(&[&str], Provider)] = &[
     (
-        &["ms-teams.exe", "teams.exe", "msteams.exe"],
+        &[
+            "ms-teams.exe",
+            "teams.exe",
+            "msteams.exe",
+            "teams-for-linux",
+        ],
         app("teams", "Microsoft Teams"),
     ),
     (
-        &["zoom.exe", "cpthost.exe", "zoomwebviewhost.exe"],
+        &[
+            "zoom.exe",
+            "cpthost.exe",
+            "zoomwebviewhost.exe",
+            "zoom",
+            "zoomwebviewhost",
+        ],
         app("zoom", "Zoom"),
     ),
     (
-        &["discord.exe", "discordptb.exe", "discordcanary.exe"],
+        &[
+            "discord.exe",
+            "discordptb.exe",
+            "discordcanary.exe",
+            "discord",
+            "discordptb",
+            "discordcanary",
+        ],
         app("discord", "Discord"),
     ),
-    (&["slack.exe"], app("slack", "Slack")),
+    (&["slack.exe", "slack"], app("slack", "Slack")),
     (
-        &["whatsapp.exe", "whatsapp.root.exe"],
+        &[
+            "whatsapp.exe",
+            "whatsapp.root.exe",
+            "whatsapp-for-linux",
+            "zapzap",
+        ],
         app("whatsapp", "WhatsApp"),
     ),
-    (&["signal.exe"], app("signal", "Signal")),
-    (&["telegram.exe"], app("telegram", "Telegram")),
-    (&["skype.exe"], app("skype", "Skype")),
+    (&["signal.exe", "signal-desktop"], app("signal", "Signal")),
     (
-        &["ciscocollabhost.exe", "webexhost.exe", "atmgr.exe"],
+        &["telegram.exe", "telegram-desktop", "telegram"],
+        app("telegram", "Telegram"),
+    ),
+    (&["skype.exe", "skypeforlinux"], app("skype", "Skype")),
+    (
+        &["ciscocollabhost.exe", "webexhost.exe", "atmgr.exe", "webex"],
         app("webex", "Webex"),
     ),
-    (&["chrome.exe"], browser("navigateur:chrome", "Chrome")),
-    (&["msedge.exe"], browser("navigateur:edge", "Edge")),
-    (&["firefox.exe"], browser("navigateur:firefox", "Firefox")),
-    (&["brave.exe"], browser("navigateur:brave", "Brave")),
-    (&["opera.exe"], browser("navigateur:opera", "Opera")),
-    (&["vivaldi.exe"], browser("navigateur:vivaldi", "Vivaldi")),
+    (
+        &[
+            "chrome.exe",
+            "chrome",
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+        ],
+        browser("navigateur:chrome", "Chrome"),
+    ),
+    (
+        &["msedge.exe", "msedge", "microsoft-edge"],
+        browser("navigateur:edge", "Edge"),
+    ),
+    (
+        &["firefox.exe", "firefox", "firefox-bin", "firefox-esr"],
+        browser("navigateur:firefox", "Firefox"),
+    ),
+    (
+        &["brave.exe", "brave", "brave-browser"],
+        browser("navigateur:brave", "Brave"),
+    ),
+    (
+        &["opera.exe", "opera"],
+        browser("navigateur:opera", "Opera"),
+    ),
+    (
+        &["vivaldi.exe", "vivaldi-bin", "vivaldi"],
+        browser("navigateur:vivaldi", "Vivaldi"),
+    ),
 ];
 
 /// Service d'un programme qui utilise le micro (`None` : pas un appel).
@@ -204,6 +255,11 @@ mod tests {
         assert_eq!(provider("Zoom.exe").unwrap().label, "Zoom");
         assert!(provider("chrome.exe").unwrap().browser);
         assert_eq!(provider("notepad.exe"), None);
+        // Linux : nom du binaire.
+        assert_eq!(provider("Discord").unwrap().key, "discord");
+        assert_eq!(provider("signal-desktop").unwrap().key, "signal");
+        assert!(provider("firefox").unwrap().browser);
+        assert_eq!(provider("voicetotext"), None);
         let mut keys: Vec<&str> = providers().map(|p| p.key).collect();
         let count = keys.len();
         keys.dedup();

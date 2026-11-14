@@ -22,11 +22,16 @@ env:
   # produisait un programme qui plantait (SIGILL, instruction illégale) sur
   # le Steam Deck. OFF : jeu d'instructions fixe (AVX2, FMA, F16C), présent
   # sur tous les PC depuis 2013 environ, Deck compris.
+  # Changer une variable GGML_* ne recompile pas whisper.cpp déjà en cache :
+  # changer aussi les `prefix-key` des jobs windows et appimage.
   GGML_NATIVE: "OFF"
 
 jobs:
   linux:
     runs-on: ubuntu-latest
+    # Un outil bloqué (téléchargement, compilation) ne doit pas occuper la CI
+    # 6 h (délai par défaut de GitHub) : chaque job a un plafond large.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,6 +80,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 60
     env:
       # La compilation de ggml-vulkan imbrique des dossiers profonds : avec le
       # chemin par défaut, MSBuild dépasse la limite de 260 caractères.
@@ -147,6 +153,9 @@ jobs:
             D:\t\release\bundle\nsis\*.exe
             D:\t\release\bundle\nsis\*.exe.sig
           if-no-files-found: error
+          # Artefacts de test gardés 14 jours (ceux d'un tag sont publiés dans
+          # la release par le job release, dans la même exécution).
+          retention-days: 14
 
   # Application Linux (Steam Deck en mode Bureau, PC sous X11) : AppImage,
   # un seul fichier, rien à installer (SteamOS ne garde pas les paquets
@@ -154,10 +163,25 @@ jobs:
   # signée pour la mise à jour automatique. Pas obligatoire pour merger,
   # mais la release l'attend.
   appimage:
-    # La plus ancienne image disponible : une AppImage ne démarre qu'avec une
-    # glibc au moins aussi récente que celle de la compilation.
-    runs-on: ubuntu-22.04
+    # Une AppImage ne démarre qu'avec une glibc au moins aussi récente que
+    # celle de la compilation : compilée dans un conteneur Ubuntu 22.04
+    # (glibc 2.35), elle reste compatible avec les systèmes un peu anciens,
+    # sans dépendre de l'image ubuntu-22.04 de GitHub (retirée le 17/04/2027).
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 60
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # Pas de FUSE dans un conteneur : les outils AppImage de Tauri
+      # (linuxdeploy) s'extraient au lieu de se monter.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
+      # git avant checkout : sans lui, l'action télécharge les sources sans
+      # l'historique dont changes.sh a besoin.
+      - name: Outils de base (git, curl)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git curl
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -165,29 +189,43 @@ jobs:
         id: changes
         shell: bash
         run: .github/scripts/changes.sh
-      - name: Dépendances système (WebKitGTK, ALSA, outils AppImage)
+      # clang : bindgen (whisper-rs-sys). libvulkan-dev : bibliothèque pour
+      # l'édition de liens (-lvulkan).
+      - name: Dépendances système (WebKitGTK, ALSA, Vulkan, outils AppImage)
         if: steps.changes.outputs.code == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libasound2-dev libvulkan-dev patchelf libfuse2 file
-      # Vulkan récent (en-têtes et glslc) : celui d'Ubuntu 22.04 est trop
-      # ancien pour ggml-vulkan. La bibliothèque pour l'édition de liens
-      # (libvulkan.so) vient de libvulkan-dev ci-dessus : le SDK ne la met pas
-      # là où l'éditeur de liens la cherche.
+          apt-get install -y --no-install-recommends build-essential pkg-config cmake clang \
+            libclang-dev xz-utils file patchelf libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev \
+            libvulkan-dev
+      # SDK Vulkan officiel (LunarG), version figée : Ubuntu 22.04 n'a ni
+      # glslc ni des en-têtes assez récents pour ggml-vulkan. Seuls les
+      # en-têtes, les bibliothèques et glslc sont extraits (367 Mo compressés).
       - name: SDK Vulkan (compilation de whisper.cpp pour le GPU)
         if: steps.changes.outputs.code == 'true'
-        uses: jakoch/install-vulkan-sdk-action@v1
+        env:
+          VULKAN_VERSION: "1.4.363.1"
+        run: |
+          mkdir -p /opt/vulkan
+          curl -sSfL --retry 3 \
+            "https://sdk.lunarg.com/sdk/download/$VULKAN_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz" \
+            | tar -xJ -C /opt/vulkan --wildcards "$VULKAN_VERSION/x86_64/include/*" \
+              "$VULKAN_VERSION/x86_64/lib/*" "$VULKAN_VERSION/x86_64/bin/glslc"
+          echo "VULKAN_SDK=/opt/vulkan/$VULKAN_VERSION/x86_64" >> "$GITHUB_ENV"
+          echo "/opt/vulkan/$VULKAN_VERSION/x86_64/bin" >> "$GITHUB_PATH"
+      # CLI Tauri par npm (Node d'Ubuntu 22.04 trop ancien).
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.code == 'true'
         with:
-          install_runtime: false
-          cache: true
+          node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
         if: steps.changes.outputs.code == 'true'
       - uses: Swatinem/rust-cache@v2
         if: steps.changes.outputs.code == 'true'
         with:
-          # v1 : whisper.cpp compilé en natif (voir GGML_NATIVE).
-          prefix-key: v2-appimage
+          # v1 : whisper.cpp compilé en natif (voir GGML_NATIVE) ; v2 : hors
+          # conteneur (autres bibliothèques système).
+          prefix-key: v3-appimage
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: AppImage
         if: steps.changes.outputs.code == 'true' && !startsWith(github.ref, 'refs/tags/v')
@@ -216,12 +254,14 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
+          retention-days: 14
 
   # Application Android : moteur Rust (vtt-android) compilé pour ARM64, puis
   # APK. PR et `main` : APK de test (identifiant .test, installable à côté de
   # la version publiée) ; tags : APK de release signé avec la clé du projet.
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NDK_VERSION: "29.0.14206865"
       CMAKE_VERSION: "3.31.6"
@@ -298,11 +338,13 @@ jobs:
           name: VoiceToText-android
           path: apps/android/dist/*.apk
           if-no-files-found: error
+          retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, appimage, android]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
