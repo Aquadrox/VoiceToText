@@ -66,7 +66,7 @@ class DictationSettings : SettingsPage() {
             divider()
             voiceCommands = toggle(
                 "Commandes vocales",
-                "Dites « nouvelle ligne » ou « annule la dernière dictée » au lieu de les écrire.",
+                "Dites « nouvelle ligne » ou « annule la dernière dictée » au lieu de les écrire ; épelez un mot lettre par lettre (« A, Q, U… ») pour l'écrire d'un bloc.",
             ) { on ->
                 saveSettings(
                     JSONObject().put("voice_commands", on),

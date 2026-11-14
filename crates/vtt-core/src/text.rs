@@ -114,6 +114,64 @@ pub fn apply_layout_commands(raw: &str) -> String {
     out.trim_end_matches(' ').to_owned()
 }
 
+/// Nombre minimal de lettres épelées à la suite : « il y a » (2 lettres
+/// isolées) ou « A ou B » ne sont pas des mots épelés.
+const MIN_SPELLED_LETTERS: usize = 3;
+
+/// Recolle un mot épelé lettre par lettre : « A Q U A D R O X », « A, Q, U,
+/// A, D, R, O, X » ou « A-Q-U-A-D-R-O-X » (selon ce qu'écrit le moteur de
+/// transcription) deviennent « aquadrox ».
+///
+/// Une lettre isolée est une lettre seule entre espaces, virgules, points
+/// ou tirets ; « l' », « d' » n'en sont pas. Il en faut au moins trois à la
+/// suite : une énumération courte (« A, B ») est gardée telle quelle, mais
+/// « A, B, C » devient « abc ».
+pub fn join_spelled_letters(text: &str) -> String {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let isolated =
+        |c: Option<char>| c.is_none_or(|c| !c.is_alphanumeric() && c != '\'' && c != '’');
+    // Lettres isolées : (début, fin, lettre).
+    let letters: Vec<(usize, usize, char)> = chars
+        .iter()
+        .enumerate()
+        .filter(|(i, (_, c))| {
+            c.is_ascii_alphabetic()
+                && isolated(i.checked_sub(1).map(|j| chars[j].1))
+                && isolated(chars.get(i + 1).map(|&(_, c)| c))
+        })
+        .map(|(_, &(start, c))| (start, start + c.len_utf8(), c))
+        .collect();
+    let spelling_gap = |between: &str| {
+        !between.is_empty()
+            && between.len() <= 3
+            && between
+                .chars()
+                .all(|c| matches!(c, ' ' | ',' | '.' | '-' | '\u{a0}'))
+    };
+
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    let mut i = 0;
+    while i < letters.len() {
+        let mut j = i;
+        while j + 1 < letters.len() && spelling_gap(&text[letters[j].1..letters[j + 1].0]) {
+            j += 1;
+        }
+        if j + 1 - i >= MIN_SPELLED_LETTERS {
+            out.push_str(&text[copied..letters[i].0]);
+            out.extend(
+                letters[i..=j]
+                    .iter()
+                    .map(|&(_, _, c)| c.to_ascii_lowercase()),
+            );
+            copied = letters[j].1;
+        }
+        i = j + 1;
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
 /// Commande en fin de morceau : longueur (en octets) de sa partie dictée.
 fn suffix_command(content: &str, phrase: &str) -> Option<(usize, &'static str)> {
     let rest = phrase.strip_suffix(SUFFIX_COMMAND)?;
@@ -253,6 +311,43 @@ mod tests {
             "Bonjour à tous. On se voit demain ? Oui !",
         ] {
             assert_eq!(apply_layout_commands(text), text);
+        }
+    }
+
+    #[test]
+    fn spelled_words_are_joined() {
+        assert_eq!(join_spelled_letters("A Q U A D R O X"), "aquadrox");
+        assert_eq!(join_spelled_letters("A, Q, U, A, D, R, O, X."), "aquadrox.");
+        assert_eq!(join_spelled_letters("A-Q-U-A-D-R-O-X"), "aquadrox");
+        assert_eq!(join_spelled_letters("a. q. u. a."), "aqua.");
+        assert_eq!(
+            join_spelled_letters("Mon pseudo, c'est A, Q, U, A, D, R, O, X, voilà."),
+            "Mon pseudo, c'est aquadrox, voilà."
+        );
+        assert_eq!(
+            join_spelled_letters("Écris D U P O N T puis envoie"),
+            "Écris dupont puis envoie"
+        );
+        assert_eq!(
+            join_spelled_letters("A B C, puis X Y Z"),
+            "abc, puis xyz",
+            "deux mots épelés"
+        );
+    }
+
+    #[test]
+    fn ordinary_text_is_not_spelling() {
+        for text in [
+            "Il y a un problème.",
+            "l'option A ou B",
+            "Les points A, B et C.",
+            "J'ai vu A, B.",
+            "Le plan B, c'est mieux.",
+            "C'est à dire l'e-mail d'Anne.",
+            "SNCF et RATP",
+            "",
+        ] {
+            assert_eq!(join_spelled_letters(text), text);
         }
     }
 

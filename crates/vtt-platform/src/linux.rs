@@ -725,12 +725,31 @@ pub fn session_report() -> Vec<String> {
             var("GDK_BACKEND")
         ),
         format!("X11 : {x11}"),
+        format!(
+            "Steam Deck : {}",
+            if is_steam_deck() { "oui" } else { "non" }
+        ),
         format!("clavier virtuel (/dev/uinput) : {uinput}"),
         format!(
             "AppImage : {}",
             std::env::var_os("APPIMAGE").map_or("non".into(), |p| p.to_string_lossy().into_owned())
         ),
     ]
+}
+
+/// Steam Deck (modèle LCD « Jupiter » ou OLED « Galileo »), d'après les
+/// informations DMI de la carte mère.
+pub fn is_steam_deck() -> bool {
+    let read = |name: &str| {
+        std::fs::read_to_string(format!("/sys/class/dmi/id/{name}"))
+            .map(|v| v.trim().to_owned())
+            .unwrap_or_default()
+    };
+    is_steam_deck_dmi(&read("sys_vendor"), &read("product_name"))
+}
+
+fn is_steam_deck_dmi(vendor: &str, product: &str) -> bool {
+    vendor.eq_ignore_ascii_case("Valve") && matches!(product, "Jupiter" | "Galileo")
 }
 
 /// Sous Linux, les bibliothèques ouvrent les chemins tels quels (UTF-8).
@@ -765,6 +784,14 @@ mod tests {
         for name in vtt_core::config::HOTKEY_NAMES {
             assert!(key_code(name).is_some(), "{name}");
         }
+    }
+
+    #[test]
+    fn steam_deck_models() {
+        assert!(is_steam_deck_dmi("Valve", "Jupiter"));
+        assert!(is_steam_deck_dmi("Valve", "Galileo"));
+        assert!(!is_steam_deck_dmi("Valve", "Fremont"));
+        assert!(!is_steam_deck_dmi("LENOVO", "Jupiter"));
     }
 
     #[test]

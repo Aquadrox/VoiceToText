@@ -48,7 +48,7 @@ Une **AppImage** : un seul fichier, rien à installer, ce qui convient au Steam 
 1. Steam Deck : passer en **mode Bureau** (bouton Steam → Alimentation → Passer au bureau).
 2. Télécharger `VoiceToText_x.y.z_amd64.AppImage` depuis [Releases](https://github.com/Aquadrox/VoiceToText/releases/latest) et le ranger dans un dossier personnel, par exemple `~/Applications` (le fichier doit rester modifiable : la mise à jour automatique le remplace sur place).
 3. Le rendre exécutable : clic droit → **Propriétés → Droits → Est exécutable** (ou `chmod +x VoiceToText_*.AppImage`), puis double-clic.
-4. Au premier lancement, le modèle Whisper se télécharge comme sur Windows. Whisper utilise la carte graphique par **Vulkan** (celle du Deck comprise) ; si la transcription est trop lente, choisir **Parakeet** ou **Whisper Small** dans **Réglages → Micro et transcription**.
+4. Au premier lancement, le modèle se télécharge comme sur Windows. Sur le **Steam Deck**, c'est **Parakeet** (plus léger et plus rapide sur le Deck, et meilleur à l'essai) ; ailleurs, Whisper, qui utilise la carte graphique par **Vulkan**. Le modèle se change dans **Réglages → Micro et transcription**.
 
 L'icône apparaît dans la zone de notification (en bas à droite sur le Deck) ; tout le reste fonctionne comme sur Windows : pastille, fenêtre principale, réglages.
 
@@ -65,7 +65,9 @@ Maintenir L4 dicte, relâcher colle le texte, exactement comme AltGr. Avec un cl
 
 Démarrage automatique : **Réglages → Application → Lancer VoiceToText à l'ouverture de session** (crée `~/.config/autostart/voicetotext.desktop`).
 
-Pas encore sous Linux : la **capture commentée**, la **pause de la musique** pendant la dictée, la **détection des appels** (proposition d'enregistrer la réunion), les **styles par application** pour les applications Wayland (ils marchent pour les applications X11) et le **mode Jeu** du Steam Deck.
+La **pause de la musique** pendant la dictée passe par MPRIS (Spotify, navigateurs, VLC… : ceux que pilotent les touches multimédias) ; la **détection des appels** lit les programmes qui enregistrent le micro par `pactl` (PipeWire ou PulseAudio), en reconnaissant les noms Linux des applications (Discord, Zoom, Slack, Signal, navigateurs…).
+
+Pas encore sous Linux : la **capture commentée**, les **styles par application** pour les applications Wayland (ils marchent pour les applications X11) et le **mode Jeu** du Steam Deck.
 
 **Si l'application se ferme toute seule** : les journaux sont dans `~/.local/share/VoiceToText/logs/` (dossier caché : dans Dolphin, **Ctrl+H** pour l'afficher). `voicetotext.log` décrit la session au démarrage (système, X11 ou Wayland…) et, après un plantage, recopie au lancement suivant la fin de `stderr.precedent.log`, où les bibliothèques (GTK, WebKit, pilote graphique) écrivent leurs erreurs. Ce sont ces fichiers à envoyer.
 
@@ -170,8 +172,9 @@ Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dicté
 | « point à la ligne » | Point puis retour à la ligne |
 | « nouveau paragraphe » | Ligne vide |
 | « annule la dernière dictée » (seul) | Annule le dernier collage (Ctrl+Z dans l'application) |
+| Épeler un mot : « A, Q, U, A, D, R, O, X », distinctement | « aquadrox » (lettres recollées en un mot) |
 
-Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage.
+Une commande de mise en page n'est reconnue que **détachée du reste de la phrase**, par une pause : « Bonjour Paul, nouvelle ligne, je voulais te dire… » oui ; « on ouvre une nouvelle ligne de bus » reste du texte. « Annule la dernière dictée » doit être la dictée entière ; Ctrl+Z annule la dernière action de l'application, en général le collage. Un mot épelé doit compter au moins trois lettres : « A ou B », « il y a » restent du texte ; une énumération de trois lettres seules (« A, B, C ») devient un mot (« abc »). Le mot est écrit en minuscules ; le LLM peut lui mettre une majuscule s'il s'agit d'un nom.
 
 Désactivables dans **Réglages → Dictée et traduction**.
 

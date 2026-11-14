@@ -41,9 +41,17 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_target,
-    fullscreen_app_running, key_code, key_is_down, modifier_of, modifiers_down, pressed_keys,
-    session_report, shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
+    fullscreen_app_running, is_steam_deck, key_code, key_is_down, modifier_of, modifiers_down,
+    pressed_keys, session_report, shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
 };
+#[cfg(target_os = "linux")]
+mod microphone_linux;
+#[cfg(target_os = "linux")]
+pub use microphone_linux::microphone_apps;
+#[cfg(target_os = "linux")]
+mod media_linux;
+#[cfg(target_os = "linux")]
+pub use media_linux::MediaPauser;
 #[cfg(target_os = "linux")]
 mod secrets_linux;
 #[cfg(target_os = "linux")]
@@ -56,13 +64,17 @@ pub use secrets_linux::{
 mod sound;
 #[cfg(target_os = "linux")]
 pub use sound::play_sound;
-// Linux : capture commentée, contrôles multimédias et applications qui
-// utilisent le micro viendront plus tard.
+// Linux : la capture commentée viendra plus tard.
 #[cfg(target_os = "linux")]
 pub use unsupported::{
-    ClickRecorder, MediaPauser, exclude_from_capture, foreground_rect, microphone_apps,
-    paste_image, screenshot,
+    ClickRecorder, exclude_from_capture, foreground_rect, paste_image, screenshot,
 };
+
+/// Steam Deck : seulement sous Linux.
+#[cfg(not(target_os = "linux"))]
+pub fn is_steam_deck() -> bool {
+    false
+}
 
 #[cfg(not(windows))]
 #[cfg_attr(target_os = "linux", allow(dead_code))]

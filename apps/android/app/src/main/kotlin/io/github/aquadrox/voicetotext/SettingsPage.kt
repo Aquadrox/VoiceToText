@@ -53,7 +53,7 @@ object SettingsIndex {
         Entry(Section.DICTATION, "model", "Modèle de transcription", "whisper parakeet télécharger précision vitesse voix reconnaissance"),
         Entry(Section.DICTATION, "keyboard", "Clavier VoiceToText", "activer choisir changer de clavier méthode de saisie"),
         Entry(Section.DICTATION, "translation", "Langue de traduction", "traduire anglais espagnol allemand mode traduction langue"),
-        Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande"),
+        Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande épeler lettres"),
         Entry(Section.CLEANUP, "llm", "Nettoyer le texte avec un LLM", "ponctuation majuscules correction ia intelligence artificielle brut"),
         Entry(Section.CLEANUP, "provider", "Fournisseur du LLM", "deepseek openai mistral glm openrouter ollama local serveur"),
         Entry(Section.CLEANUP, "key", "Clé API", "token jeton mot de passe compte"),

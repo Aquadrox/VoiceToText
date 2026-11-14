@@ -473,10 +473,10 @@ impl Pipeline {
             });
         }
 
-        // Retours à la ligne dictés, avant le LLM (il les conserve) ; la
-        // version brute les contient aussi.
+        // Retours à la ligne dictés et mots épelés, avant le LLM (il les
+        // conserve) ; la version brute les contient aussi.
         let raw = if self.voice_commands {
-            text::apply_layout_commands(&raw)
+            text::apply_layout_commands(&text::join_spelled_letters(&raw))
         } else {
             raw
         };
@@ -858,6 +858,25 @@ mod tests {
         let p = p.with_voice_commands(true);
         p.run(&clip_ms(1000), &no_target()).unwrap();
         assert_eq!(*sink.0.lock().unwrap(), ["Salut,\nça va"]);
+    }
+
+    #[test]
+    fn spelled_word_is_joined_before_cleanup() {
+        let (p, sink) = pipeline(
+            "Mon pseudo est A, Q, U, A, D, R, O, X.",
+            Some(Box::new(Upper)),
+        );
+        let p = p.with_voice_commands(true);
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), ["MON PSEUDO EST AQUADROX."]);
+
+        let (p, sink) = pipeline("Mon pseudo est A, Q, U, A.", None);
+        p.run(&clip_ms(1000), &no_target()).unwrap();
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            ["Mon pseudo est A, Q, U, A."],
+            "avec les commandes vocales seulement"
+        );
     }
 
     #[test]

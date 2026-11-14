@@ -8,6 +8,13 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.33.0 — 2026-11-14
+
+- Épeler un mot : dites ses lettres distinctement (« A, Q, U, A, D, R, O, X ») et il est écrit d'un bloc : « aquadrox ». Pratique pour un nom, un pseudo ou un mot que la transcription ne connaît pas. Fonctionne avec les commandes vocales activées.
+- [PC] Steam Deck : Parakeet est le modèle de transcription choisi au premier lancement, plus léger et plus rapide sur le Deck.
+- [PC] Linux : la musique et les vidéos se mettent en pause pendant la dictée, puis reprennent (Spotify, navigateurs, VLC…).
+- [PC] Linux : les appels (Discord, Zoom, Slack, Signal, navigateur…) sont détectés, avec la proposition d'enregistrer la réunion, comme sur Windows.
+
 ## 0.32.0 — 2026-11-14
 
 - [PC] VoiceToText fonctionne sous Linux, Steam Deck compris (mode Bureau) : un seul fichier AppImage à télécharger depuis la page des versions, à rendre exécutable puis à lancer, sans rien installer. Sessions X11 et Wayland (KDE) ; sous Wayland, un réglage de KDE rappelé dans Réglages → Raccourcis permet à la touche de dictée de marcher partout.

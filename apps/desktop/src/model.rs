@@ -102,6 +102,9 @@ macro_rules! parakeet_url {
     };
 }
 
+/// Parakeet TDT v3 : modèle par défaut sur le Steam Deck.
+pub const PARAKEET_ID: &str = "parakeet-tdt-0.6b-v3-int8";
+
 /// ONNX Runtime officiel (Microsoft), pour Parakeet.
 #[cfg(windows)]
 static ONNX_RUNTIME: Runtime = Runtime {
@@ -327,7 +330,7 @@ static KNOWN_MODELS: &[KnownModel] = &[
         runtime: None,
     },
     KnownModel {
-        id: "parakeet-tdt-0.6b-v3-int8",
+        id: PARAKEET_ID,
         label: "Parakeet TDT v3, quantifié 8 bits (PC sans carte graphique : rapide, ponctué)",
         engine: Engine::Parakeet,
         source: Source::Dir(Content::Files(&[

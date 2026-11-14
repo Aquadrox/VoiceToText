@@ -78,7 +78,7 @@ impl Paths {
                 }
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                let config = Config::default();
+                let config = first_config();
                 self.save_config(&config);
                 (config, None)
             }
@@ -108,4 +108,16 @@ impl Paths {
         log::info!("configuration écrite : {}", self.config_file.display());
         Ok(())
     }
+}
+
+/// Réglages du premier lancement. Sur le Steam Deck, Parakeet plutôt que
+/// Whisper : plus léger, plus rapide sur sa petite carte graphique, et
+/// meilleur à l'essai (retour du propriétaire, 14/11/2026).
+fn first_config() -> Config {
+    let mut config = Config::default();
+    if vtt_platform::is_steam_deck() {
+        config.asr.model = crate::model::PARAKEET_ID.into();
+        log::info!("Steam Deck : modèle {} par défaut", config.asr.model);
+    }
+    config
 }

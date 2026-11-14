@@ -412,13 +412,15 @@ Première version Linux de l'application PC, pensée pour le Steam Deck en mode 
 - ⬜ À valider sur le Steam Deck : pastille masquée au repos, détection des raccourcis, listes en mode sombre, icône dans la zone de notification de KDE, KWallet, vitesse de Whisper Vulkan, mise à jour automatique
 - Pas encore sous Linux : styles par application pour les applications Wayland (fenêtre active vue seulement si elle est X11), capture commentée, pause de la musique, détection des appels (programmes qui utilisent le micro), mode Jeu
 
-## v0.33 — Linux : confort ⬜
+## v0.33 — Linux : confort, épellation 🚧
 
-- ⬜ Pause de la musique et des vidéos pendant la dictée (MPRIS, D-Bus)
-- ⬜ Capture commentée : capture d'écran, clics, collage d'image (X11)
-- ⬜ Détection des appels : programmes qui utilisent le micro (PipeWire / PulseAudio)
-- ⬜ Steam Deck : conseils dans l'application (choisir F13, configurer une gâchette arrière dans Steam Input)
+- ✅ **Parakeet par défaut sur le Steam Deck** (premier lancement) : plus léger, plus rapide et meilleur à l'essai que Whisper sur le Deck (retour du propriétaire). Deck reconnu par ses informations DMI (Valve, « Jupiter » LCD ou « Galileo » OLED), noté dans le rapport de session ; une installation existante garde son modèle
+- ✅ **Épeler un mot** (toutes plateformes, dans `vtt-core`, avec les commandes vocales) : au moins trois lettres isolées à la suite, séparées par des espaces, virgules, points ou tirets (« A Q U A D R O X », « A, Q, U, A… », « A-Q-U-A… », selon le moteur) → « aquadrox », avant le LLM. « il y a », « A ou B », « le plan B », « l'e-mail » restent du texte ; limite : une énumération de trois lettres seules (« A, B, C ») devient « abc ». 4 tests (dont le passage dans le pipeline)
+- ✅ **Pause de la musique** sous Linux par MPRIS (D-Bus, zbus) : seuls les lecteurs qui jouaient sont mis en pause puis relancés ; propriétés lues sans cache (pas d'abonnement aux lecteurs). Vérifié avec deux faux lecteurs sur un bus de test (l'un en lecture, mis en pause puis relancé ; l'autre déjà en pause, pas touché)
+- ✅ **Détection des appels** sous Linux : flux d'enregistrement par `pactl -f json list source-outputs` (repli `pw-dump`), flux en sourdine et VoiceToText lui-même ignorés ; noms Linux des applications ajoutés aux services reconnus (Discord, Zoom, Slack, Signal, Telegram, Teams for Linux, Skype, Webex, navigateurs Chromium / Firefox / Brave / Edge / Vivaldi / Opera). Vérifié avec PulseAudio et un programme nommé « zoom » qui enregistre
+- ⬜ Capture commentée : capture d'écran (portail sous Wayland), clics, collage d'image
 - ⬜ Session Wayland sans réglage KDE : raccourci par le portail « raccourcis globaux » (appui et relâchement) ; fenêtre active des applications Wayland (styles par application)
+- ⬜ À valider sur le Steam Deck : Parakeet au premier lancement (nouvelle installation), pause de Spotify / du navigateur, proposition d'enregistrer un appel Discord
 
 ## Outillage ✅
 
@@ -439,6 +441,5 @@ Accélérer la CI sans baisser la garde :
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
 - Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
-- Épeler un mot : « A Q U A D R O X » dicté lettre par lettre, distinctement, donne « aquadrox » (lettres isolées regroupées en un mot, par règles locales comme les commandes vocales ; à étudier : Whisper écrit souvent « A, Q, U… » ou « AQUADROX », le LLM peut aussi recoller les lettres ; noms propres et sigles, majuscule si demandée).
 - Steam Deck en mode Jeu (gamescope : pas d'icône de notification ni de pastille, collage dans les jeux incertain), à étudier une fois le mode Bureau éprouvé.
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).
