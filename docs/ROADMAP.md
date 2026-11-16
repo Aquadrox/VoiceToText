@@ -451,6 +451,14 @@ Le mode Jeu n'est pas le mode Bureau : pas de KDE (gamescope compose l'écran, S
   - texte **tapé** touche par touche plutôt que collé (accepté par plus de jeux ; épellation d'un pseudo) : clavier virtuel ou XTest selon la sonde, accents d'après la disposition, collage en secours
   - retour : sons de dictée ; pastille en surimpression gamescope si le bandeau s'affiche
 
+## v0.33.4 — Nettoyage plus fidèle ✅
+
+Sur Android, le nettoyage réécrivait trop, au point de changer la portée des phrases. Le prompt intégré est pourtant le même que sur PC (`vtt_llm::DEFAULT_CLEANUP_PROMPT`) : c'est la transcription brute qui diffère (Parakeet par défaut sur le téléphone, Whisper large-v3-turbo sur PC), moins propre, ce qui poussait le LLM à deviner et à reformuler. « non », « enfin », « pardon » étaient en outre pris pour des auto-corrections, coupant la partie de phrase qui précédait.
+
+- ✅ Prompt intégré plus conservateur (PC et Android) : intervention minimale ; auto-correction seulement sur une reprise explicite ; mot mal reconnu corrigé seulement sans aucun doute ; ni reformulation, ni résumé, ni réordonnancement, ni synonyme ; chaque nuance, réserve ou négation conservée ; exemple d'un « enfin » gardé
+- Prompts personnalisés inchangés
+- À vérifier sur le téléphone : mêmes dictées qu'avant, sens des phrases conservé
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
