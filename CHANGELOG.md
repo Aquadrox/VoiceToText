@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.33.4 — 2026-11-16
+
+- Nettoyage par l'IA plus fidèle : il retire les hésitations et corrige la ponctuation sans reformuler, résumer ni couper une partie de la phrase. Le changement se voit surtout sur Android, où la transcription brute est moins propre et poussait l'IA à trop réécrire. Les prompts personnalisés ne changent pas.
+
 ## 0.33.3 — 2026-11-14
 
 - [PC] Steam Deck : outil de diagnostic du mode Jeu, pour préparer la dictée dans le chat des jeux et le chat Steam. Il n'enregistre rien au micro et n'envoie rien ; procédure dans le guide (README, « Mode Jeu du Steam Deck »).
