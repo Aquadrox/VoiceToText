@@ -1,6 +1,7 @@
 package io.github.aquadrox.voicetotext
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -8,11 +9,18 @@ import kotlin.concurrent.thread
 
 /**
  * Micro en 16 kHz mono, en mémoire seulement (jamais écrit sur le stockage).
- * Ouvert uniquement pendant la dictée.
+ * Ouvert uniquement pendant la dictée, sur le micro choisi dans les réglages
+ * (sinon celui que choisit Android).
  */
-class Recorder {
+class Recorder(private val context: Context) {
+    // Paresseux : le clavier et la bulle créent l'enregistreur avant d'avoir
+    // leur contexte.
+    private val store by lazy { Store(context) }
     private var record: AudioRecord? = null
     private var reader: Thread? = null
+
+    /** Referme la liaison Bluetooth ouverte pour le micro choisi. */
+    private var release: (() -> Unit)? = null
     private val lock = Any()
     private var samples = ShortArray(RATE * 10)
     private var count = 0
@@ -27,6 +35,11 @@ class Recorder {
      */
     @Volatile
     var loudest = 0f
+        private set
+
+    /** Micro qui capte la prise en cours ou a capté la dernière (vide : pas encore connu). */
+    @Volatile
+    var microphone = ""
         private set
 
     /** La permission micro doit avoir été accordée (vérifiée par l'appelant). */
@@ -51,20 +64,32 @@ class Recorder {
             audio.release()
             return false
         }
+        val link = runCatching { Microphones.use(context, store, audio) }.getOrNull()
         synchronized(lock) { count = 0 }
         loudest = 0f
+        microphone = ""
         try {
             audio.startRecording()
         } catch (e: Exception) {
+            link?.invoke()
             audio.release()
             return false
         }
         record = audio
+        release = link
         reader = thread(name = "micro") {
             val buffer = ShortArray(RATE / 20)
+            // Le micro réellement utilisé n'est connu qu'une fois le son arrivé.
+            var lookups = 0
             while (record === audio) {
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n <= 0) continue
+                if (microphone.isEmpty() && lookups++ < 20) {
+                    runCatching { Microphones.routed(context, audio) }.getOrNull()?.let {
+                        microphone = it
+                        store.lastMicrophone = it
+                    }
+                }
                 var peak = 0
                 synchronized(lock) {
                     if (count + n > samples.size) samples = samples.copyOf(samples.size * 2)
@@ -87,6 +112,8 @@ class Recorder {
         reader = null
         runCatching { audio.stop() }
         audio.release()
+        release?.invoke()
+        release = null
         level = 0f
         return synchronized(lock) {
             FloatArray(count) { samples[it] / 32768f }.also { count = 0 }

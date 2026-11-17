@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.34.0 — 2026-11-17
+
+- [Android] Choix du micro dans Réglages → Dictée : micro du téléphone, casque filaire, micro USB ou casque Bluetooth. Un micro branché apparaît aussitôt dans la liste ; débranché, Android reprend son micro en attendant. Le choix vaut pour la dictée et les réunions.
+- [Android] Savoir quel micro enregistre : « Tester le micro » montre le niveau de la voix et le micro qui la capte ; le micro du dernier enregistrement est indiqué dans les réglages, et celui d'une réunion sur l'écran d'enregistrement.
+
 ## 0.33.4 — 2026-11-16
 
 - Nettoyage par l'IA plus fidèle : il retire les hésitations et corrige la ponctuation sans reformuler, résumer ni couper une partie de la phrase. Le changement se voit surtout sur Android, où la transcription brute est moins propre et poussait l'IA à trop réécrire. Les prompts personnalisés ne changent pas.

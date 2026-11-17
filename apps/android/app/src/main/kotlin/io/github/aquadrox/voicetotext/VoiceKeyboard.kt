@@ -39,7 +39,7 @@ import org.json.JSONObject
  */
 class VoiceKeyboard : InputMethodService() {
     private val store by lazy { Store(this) }
-    private val recorder = Recorder()
+    private val recorder = Recorder(this)
 
     private lateinit var status: TextView
     /** Édition bulle : bulle activée mais arrêtée par le téléphone. */

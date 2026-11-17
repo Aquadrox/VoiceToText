@@ -244,8 +244,11 @@ class MainActivity : Activity() {
             },
         )
         modelButton.visibility = if (modelReady) View.GONE else View.VISIBLE
+        // Micro choisi à la main : rappelé (Android choisit sinon).
+        val microphone = store.microphoneLabel.takeIf { store.microphone.isNotEmpty() && it.isNotEmpty() }
         summaries[Section.DICTATION]?.summary(
-            (if (modelReady) name else "$name à télécharger") + " · traduction : ${view.getString("translation")}",
+            (if (modelReady) name else "$name à télécharger") + (microphone?.let { " · $it" } ?: "") +
+                " · traduction : ${view.getString("translation")}",
         )
         summaries[Section.CLEANUP]?.summary(cleanupSummary(view))
         summaries[Section.VOCABULARY]?.summary(

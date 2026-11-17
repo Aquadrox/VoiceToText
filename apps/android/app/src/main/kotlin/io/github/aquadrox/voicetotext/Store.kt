@@ -37,6 +37,24 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("bubble_with_keyboard", true)
         set(value) = prefs.edit().putBoolean("bubble_with_keyboard", value).apply()
 
+    /**
+     * Micro choisi (clé de [Microphones]) ; vide : Android choisit. Propre
+     * au téléphone : il n'est pas dans config.toml, partagé avec le PC.
+     */
+    var microphone: String
+        get() = prefs.getString("microphone", "").orEmpty()
+        set(value) = prefs.edit().putString("microphone", value).apply()
+
+    /** Nom du micro choisi, pour le montrer aussi quand il est débranché. */
+    var microphoneLabel: String
+        get() = prefs.getString("microphone_label", "").orEmpty()
+        set(value) = prefs.edit().putString("microphone_label", value).apply()
+
+    /** Micro qui a capté le dernier enregistrement (dictée, réunion, test). */
+    var lastMicrophone: String
+        get() = prefs.getString("last_microphone", "").orEmpty()
+        set(value) = prefs.edit().putString("last_microphone", value).apply()
+
     /** Bulle : 0 petite, 1 moyenne, 2 grande. */
     var bubbleSize: Int
         get() = prefs.getInt("bubble_size", 1).coerceIn(0, 2)

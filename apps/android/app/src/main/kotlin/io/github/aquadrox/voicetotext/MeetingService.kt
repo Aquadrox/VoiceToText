@@ -112,9 +112,12 @@ class MeetingService : Service() {
             fail(id, "Micro indisponible (pris par une autre application ?)")
             return
         }
+        // Micro choisi dans Réglages → Dictée (sinon celui que choisit Android).
+        val link = runCatching { Microphones.use(this, store, audio) }.getOrNull()
         try {
             audio.startRecording()
         } catch (e: Exception) {
+            link?.invoke()
             audio.release()
             fail(id, "Micro indisponible : ${e.message}")
             return
@@ -125,15 +128,24 @@ class MeetingService : Service() {
         receivedMs = 0
         marks = 0
         level = 0f
+        microphone = ""
         foreground()
         val root = store.meetingsDir
         thread(name = "meeting-mic") {
             val buffer = ShortArray(RATE / 10)
             val second = ShortArray(RATE)
             var filled = 0
+            var lookups = 0
             while (recordingId == id) {
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n <= 0) continue
+                // Micro réellement utilisé, affiché pendant l'enregistrement.
+                if (microphone.isEmpty() && lookups++ < 20) {
+                    runCatching { Microphones.routed(this, audio) }.getOrNull()?.let {
+                        microphone = it
+                        store.lastMicrophone = it
+                    }
+                }
                 var peak = 0
                 for (i in 0 until n) peak = maxOf(peak, kotlin.math.abs(buffer[i].toInt()))
                 level = peak / 32768f
@@ -152,6 +164,7 @@ class MeetingService : Service() {
             feed(root, id, second, filled)
             runCatching { audio.stop() }
             audio.release()
+            link?.invoke()
             level = 0f
             val stopped = JSONObject(Native.meetingStop(root, id))
             main.post {
@@ -548,6 +561,11 @@ class MeetingService : Service() {
         /** Niveau du micro (0–1). */
         @Volatile
         var level = 0f
+            private set
+
+        /** Micro qui enregistre la réunion (vide : pas encore connu). */
+        @Volatile
+        var microphone = ""
             private set
 
         @Volatile

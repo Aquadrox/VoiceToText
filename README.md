@@ -132,6 +132,8 @@ Au clavier :
 - touche **clavier** (tout à gauche) : retour au clavier habituel ; effacer, espace et entrée pour les retouches.
 - pendant l'écoute, un disque vermillon autour du micro suit le niveau de la voix : s'il ne bouge pas, le micro ne capte rien.
 
+**Micro** (**Réglages → Dictée**) : **Automatique** (Android choisit : en général le casque filaire ou le micro USB branché, sinon celui du téléphone), ou un micro précis : micro du téléphone (bas, arrière… s'il en a plusieurs), casque filaire, micro USB, casque Bluetooth. Un micro branché apparaît aussitôt dans la liste ; débranché, il reste choisi et Android prend le relais jusqu'à son retour. **Tester le micro** écoute 5 s et montre le niveau de la voix et le micro qui la capte ; le micro du dernier enregistrement est aussi indiqué. Le choix vaut pour le clavier, la bulle et les réunions. Casque Bluetooth : il passe en mode appel pendant l'enregistrement (son de moindre qualité) et met environ une seconde à s'ouvrir : attendez que l'anneau bouge avant de parler.
+
 Avec la **bulle** (édition `android-bulle`, sans changer de clavier) : une bulle ronde (icône micro) apparaît quand un clavier est ouvert sur un champ de texte.
 - **toucher** : dicter ; toucher encore : le texte s'insère au curseur ;
 - **maintenir** : consigne appliquée au texte sélectionné (comme la touche consigne du clavier) ;
@@ -312,7 +314,7 @@ Autres réglages : capter ou non le son du PC, écarter l'écho, distinguer les 
 
 Carte **Réunions** de l'accueil, ou appui long sur l'icône de l'application → **Enregistrer une réunion**.
 
-- **Enregistrer** : posez le téléphone sur la table (réunion en présentiel, cours, conférence). Avant de commencer : un titre (facultatif), le **type de compte rendu** (réunion : décisions, actions ; cours ou conférence : plan, idées clés), l'**audio** et le compte rendu à la fin. Un grand chrono, lisible de loin, et le niveau du micro s'affichent ; **Marquer un moment** pose un repère dans la transcription (aussi depuis la notification). L'écran peut s'éteindre : l'enregistrement continue, et s'arrête par **Arrêter**, sur l'écran ou dans la notification. Prévenez les participants.
+- **Enregistrer** : posez le téléphone sur la table (réunion en présentiel, cours, conférence). Avant de commencer : un titre (facultatif), le **type de compte rendu** (réunion : décisions, actions ; cours ou conférence : plan, idées clés), l'**audio** et le compte rendu à la fin. Un grand chrono, lisible de loin, le niveau et le nom du micro s'affichent ; **Marquer un moment** pose un repère dans la transcription (aussi depuis la notification). L'écran peut s'éteindre : l'enregistrement continue, et s'arrête par **Arrêter**, sur l'écran ou dans la notification. Prévenez les participants.
 - **Importer** : un mémo vocal, une note vocale WhatsApp, l'enregistrement d'un appel fait par le téléphone, un cours, une vidéo… (MP3, M4A, Opus, OGG, AMR, WAV, FLAC, MP4…, tout ce que les décodeurs d'Android lisent). Aussi depuis une autre application : **Partager → VoiceToText**.
 - **À la fin** : transcription sur le téléphone, avec le modèle de la dictée, puis compte rendu par le LLM choisi. Pendant ce temps, vous pouvez quitter l'application (une notification prévient quand c'est prêt) et continuer à dicter : la transcription s'interrompt le temps de chaque dictée. Si le téléphone arrête l'application, la transcription reprend à la prochaine ouverture de la page Réunions.
 - **Intervenants** : avec **Distinguer les intervenants** (dans la feuille « Nouvelle réunion »), les voix sont séparées à la fin, sur le téléphone : « Intervenant 1, 2… ». La première fois, deux petits modèles (33 Mo) se téléchargent. Qui se présente (« je m'appelle Marie », « moi c'est Paul ») est nommé d'office, avec la phrase où il l'a dit. Dans la transcription, touchez un intervenant pour les **nommer** ou corriger un nom (temps de parole, première phrase et ▶ pour écouter sa voix) ou imposer leur **nombre** ; le nom est repris partout et dans le prochain compte rendu (**⋯ → Refaire le compte rendu**). Pour une réunion faite sans, **⋯ → Distinguer les intervenants** (audio gardé).
@@ -320,7 +322,7 @@ Carte **Réunions** de l'accueil, ou appui long sur l'icône de l'application �
 
 Audio, au choix à chaque réunion : **gardé sur le téléphone** (par défaut ; stockage privé de l'application, chiffré par Android ; réécoute, reprise après une coupure), **effacé après la transcription**, ou **en mémoire seulement** (rien sur le stockage, perdu si le téléphone ferme l'application). Pendant un enregistrement, le micro est pris : le clavier et la bulle ne dictent pas.
 
-Limites : seul le micro du téléphone est enregistré. Android ne laisse aucune application capter le son d'un appel passé sur le téléphone (Teams, WhatsApp, appel classique) : pour un appel, utilisez le PC, ou importez l'enregistrement que fait le téléphone lui-même (HyperOS, Samsung…).
+Limites : seul le micro est enregistré (celui du téléphone, ou celui choisi dans **Réglages → Dictée**). Android ne laisse aucune application capter le son d'un appel passé sur le téléphone (Teams, WhatsApp, appel classique) : pour un appel, utilisez le PC, ou importez l'enregistrement que fait le téléphone lui-même (HyperOS, Samsung…).
 
 ## Capture commentée
 
@@ -679,7 +681,7 @@ extra_body = {}
 | Serveur local (Ollama, LM Studio) injoignable | L'adresse doit se terminer par `/v1` ; sur une autre machine, Ollama doit écouter sur le réseau (`OLLAMA_HOST=0.0.0.0`) et le pare-feu autoriser le port 11434. **Tester ces réglages** liste les modèles si l'adresse est bonne. |
 | AltGr ne déclenche rien | Vérifier **Réglages → Raccourcis** ; une autre application peut capter la touche. Essayer F13 ou Ctrl droit. |
 | Alt+Maj+V sans effet | Raccourci pris par une autre application (voir le journal) : en choisir un autre dans **Réglages → Raccourcis**. Si plusieurs dispositions de clavier sont installées, Alt+Maj change aussi la langue : choisir un autre raccourci. |
-| Mauvais micro | **Réglages → Reconnaissance locale**. |
+| Mauvais micro | PC : **Réglages → Reconnaissance locale**. Android : **Réglages → Dictée → Micro** ; **Tester le micro** montre lequel capte la voix. |
 | Transcription lente | Vérifier que **Utiliser la carte graphique** est coché ; sinon choisir le modèle Small. |
 | Mots mal orthographiés (noms propres) | Les ajouter au **Dictionnaire**. |
 | Téléchargement du modèle échoué | Vérifier la connexion puis cliquer **Appliquer** dans **Réglages** (le téléchargement recommence). |
