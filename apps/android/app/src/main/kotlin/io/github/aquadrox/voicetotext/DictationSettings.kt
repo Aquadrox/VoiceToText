@@ -1,6 +1,12 @@
 package io.github.aquadrox.voicetotext
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
@@ -18,7 +24,7 @@ import android.widget.TextView
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
-/** Dictée : modèle de transcription, clavier, traduction, commandes vocales. */
+/** Dictée : modèle de transcription, micro, clavier, traduction, commandes vocales. */
 class DictationSettings : SettingsPage() {
     override val section = Section.DICTATION
     override val subtitle = "La voix est transcrite sur le téléphone"
@@ -33,6 +39,20 @@ class DictationSettings : SettingsPage() {
     private lateinit var language: Spinner
     private lateinit var voiceCommands: Switch
     private var languages = emptyList<String>()
+    private lateinit var microphones: RadioGroup
+    private lateinit var microphoneState: TextView
+    private lateinit var meter: ProgressBar
+    private lateinit var testButton: Button
+
+    /** Test du micro en cours (null : aucun), et son début. */
+    private var tester: Recorder? = null
+    private var testStart = 0L
+
+    /** Micro branché ou débranché : la liste suit, page ouverte. */
+    private val plugged = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = refreshMicrophones()
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) = refreshMicrophones()
+    }
 
     /** Langue posée par le code : Android la signale ensuite, ignorée ici. */
     private var shownLanguage = -1
@@ -47,6 +67,24 @@ class DictationSettings : SettingsPage() {
                 visibility = View.GONE
             }.also { addView(it) }
             download = primary("Télécharger") { downloadModel() }
+        }
+
+        card("Micro", R.drawable.ic_mic).anchor("microphone").apply {
+            note("Pour dicter et enregistrer les réunions. Un micro branché (prise jack, USB, Bluetooth) apparaît ici dès qu'il est connecté.")
+            microphones = RadioGroup(this@DictationSettings).also { addView(it) }
+            microphoneState = note("")
+            meter = ProgressBar(this@DictationSettings, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                visibility = View.GONE
+            }.also { addView(it) }
+            testButton = secondary("Tester le micro") { testMicrophone() }
+            more(
+                "Automatique : en général, Android prend le micro du casque filaire ou USB branché, sinon celui du téléphone. " +
+                    "Le micro d'un casque Bluetooth n'est utilisé que si vous le choisissez ici.\n\n" +
+                    "Bluetooth : pendant l'enregistrement, le casque passe en mode appel (son de moindre qualité). " +
+                    "Il lui faut environ une seconde pour s'ouvrir : attendez que l'anneau du micro bouge avant de parler.\n\n" +
+                    "Micro choisi débranché : Android choisit, jusqu'à ce qu'il soit rebranché.",
+            )
         }
 
         card("Clavier VoiceToText", R.drawable.ic_keyboard).anchor("keyboard").apply {
@@ -90,6 +128,123 @@ class DictationSettings : SettingsPage() {
         super.onResume()
         // Retour des réglages d'Android (clavier activé) : état à jour.
         if (::keyboardState.isInitialized) refreshKeyboard()
+        // Appelé aussitôt avec les micros présents : la liste se remplit.
+        getSystemService(AudioManager::class.java).registerAudioDeviceCallback(plugged, main)
+    }
+
+    override fun onPause() {
+        getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(plugged)
+        // Le micro n'écoute pas en arrière-plan.
+        finishTest()
+        super.onPause()
+    }
+
+    /** Liste des micros (choix enregistré dès qu'on le touche) et état. */
+    private fun refreshMicrophones() {
+        if (isDestroyed) return
+        microphones.setOnCheckedChangeListener(null)
+        microphones.removeAllViews()
+        val list = Microphones.list(this)
+        val chosen = store.microphone
+        val present = Microphones.match(list, chosen)
+        val choices = mutableListOf("" to "Automatique (choix d'Android)")
+        list.forEach { choices += it.key to it.label }
+        // Débranché : reste affiché, coché, pour qu'on sache ce qui est choisi.
+        if (chosen.isNotEmpty() && present == null) {
+            choices += chosen to "${store.microphoneLabel.ifEmpty { "Micro choisi" }} · débranché"
+        }
+        val checked = present?.key ?: chosen
+        for ((key, label) in choices) {
+            microphones.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = key
+                text = label
+                setTextColor(getColor(R.color.fg))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(dp(4), dp(10), 0, dp(10))
+                isChecked = key == checked
+            })
+        }
+        microphones.setOnCheckedChangeListener { group, id ->
+            val button = group.findViewById<RadioButton>(id) ?: return@setOnCheckedChangeListener
+            val key = button.tag as? String ?: return@setOnCheckedChangeListener
+            if (key == store.microphone) return@setOnCheckedChangeListener
+            val label = list.firstOrNull { it.key == key }?.label ?: store.microphoneLabel
+            store.microphone = key
+            store.microphoneLabel = if (key.isEmpty()) "" else label
+            saved(if (key.isEmpty()) "✓ Android choisit le micro" else "✓ $label : utilisé dès le prochain enregistrement")
+            showMicrophoneState()
+        }
+        if (tester == null) showMicrophoneState()
+    }
+
+    /** Micro choisi absent, et micro qui a capté le dernier enregistrement. */
+    private fun showMicrophoneState() {
+        val chosen = store.microphone
+        val missing = chosen.isNotEmpty() && Microphones.match(Microphones.list(this), chosen) == null
+        val last = store.lastMicrophone
+        microphoneState.text = listOfNotNull(
+            if (missing) "⚠ ${store.microphoneLabel.ifEmpty { "Le micro choisi" }} n'est pas branché : Android choisit en attendant." else null,
+            if (last.isEmpty()) "Touchez « Tester le micro » pour voir lequel capte votre voix." else "Dernier enregistrement : $last.",
+        ).joinToString("\n")
+    }
+
+    /** Écoute quelques secondes : niveau de la voix et micro qui la capte. */
+    private fun testMicrophone() {
+        if (tester != null) {
+            finishTest()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MICROPHONE_REQUEST)
+            return
+        }
+        if (MeetingService.recording) {
+            microphoneState.text = "Réunion en cours : le micro est pris par l'enregistrement."
+            return
+        }
+        val recorder = Recorder(this)
+        if (!recorder.start()) {
+            microphoneState.text = "⚠ Micro indisponible (pris par une autre application ?)."
+            return
+        }
+        tester = recorder
+        testStart = SystemClock.elapsedRealtime()
+        testButton.text = "Arrêter le test"
+        meter.progress = 0
+        meter.visibility = View.VISIBLE
+        main.post(testTick)
+    }
+
+    private val testTick = object : Runnable {
+        override fun run() {
+            val recorder = tester ?: return
+            meter.progress = (kotlin.math.sqrt(recorder.level) * 100).toInt()
+            val microphone = recorder.microphone
+            microphoneState.text = if (microphone.isEmpty()) "Parlez…" else "Parlez… Le son arrive par : $microphone."
+            if (SystemClock.elapsedRealtime() - testStart >= TEST_MS) finishTest() else main.postDelayed(this, 50)
+        }
+    }
+
+    private fun finishTest() {
+        val recorder = tester ?: return
+        tester = null
+        main.removeCallbacks(testTick)
+        recorder.stop()
+        testButton.text = "Tester le micro"
+        meter.visibility = View.GONE
+        val microphone = recorder.microphone.ifEmpty { "le micro" }
+        microphoneState.text = when {
+            recorder.loudest == 0f -> "⚠ Rien n'est arrivé par $microphone : vérifiez qu'il est branché et pas coupé."
+            recorder.loudest < QUIET -> "⚠ Son très faible par $microphone : parlez plus près, ou choisissez un autre micro."
+            else -> "✓ Votre voix arrive bien par : $microphone."
+        }
+    }
+
+    @Deprecated("API Activity simple, sans AndroidX")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == MICROPHONE_REQUEST && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) testMicrophone()
     }
 
     private fun refresh() {
@@ -196,6 +351,12 @@ class DictationSettings : SettingsPage() {
     }
 
     private companion object {
+        const val MICROPHONE_REQUEST = 1
+        const val TEST_MS = 5_000L
+
+        /** En dessous (crête de la voix), le micro capte à peine. */
+        const val QUIET = 0.05f
+
         /** Modèle en cours de téléchargement (null : aucun), d'une page à l'autre. */
         @Volatile
         var downloading: String? = null

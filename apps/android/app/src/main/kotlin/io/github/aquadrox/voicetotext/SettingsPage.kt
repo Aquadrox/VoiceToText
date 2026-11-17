@@ -51,6 +51,7 @@ class Entry(val section: Section, val key: String, val title: String, val words:
 object SettingsIndex {
     val entries = listOf(
         Entry(Section.DICTATION, "model", "Modèle de transcription", "whisper parakeet télécharger précision vitesse voix reconnaissance"),
+        Entry(Section.DICTATION, "microphone", "Micro utilisé", "micro externe casque écouteurs usb bluetooth filaire jack matériel entrée audio choisir changer tester"),
         Entry(Section.DICTATION, "keyboard", "Clavier VoiceToText", "activer choisir changer de clavier méthode de saisie"),
         Entry(Section.DICTATION, "translation", "Langue de traduction", "traduire anglais espagnol allemand mode traduction langue"),
         Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande épeler lettres"),

@@ -459,6 +459,18 @@ Sur Android, le nettoyage réécrivait trop, au point de changer la portée des 
 - Prompts personnalisés inchangés
 - À vérifier sur le téléphone : mêmes dictées qu'avant, sens des phrases conservé
 
+## v0.34 — Android : choix du micro ✅
+
+Savoir quel matériel enregistre, et en changer quand on branche un micro externe. Le PC avait déjà son choix (Réglages → Reconnaissance locale) ; Android prenait toujours le micro choisi par le système.
+
+- ✅ Carte **Micro** dans Réglages → Dictée (et recherche « micro », « usb », « bluetooth »…) : **Automatique** (choix d'Android) ou un micro précis, parmi les entrées audio d'Android (`AudioManager.getDevices`) : micros du téléphone (bas, arrière… d'après l'adresse du fabricant), casque filaire, USB, Bluetooth (SCO, LE Audio), entrée ligne ; téléphonie, tuners et flux internes écartés
+- ✅ Liste tenue à jour page ouverte (`AudioDeviceCallback`) : un micro branché apparaît aussitôt. Choix gardé sur le téléphone (préférences, pas dans config.toml partagé avec le PC) sous forme de clé type + nom + adresse, l'identifiant d'Android changeant à chaque branchement ; micro USB rebranché sur un autre port reconnu à son type et son nom. Micro choisi absent : reste affiché « débranché », Android choisit en attendant
+- ✅ Micro imposé (`AudioRecord.setPreferredDevice`) à la dictée du clavier et de la bulle, aux réunions et au test. Bluetooth : liaison « appel » (SCO) ouverte le temps de l'enregistrement (`setCommunicationDevice` depuis Android 12, `startBluetoothSco` avant ; permission `MODIFY_AUDIO_SETTINGS`, accordée sans question), refermée à la fin ; liaison refusée → Android choisit plutôt qu'un micro muet
+- ✅ Micro réellement utilisé lu sur l'enregistrement (`getRoutedDevice`) : « Dernier enregistrement : … » dans les réglages, ligne « Micro : … » sur l'écran d'enregistrement d'une réunion, micro choisi rappelé sur l'accueil (ligne Dictée)
+- ✅ **Tester le micro** : 5 s d'écoute avec le niveau, le micro qui capte, puis « votre voix arrive bien », « son très faible » ou « rien n'est arrivé »
+- ✅ Compilé sur le serveur (éditions clavier et bulle) ; page vérifiée en capture Robolectric (micros du téléphone bas / arrière, USB, Bluetooth, ligne de téléphonie écartée, micro choisi débranché)
+- ⬜ À vérifier sur le téléphone : micro USB et casque filaire branchés page ouverte, test, dictée et réunion sur le micro choisi ; casque Bluetooth (liaison ouverte à temps, son revenu en qualité normale après la dictée)
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :

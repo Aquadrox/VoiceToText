@@ -48,7 +48,7 @@ import kotlin.math.hypot
  */
 class BubbleService : AccessibilityService() {
     private val store by lazy { Store(this) }
-    private val recorder = Recorder()
+    private val recorder = Recorder(this)
     private val main = Handler(Looper.getMainLooper())
     private lateinit var manager: WindowManager
 

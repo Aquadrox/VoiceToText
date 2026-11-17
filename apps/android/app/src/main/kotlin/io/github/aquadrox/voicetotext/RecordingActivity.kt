@@ -34,6 +34,7 @@ class RecordingActivity : Activity() {
     private lateinit var clock: TextView
     private lateinit var ring: Ring
     private lateinit var marks: TextView
+    private lateinit var microphone: TextView
     private val tick = object : Runnable {
         override fun run() {
             refresh()
@@ -122,6 +123,7 @@ class RecordingActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(24), dp(24), 0)
         }
+        microphone = infos.info(R.drawable.ic_mic, "Micro : …")
         infos.info(R.drawable.ic_lock, audioText())
         infos.info(R.drawable.ic_audio_lines, "Transcription et compte rendu à la fin")
         marks = infos.info(R.drawable.ic_flag, "")
@@ -188,6 +190,7 @@ class RecordingActivity : Activity() {
         val seconds = (SystemClock.elapsedRealtime() - MeetingService.startedAt) / 1000
         clock.text = Meetings.clock(seconds * 1000)
         ring.level = MeetingService.level
+        microphone.text = "Micro : ${MeetingService.microphone.ifEmpty { "…" }}"
         val count = MeetingService.marks
         marks.text = if (count == 0) "« Marquer un moment » : repère dans la transcription" else "$count moment(s) marqué(s)"
     }

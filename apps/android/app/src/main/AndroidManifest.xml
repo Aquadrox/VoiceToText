@@ -3,6 +3,9 @@
 
     <!-- Micro : dictée. Internet : modèles Whisper et nettoyage LLM. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Micro d'un casque Bluetooth choisi dans les réglages : liaison « appel »
+         (SCO) ouverte le temps de l'enregistrement. Accordée sans question. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Mises à jour : installer la nouvelle version (après un clic), l'annoncer,
          et garder la vérification périodique après un redémarrage. -->
