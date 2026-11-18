@@ -220,7 +220,12 @@ private fun LinearLayout.styledButton(label: String, filled: Boolean, action: ()
         setOnClickListener { action() }
     }
     val params = if (orientation == LinearLayout.HORIZONTAL) {
-        LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+        // Côte à côte : pas d'alignement sur la ligne de base du texte (un
+        // libellé sur deux lignes décalerait son bouton vers le bas, rogné par
+        // la rangée), et même hauteur pour tous (MATCH dans une rangée WRAP =
+        // hauteur du plus grand), libellé centré dans chacun.
+        isBaselineAligned = false
+        LinearLayout.LayoutParams(0, MATCH, 1f).apply {
             if (childCount > 0) marginStart = ctx.dp(8)
             topMargin = ctx.dp(8)
         }
