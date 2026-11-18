@@ -21,8 +21,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use vtt_core::config::MeetingAudio;
 use vtt_core::meeting::{
-    self, Chunk, Chunker, MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output,
-    RECORD_FILE, Segment, Track,
+    self, Chunk, Chunker, HtmlOptions, MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary,
+    Output, RECORD_FILE, Segment, Track,
 };
 use vtt_core::{SAMPLE_RATE, audio};
 
@@ -863,6 +863,103 @@ fn write_summary(
     }
 }
 
+/// Rédige (ou refait) le rapport complet : à la demande seulement.
+/// Bloquant : plusieurs requêtes au LLM pour un long enregistrement
+/// (avancement dans `progress`).
+pub fn report(root: &Path, id: &str, toml: &str, language: &str) -> Result<(), String> {
+    let _guard = StepGuard::start(id, "report")?;
+    let config = settings::parse(toml)?.0;
+    let (record, _) = load(root, id)?;
+    if record.segments.is_empty() {
+        return Err("transcription vide : rien à analyser".into());
+    }
+    let cleaner = engine::summarizer(&config)
+        .ok_or("nettoyage par LLM désactivé : activez-le dans les réglages")?;
+    let transcript = meeting::transcript_text(&record.segments(), &record.names(), false);
+    let language = Some(language.trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| config.meetings.summary_language.trim().to_owned());
+    log::info!(
+        "rapport de {id} ({} caractères) via {}",
+        transcript.chars().count(),
+        config.llm.model
+    );
+    update(root, id, |r| r.progress = Some(0))?;
+    let result = cleaner.report(
+        &record.title,
+        &transcript,
+        record.duration_ms,
+        Some(language.as_str()).filter(|l| !l.is_empty()),
+        record.conference_summary(),
+        &mut |done, total| {
+            let percent = (done * 100 / total.max(1)) as u8;
+            let _ = update(root, id, |r| r.progress = Some(percent));
+        },
+    );
+    let pricing = &config.llm.pricing;
+    match result {
+        Ok(drafted) => update(root, id, |r| {
+            let mut report = drafted.report;
+            if let Some(previous) = &r.report {
+                report.keep_done(previous);
+            }
+            report.at_ms = now_ms();
+            report.model = config.llm.model.clone();
+            report.cost = drafted.usage.map(|u| pricing.cost(&u));
+            report.currency = pricing.currency.clone();
+            r.report = Some(report);
+            r.report_error = None;
+            r.progress = None;
+        }),
+        Err(e) => {
+            let message = e.to_string();
+            update(root, id, |r| {
+                r.report_error = Some(message.clone());
+                r.progress = None;
+            })?;
+            Err(message)
+        }
+    }
+}
+
+/// Rapport en HTML pour l'application (thème imposé, ▶ et cases reliés à
+/// l'application). `date` : date lisible, mise en forme par l'application.
+pub fn report_html(root: &Path, id: &str, date: &str, theme: &str) -> Result<String, String> {
+    let (record, dir) = load(root, id)?;
+    let options = HtmlOptions {
+        app: true,
+        replay: replay(&record, &dir),
+        theme: Some(theme.to_owned()),
+        tracks: false,
+    };
+    record
+        .report_html(date, &options)
+        .ok_or_else(|| "pas encore de rapport".to_owned())
+}
+
+/// Action du plan d'action cochée ou décochée.
+pub fn set_action_done(root: &Path, id: &str, index: usize, done: bool) -> Result<(), String> {
+    let mut result = Ok(());
+    update(root, id, |r| {
+        match r
+            .report
+            .as_mut()
+            .and_then(|report| report.actions.get_mut(index))
+        {
+            Some(action) => action.done = done,
+            None => result = Err("action introuvable".to_owned()),
+        }
+    })?;
+    result
+}
+
+/// Réécoute possible : audio gardé (l'audio temporaire est effacé après la
+/// transcription).
+fn replay(record: &MeetingRecord, dir: &Path) -> bool {
+    record.audio != MeetingAudio::Temporaire && has_audio(record, dir)
+}
+
 /// Ligne de la liste des réunions.
 #[derive(Debug, Serialize)]
 pub struct Row {
@@ -877,6 +974,7 @@ pub struct Row {
     pub imported: bool,
     pub conference: bool,
     pub summary: bool,
+    pub report: bool,
     /// Intervenants distingués.
     pub speakers: usize,
 }
@@ -924,6 +1022,7 @@ pub fn list(root: &Path, toml: &str) -> Result<Vec<Row>, String> {
             imported: record.kind == MeetingKind::Fichier,
             conference: record.conference_summary(),
             summary: record.summary.is_some(),
+            report: record.report.is_some(),
             speakers: speaker_count(&record),
             id,
             title: record.title,
@@ -966,6 +1065,8 @@ pub struct Detail {
     pub source: Option<String>,
     pub summary_text: Option<SummaryView>,
     pub summary_error: Option<String>,
+    pub report_view: Option<ReportView>,
+    pub report_error: Option<String>,
     pub notes: Vec<String>,
     pub failed_chunks: u32,
     pub marks: Vec<u64>,
@@ -979,6 +1080,20 @@ pub struct Detail {
     pub speakers_pending: bool,
     /// Analyse gardée : le nombre peut changer sans l'audio.
     pub voices_kept: bool,
+}
+
+/// Aperçu du rapport (onglet Rapport) ; le document s'ouvre à part.
+#[derive(Debug, Serialize)]
+pub struct ReportView {
+    pub synthesis: String,
+    pub key_points: Vec<String>,
+    pub chapters: Vec<String>,
+    pub actions: usize,
+    pub actions_done: usize,
+    pub at_ms: u64,
+    pub model: String,
+    pub cost: Option<f64>,
+    pub currency: String,
 }
 
 /// Intervenant distingué.
@@ -1044,8 +1159,7 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
             text: r.text,
         })
         .collect();
-    // Audio temporaire : effacé après la transcription.
-    let replay = record.audio != MeetingAudio::Temporaire && has_audio(&record, &dir);
+    let replay = replay(&record, &dir);
     Ok(Detail {
         row: Row {
             id: record.id.clone(),
@@ -1058,6 +1172,7 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
             imported: record.kind == MeetingKind::Fichier,
             conference: record.conference_summary(),
             summary: record.summary.is_some(),
+            report: record.report.is_some(),
             speakers: speaker_count(&record),
         },
         audio: record.audio,
@@ -1070,6 +1185,18 @@ pub fn detail(root: &Path, id: &str) -> Result<Detail, String> {
             currency: s.currency.clone(),
         }),
         summary_error: record.summary_error.clone(),
+        report_view: record.report.as_ref().map(|r| ReportView {
+            synthesis: r.synthesis.clone(),
+            key_points: r.key_points.iter().map(|p| p.text.clone()).collect(),
+            chapters: r.chapters.iter().map(|c| c.title.clone()).collect(),
+            actions: r.actions.len(),
+            actions_done: r.actions.iter().filter(|a| a.done).count(),
+            at_ms: r.at_ms,
+            model: r.model.clone(),
+            cost: r.cost,
+            currency: r.currency.clone(),
+        }),
+        report_error: record.report_error.clone(),
         notes: record.notes.clone(),
         failed_chunks: record.failed_chunks,
         marks: record.marks.clone(),
@@ -1113,13 +1240,20 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Texte à partager : « markdown » (tout), « summary » (compte rendu) ou
-/// « transcript » (transcription). `date` : date lisible, mise en forme par
-/// l'application.
+/// Texte à partager : « markdown » (tout), « summary » (compte rendu),
+/// « transcript » (transcription), « report » (rapport en Markdown, sans la
+/// transcription) ou « report_html » (rapport en HTML autonome, avec la
+/// transcription). `date` : date lisible, mise en forme par l'application.
 pub fn export(root: &Path, id: &str, what: &str, date: &str) -> Result<String, String> {
     let (record, _) = load(root, id)?;
     let segments = record.segments();
     match what {
+        "report" => record
+            .report_markdown(date, false)
+            .ok_or_else(|| "pas encore de rapport".to_owned()),
+        "report_html" => record
+            .report_html(date, &HtmlOptions::default())
+            .ok_or_else(|| "pas encore de rapport".to_owned()),
         "summary" => record
             .summary
             .map(|s| format!("# {}\n\n{}", record.title, s.text.trim()))
@@ -1370,6 +1504,116 @@ mod tests {
         assert_eq!(detail.replies[0].label, None);
         assert!(!detail.replay, "aucun audio reçu");
         assert!(dir(&root, "../etc").is_err());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// Serveur LLM jetable (adresse locale : pas de clé) qui répond
+    /// `reply` à chaque requête, `count` fois.
+    fn fake_llm(reply: &'static str, count: usize) -> String {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for _ in 0..count {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = stream.read(&mut buf).unwrap();
+                    request.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&request).into_owned();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length: usize = text[..end]
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let body = serde_json::json!({
+                    "choices": [{"message": {"content": reply}}],
+                    "usage": {"prompt_tokens": 1000, "completion_tokens": 100}
+                })
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn report_is_written_on_demand_checked_and_exported() {
+        let _serial = lock(&SERIAL);
+        let root = root("report");
+        let id = create(&root, &new(MeetingAudio::Conserve, None)).unwrap();
+        stop(&root, &id).unwrap();
+        update(&root, &id, |r| {
+            r.status = MeetingStatus::Terminee;
+            r.title = "Point projet".into();
+            r.duration_ms = 120_000;
+            r.segments.push(Segment {
+                track: Track::Moi,
+                start_ms: 12_000,
+                end_ms: 15_000,
+                text: "Paul envoie le devis vendredi.".into(),
+                copied: false,
+                speaker: None,
+            });
+        })
+        .unwrap();
+        assert!(
+            set_action_done(&root, &id, 0, true).is_err(),
+            "pas de rapport"
+        );
+        let reply = r#"{"synthese": "Devis à envoyer.",
+            "chapitres": [{"titre": "Devis", "debut": "00:10"}],
+            "actions": [{"tache": "Envoyer le devis", "responsable": "Paul", "echeance": "vendredi", "t": "00:12"}]}"#;
+        let url = fake_llm(reply, 2);
+        let toml = format!(
+            "[llm]\nenabled = true\nbase_url = \"{url}\"\nmodel = \"test\"\n[llm.pricing]\ninput_per_million = 1.0\noutput_per_million = 2.0\n"
+        );
+        report(&root, &id, &toml, "").unwrap();
+        let view = detail(&root, &id).unwrap();
+        assert!(view.row.report && view.row.step.is_none());
+        let summary = view.report_view.unwrap();
+        assert_eq!(summary.synthesis, "Devis à envoyer.");
+        assert_eq!((summary.actions, summary.actions_done), (1, 0));
+        assert_eq!(summary.chapters, ["Devis"]);
+        assert_eq!(summary.model, "test");
+        assert!((summary.cost.unwrap() - 0.0012).abs() < 1e-9);
+
+        set_action_done(&root, &id, 0, true).unwrap();
+        assert!(set_action_done(&root, &id, 3, true).is_err());
+        let html = report_html(&root, &id, "18/11/2026", "dark").unwrap();
+        assert!(html.contains("data-theme=\"dark\" data-mode=\"app\""));
+        assert!(html.contains("data-index=\"0\" checked"));
+        assert!(html.contains("Paul envoie le devis vendredi."));
+        // Fichier exporté : sans lien avec l'application.
+        let file = export(&root, &id, "report_html", "18/11/2026").unwrap();
+        assert!(file.contains("data-mode=\"file\"") && !file.contains("class=\"play\""));
+        let md = export(&root, &id, "report", "18/11/2026").unwrap();
+        assert!(md.contains("- [x] Envoyer le devis — Paul, échéance : vendredi"));
+
+        // Nouvelle rédaction : l'action cochée le reste.
+        report(&root, &id, &toml, "").unwrap();
+        assert_eq!(
+            detail(&root, &id)
+                .unwrap()
+                .report_view
+                .unwrap()
+                .actions_done,
+            1
+        );
         fs::remove_dir_all(&root).ok();
     }
 

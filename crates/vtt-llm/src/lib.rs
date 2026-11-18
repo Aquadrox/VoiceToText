@@ -10,6 +10,9 @@ use vtt_core::config::LlmConfig;
 use vtt_core::usage::Usage;
 use vtt_core::{Cleaned, Directives, Error, PostProcessor};
 
+mod report;
+pub use report::{Drafted, MERGE_PROMPT, REPORT_PROMPT};
+
 /// Fournit la clé API au moment de l'appel : une clé saisie dans les
 /// réglages est prise en compte sans redémarrer.
 pub type ApiKeyProvider = Box<dyn Fn() -> Option<String> + Send + Sync>;
@@ -231,6 +234,8 @@ pub struct LlmCleaner {
     command_prompt: String,
     summary_prompt: String,
     conference_prompt: String,
+    /// Dictionnaire perso, rappelé dans les prompts du rapport.
+    dictionary: Vec<String>,
     api_key: ApiKeyProvider,
     agent: ureq::Agent,
     command_agent: ureq::Agent,
@@ -279,6 +284,7 @@ impl LlmCleaner {
                     .unwrap_or(DEFAULT_CONFERENCE_PROMPT),
                 dictionary,
             ),
+            dictionary: dictionary.to_vec(),
             api_key,
             agent: agent(timeout),
             command_agent: agent(timeout.max(COMMAND_MIN_TIMEOUT)),
@@ -699,7 +705,13 @@ fn parse_response(body: Value) -> Result<(String, Option<Usage>), Error> {
 }
 
 /// Balises qui délimitent les données dans les prompts.
-const PROMPT_TAGS: [&str; 3] = ["dictee", "consigne", "selection"];
+const PROMPT_TAGS: [&str; 5] = [
+    "dictee",
+    "consigne",
+    "selection",
+    "transcription",
+    "analyses",
+];
 
 /// Désamorce les balises du prompt présentes dans un texte (`</selection>`
 /// dans une page web copiée…) : sans cela, il pourrait fermer sa balise et

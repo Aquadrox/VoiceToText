@@ -147,6 +147,15 @@ object Native {
     /** (Re)fait le compte rendu (bloquant). `language` vide : celle des réglages. */
     external fun meetingSummarize(root: String, id: String, toml: String, language: String): String
 
+    /** (Re)fait le rapport complet (bloquant, plusieurs requêtes au LLM). `language` vide : celle des réglages. */
+    external fun meetingReport(root: String, id: String, toml: String, language: String): String
+
+    /** Rapport en HTML pour [ReportActivity] : `theme` « light » ou « dark ». */
+    external fun meetingReportHtml(root: String, id: String, date: String, theme: String): String
+
+    /** Action du plan d'action cochée ou décochée. */
+    external fun meetingActionDone(root: String, id: String, index: Int, done: Boolean): String
+
     /** Liste, la plus récente d'abord : `{"ok": [{"id", "title", "status", …}]}`. */
     external fun meetings(root: String, toml: String): String
 
@@ -160,7 +169,10 @@ object Native {
 
     external fun meetingDelete(root: String, id: String): String
 
-    /** Texte à partager : `what` « markdown », « summary » ou « transcript ». */
+    /**
+     * Texte à partager : `what` « markdown », « summary », « transcript »,
+     * « report » (rapport en Markdown) ou « report_html » (rapport en HTML autonome).
+     */
     external fun meetingExport(root: String, id: String, what: String, date: String): String
 
     /** Passage de l'audio conservé (PCM 16 bits 16 kHz mono), vide si indisponible. */
