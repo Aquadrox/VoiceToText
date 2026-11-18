@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.35.1 — 2026-11-18
+
+- [Android] Le bouton « Toutes les réunions » de l'écran d'accueil s'affiche en entier, à la même hauteur que « Enregistrer ».
+
 ## 0.35.0 — 2026-11-18
 
 - [Android] Rapport complet d'une réunion, rédigé par l'IA quand vous le demandez (onglet Rapport) : synthèse, points clés, chapitres avec leur passage de transcription, analyse (accords, désaccords, risques, chiffres, questions ouvertes) et plan d'action (qui, quoi, échéance, priorité).

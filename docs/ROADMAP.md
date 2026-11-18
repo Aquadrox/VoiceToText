@@ -484,6 +484,13 @@ Un document « intelligent » tiré d'une transcription, à la demande, en plus 
 - ⬜ PC : onglet Rapport de la page Réunions (même moteur et même document), rapport inclus dans la recherche globale
 - ⬜ Consignes de style du rapport modifiables dans la page Prompts (format JSON fixe)
 
+## v0.35.1 — Android : bouton « Toutes les réunions » rogné ✅
+
+Sur l'écran d'accueil, le libellé « Toutes les réunions » passait sur deux lignes et le bouton était décalé vers le bas puis rogné par la rangée. Cause : une rangée horizontale (`LinearLayout`) aligne par défaut ses enfants sur la ligne de base de leur texte ; celle de la première ligne du bouton de droite était calée sur celle d'« Enregistrer », ce qui le poussait vers le bas.
+
+- ✅ Boutons côte à côte (`secondary` / `primary` dans une rangée ou les actions d'une étape) : plus d'alignement sur la ligne de base, même hauteur pour tous (celle du plus grand), libellé centré dans chacun
+- ⬜ À vérifier sur le téléphone : écran d'accueil, rangées de boutons des réglages (bulle, clavier, prompts, clés)
+
 ## Outillage ✅
 
 Accélérer la CI sans baisser la garde :
