@@ -67,6 +67,13 @@
             android:name=".MeetingActivity"
             android:exported="false"
             android:label="Réunion" />
+        <!-- Rapport complet (WebView sans réseau ; recherche : le clavier
+             redimensionne la page). -->
+        <activity
+            android:name=".ReportActivity"
+            android:exported="false"
+            android:label="Rapport"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".RecordingActivity"
             android:exported="false"

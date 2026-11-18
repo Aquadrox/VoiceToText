@@ -16,9 +16,13 @@ use crate::pipeline::SAMPLE_RATE;
 
 mod names;
 mod record;
+mod report;
 
 pub use names::{NameGuess, guess_names, same_person};
 pub use record::{MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE};
+pub use report::{
+    Action, Chapter, HtmlOptions, MeetingReport, Point, Priority, Qa, Quote, parse_json, parse_time,
+};
 
 /// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

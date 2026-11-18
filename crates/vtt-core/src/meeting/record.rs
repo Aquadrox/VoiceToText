@@ -6,6 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::report::MeetingReport;
 use super::{NameGuess, Segment, Track, guess_names, same_person, with_speakers, without_echo};
 use crate::config::MeetingAudio;
 use crate::diarize;
@@ -130,6 +131,11 @@ pub struct MeetingRecord {
     /// pour une conférence ou un fichier).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conference: Option<bool>,
+    /// Rapport complet (à la demande) : chapitres, analyse, plan d'action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<MeetingReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_error: Option<String>,
 }
 
 fn enabled() -> bool {
@@ -168,6 +174,8 @@ impl MeetingRecord {
             identifying: false,
             marks: Vec::new(),
             conference: None,
+            report: None,
+            report_error: None,
         }
     }
 

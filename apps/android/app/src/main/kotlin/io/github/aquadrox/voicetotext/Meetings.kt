@@ -78,11 +78,16 @@ object Meetings {
                 },
             )
             "interrompue" -> add("interrompue")
-            else -> when {
-                meeting.optString("step") == "summary" -> add("compte rendu en cours")
-                meeting.optString("step") == "speakers" -> add("intervenants ${meeting.optInt("progress")} %")
-                meeting.optBoolean("summary") -> add("compte rendu")
-                else -> add("transcription seule")
+            else -> {
+                val step = meeting.optString("step")
+                when {
+                    step == "summary" -> add("compte rendu en cours")
+                    step == "speakers" -> add("intervenants ${meeting.optInt("progress")} %")
+                    meeting.optBoolean("summary") -> add("compte rendu")
+                    !meeting.optBoolean("report") && step != "report" -> add("transcription seule")
+                }
+                if (step == "report") add("rapport ${meeting.optInt("progress")} %")
+                else if (meeting.optBoolean("report")) add("rapport")
             }
         }
     }.joinToString(" · ")

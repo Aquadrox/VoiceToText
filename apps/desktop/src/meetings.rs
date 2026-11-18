@@ -480,6 +480,8 @@ impl Meetings {
             identifying: false,
             marks: Vec::new(),
             conference: None,
+            report: None,
+            report_error: None,
         };
         record.save(&dir);
         log::info!(
@@ -838,6 +840,8 @@ impl Meetings {
             identifying: false,
             marks: Vec::new(),
             conference: None,
+            report: None,
+            report_error: None,
         };
         record.save(&dir);
         let session = self.new_session(dir, record);
@@ -2073,6 +2077,8 @@ mod tests {
             identifying: false,
             marks: Vec::new(),
             conference: None,
+            report: None,
+            report_error: None,
         }
     }
 

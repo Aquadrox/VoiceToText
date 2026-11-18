@@ -548,6 +548,61 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingSummari
     java(&mut env, &json)
 }
 
+/// Rapport complet (bloquant : plusieurs requêtes au LLM).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingReport<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    toml: JString<'a>,
+    language: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let toml = text(&mut env, &toml);
+    let language = text(&mut env, &language);
+    let json = protect(|| reply(meetings::report(&root, &id, &toml, &language)));
+    java(&mut env, &json)
+}
+
+/// Rapport en HTML pour la page de l'application.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingReportHtml<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    date: JString<'a>,
+    theme: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let date = text(&mut env, &date);
+    let theme = text(&mut env, &theme);
+    let json = protect(|| reply(meetings::report_html(&root, &id, &date, &theme)));
+    java(&mut env, &json)
+}
+
+/// Action du plan d'action cochée ou décochée.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingActionDone<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    index: jint,
+    done: jboolean,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| match usize::try_from(index) {
+        Ok(index) => reply(meetings::set_action_done(&root, &id, index, done != 0)),
+        Err(_) => reply(Err::<(), _>("action introuvable".to_owned())),
+    });
+    java(&mut env, &json)
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetings<'a>(
     mut env: JNIEnv<'a>,

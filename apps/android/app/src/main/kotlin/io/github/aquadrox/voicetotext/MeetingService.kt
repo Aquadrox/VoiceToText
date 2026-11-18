@@ -71,6 +71,7 @@ class MeetingService : Service() {
             ACTION_IMPORT -> intent.data?.let { importFile(id, it) }
             ACTION_PROCESS -> process(id)
             ACTION_IDENTIFY -> identify(id)
+            ACTION_REPORT -> report(id)
         }
         main.removeCallbacks(ticker)
         main.post(ticker)
@@ -380,6 +381,39 @@ class MeetingService : Service() {
         }
     }
 
+    /** Rapport complet, à la demande : plusieurs requêtes au LLM pour un long enregistrement. */
+    private fun report(id: String) {
+        if (id.isEmpty() || !queued.add(id)) return
+        foreground()
+        val root = store.meetingsDir
+        val config = store.config
+        worker.execute {
+            processing = id
+            main.post { foreground() }
+            // Clé API du fournisseur chargée dans le moteur (comme pour une dictée).
+            val latch = CountDownLatch(1)
+            main.post { Dictation.prepare(store) { latch.countDown() } }
+            latch.await(2, TimeUnit.MINUTES)
+            val reply = try {
+                JSONObject(Native.meetingReport(root, id, config, ""))
+            } catch (e: Throwable) {
+                JSONObject().put("error", e.message ?: e.javaClass.simpleName)
+            }
+            processing = null
+            main.post {
+                queued.remove(id)
+                val error = reply.optString("error")
+                if (error.isNotEmpty()) {
+                    notifyError(id, "Rapport : $error")
+                } else {
+                    val title = JSONObject(Native.meeting(root, id)).optJSONObject("ok")?.optString("title").orEmpty()
+                    done(id, "Rapport prêt", title)
+                }
+                stopIfIdle()
+            }
+        }
+    }
+
     /** Charge le modèle (fil principal), puis transcrit. */
     private fun run(root: String, id: String): JSONObject {
         val latch = CountDownLatch(1)
@@ -468,6 +502,10 @@ class MeetingService : Service() {
             val percent = detail.optInt("progress", 0)
             return builder.setContentTitle("Intervenants : $percent %").setContentText(title).setProgress(100, percent, false).build()
         }
+        if (detail?.optString("step") == "report") {
+            val percent = detail.optInt("progress", 0)
+            return builder.setContentTitle("Rapport en cours : $percent %").setContentText(title).setProgress(100, percent, percent == 0).build()
+        }
         if (detail?.optString("step") == "summary") {
             return builder.setContentTitle("Compte rendu en cours").setContentText(title).setProgress(0, 0, true).build()
         }
@@ -534,6 +572,7 @@ class MeetingService : Service() {
         const val ACTION_IMPORT = "io.github.aquadrox.voicetotext.meeting.IMPORT"
         const val ACTION_PROCESS = "io.github.aquadrox.voicetotext.meeting.PROCESS"
         const val ACTION_IDENTIFY = "io.github.aquadrox.voicetotext.meeting.IDENTIFY"
+        const val ACTION_REPORT = "io.github.aquadrox.voicetotext.meeting.REPORT"
         const val EXTRA_ID = "id"
         private const val CHANNEL = "meetings"
         private const val CHANNEL_DONE = "meetings_done"
@@ -612,7 +651,7 @@ class MeetingService : Service() {
             )
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_DONE, "Réunion terminée", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "Transcription ou compte rendu prêt"
+                    description = "Transcription, compte rendu ou rapport prêt"
                 },
             )
         }

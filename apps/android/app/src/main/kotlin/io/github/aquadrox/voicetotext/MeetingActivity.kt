@@ -32,10 +32,11 @@ import java.util.Date
 import java.util.concurrent.Executors
 
 /**
- * Une réunion : suivi de la transcription (étapes cochées), puis deux onglets
- * « Compte rendu » et « Transcription », « Partager » et « Copier » en bas,
+ * Une réunion : suivi de la transcription (étapes cochées), puis trois onglets
+ * « Compte rendu », « Rapport » (rapport complet à la demande, ouvert dans
+ * [ReportActivity]) et « Transcription », « Partager » et « Copier » en bas,
  * menu ⋯ pour le reste (renommer, modèle de compte rendu, refaire le compte
- * rendu, supprimer).
+ * rendu ou le rapport, supprimer).
  */
 class MeetingActivity : Activity() {
     private val store by lazy { Store(this) }
@@ -46,12 +47,13 @@ class MeetingActivity : Activity() {
     private lateinit var message: TextView
     private lateinit var tabs: LinearLayout
     private lateinit var summaryTab: TextView
+    private lateinit var reportTab: TextView
     private lateinit var transcriptTab: TextView
     private lateinit var body: LinearLayout
     private lateinit var share: Button
     private lateinit var copy: Button
     private var detail: JSONObject? = null
-    private var showTranscript = false
+    private var tab = TAB_SUMMARY
     /** Signature du dernier affichage : rien n'est redessiné si rien n'a changé. */
     private var shown = ""
     private var confirmDelete = false
@@ -97,8 +99,9 @@ class MeetingActivity : Activity() {
                 background = rounded(getColor(R.color.border), 12f)
                 setPadding(dp(4), dp(4), dp(4), dp(4))
             }
-            summaryTab = tabs.tab("Compte rendu") { showTranscript = false; render(true) }
-            transcriptTab = tabs.tab("Transcription") { showTranscript = true; render(true) }
+            summaryTab = tabs.tab("Compte rendu") { tab = TAB_SUMMARY; render(true) }
+            reportTab = tabs.tab("Rapport") { tab = TAB_REPORT; render(true) }
+            transcriptTab = tabs.tab("Transcription") { tab = TAB_TRANSCRIPT; render(true) }
             addView(tabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
             body = LinearLayout(this@MeetingActivity).apply { orientation = LinearLayout.VERTICAL }
             addView(body)
@@ -133,7 +136,7 @@ class MeetingActivity : Activity() {
         if (this.detail == null && detail.optJSONObject("summary_text") == null &&
             detail.text("summary_error").isEmpty() && detail.optString("status") == "terminee"
         ) {
-            showTranscript = true
+            tab = TAB_TRANSCRIPT
         }
         this.detail = detail
         render(false)
@@ -146,7 +149,7 @@ class MeetingActivity : Activity() {
 
     private fun render(force: Boolean) {
         val detail = detail ?: return
-        val signature = "$showTranscript|$playing|$detail"
+        val signature = "$tab|$playing|$detail"
         if (!force && signature == shown) return
         shown = signature
         title.text = detail.optString("title")
@@ -162,9 +165,14 @@ class MeetingActivity : Activity() {
             progress(detail)
             return
         }
-        summaryTab.select(!showTranscript)
-        transcriptTab.select(showTranscript)
-        if (showTranscript) transcript(detail) else summary(detail)
+        summaryTab.select(tab == TAB_SUMMARY)
+        reportTab.select(tab == TAB_REPORT)
+        transcriptTab.select(tab == TAB_TRANSCRIPT)
+        when (tab) {
+            TAB_REPORT -> report(detail)
+            TAB_TRANSCRIPT -> transcript(detail)
+            else -> summary(detail)
+        }
     }
 
     // ---- Pendant le traitement ----
@@ -296,6 +304,79 @@ class MeetingActivity : Activity() {
             }
         }
         body.postDelayed({ load() }, 300)
+    }
+
+    // ---- Rapport complet ----
+
+    private fun report(detail: JSONObject) {
+        val report = detail.optJSONObject("report_view")
+        val error = detail.text("report_error")
+        val hasReplies = (detail.optJSONArray("replies")?.length() ?: 0) > 0
+        notes(detail)
+        when {
+            detail.text("step") == "report" -> body.card().apply {
+                val percent = detail.optInt("progress")
+                note(
+                    "Rapport en cours de rédaction par le LLM… $percent %\n" +
+                        "Un long enregistrement est analysé partie par partie. Vous pouvez quitter l'appli : une notification vous préviendra.",
+                )
+                addView(ProgressBar(this@MeetingActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    progress = percent
+                    isIndeterminate = percent == 0
+                    progressTintList = ColorStateList.valueOf(getColor(R.color.accent))
+                })
+            }
+            report != null -> {
+                body.card("Synthèse").apply {
+                    text(report.optString("synthesis").substringBefore("\n\n"), 15f)
+                    val points = report.optJSONArray("key_points")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty()
+                    if (points.isNotEmpty()) {
+                        text("Points clés", 13f, R.color.muted, bold = true).setPadding(0, dp(12), 0, dp(4))
+                        for (point in points.take(4)) text("•  $point", 15f).setPadding(0, dp(2), 0, dp(2))
+                    }
+                }
+                val chapters = report.optJSONArray("chapters")?.length() ?: 0
+                val actions = report.optInt("actions")
+                val facts = buildList {
+                    add("$chapters chapitre(s)")
+                    if (actions > 0) add("plan d'action : ${report.optInt("actions_done")} / $actions action(s) faite(s)")
+                }.joinToString(" · ")
+                body.card().apply {
+                    text(facts, 14f, R.color.muted)
+                    primary("Ouvrir le rapport") { startActivity(ReportActivity.intent(this@MeetingActivity, meetingId)) }
+                    secondary("Enregistrer en HTML") { Reports.save(this@MeetingActivity, detail.optString("title")) }
+                }
+                val cost = if (report.isNull("cost")) "" else " · " + Meetings.cost(report.optDouble("cost"), report.optString("currency"))
+                body.note("Rédigé par ${report.optString("model")}$cost. Le fichier HTML s'ouvre dans n'importe quel navigateur, avec le sommaire et la recherche.")
+            }
+            else -> body.card("Rapport complet").apply {
+                note(
+                    "Un document complet, rédigé par le LLM à votre demande : synthèse, points clés, chapitres avec leur " +
+                        "transcription, analyse (accords, désaccords, risques, chiffres, questions ouvertes) et plan d'action. " +
+                        "Sommaire, recherche et filtres ; chaque élément renvoie au moment où il a été dit.",
+                )
+                if (error.isNotEmpty()) text("Le rapport a échoué : $error", 14f, R.color.danger).setPadding(0, dp(8), 0, 0)
+                if (hasReplies) {
+                    primary(if (error.isNotEmpty()) "Réessayer" else "Rédiger le rapport") { writeReport() }
+                } else {
+                    note("Rien à analyser : la transcription est vide.")
+                }
+            }
+        }
+    }
+
+    private fun writeReport() {
+        if (detail?.text("step")?.isNotEmpty() == true) return
+        message.say("")
+        MeetingService.start(this, MeetingService.ACTION_REPORT, meetingId)
+        body.postDelayed({ load() }, 500)
+    }
+
+    @Deprecated("Activity.onActivityResult")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        Reports.onSaved(this, requestCode, resultCode, data, meetingId, detail?.let { Reports.date(it) }.orEmpty())
     }
 
     // ---- Transcription ----
@@ -607,12 +688,21 @@ class MeetingActivity : Activity() {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it.getLong("started_at_ms")))
     }.orEmpty()
 
-    /** Ce qui est affiché : le compte rendu (s'il existe) ou la transcription. */
+    /** Ce qui est affiché : le compte rendu ou le rapport (s'il existe), sinon la transcription. */
     private fun shownText(): Pair<String, String>? {
-        val what = if (showTranscript || detail?.optJSONObject("summary_text") == null) "transcript" else "summary"
-        val text = JSONObject(Native.meetingExport(store.meetingsDir, meetingId, what, dateText())).text("ok")
+        val what = when {
+            tab == TAB_SUMMARY && detail?.optJSONObject("summary_text") != null -> "summary"
+            tab == TAB_REPORT && detail?.optJSONObject("report_view") != null -> "report"
+            else -> "transcript"
+        }
+        val date = if (what == "report") detail?.let { Reports.date(it) }.orEmpty() else dateText()
+        val text = JSONObject(Native.meetingExport(store.meetingsDir, meetingId, what, date)).text("ok")
         if (text.isEmpty()) return null
-        val label = if (what == "summary") "Compte rendu" else "Transcription"
+        val label = when (what) {
+            "summary" -> "Compte rendu"
+            "report" -> "Rapport"
+            else -> "Transcription"
+        }
         return label to (if (what == "transcript") "${detail?.optString("title")}\n\n$text" else text)
     }
 
@@ -634,6 +724,10 @@ class MeetingActivity : Activity() {
             menu.add(0, 2, 0, if (detail.optBoolean("conference")) "Compte rendu : passer au modèle réunion" else "Compte rendu : passer au modèle cours")
                 .isEnabled = !busy
             menu.add(0, 3, 0, "Refaire le compte rendu").isEnabled = !busy && detail.optJSONArray("replies")?.length() ?: 0 > 0
+            val report = detail.optJSONObject("report_view") != null
+            menu.add(0, 8, 0, if (report) "Refaire le rapport complet" else "Rédiger le rapport complet")
+                .isEnabled = !busy && detail.optJSONArray("replies")?.length() ?: 0 > 0
+            if (report) menu.add(0, 9, 0, "Enregistrer le rapport (HTML)").isEnabled = !busy
             val speakers = detail.optJSONArray("speaker_list")?.length() ?: 0
             if (speakers > 0) {
                 menu.add(0, 6, 0, "Intervenants…").isEnabled = !busy
@@ -656,6 +750,11 @@ class MeetingActivity : Activity() {
                     5 -> delete()
                     6 -> speakersDialog()
                     7 -> identify()
+                    8 -> {
+                        tab = TAB_REPORT
+                        writeReport()
+                    }
+                    9 -> Reports.save(this@MeetingActivity, detail.optString("title"))
                 }
                 true
             }
@@ -715,6 +814,10 @@ class MeetingActivity : Activity() {
     companion object {
         /** « Écouter sa voix » : début de sa première réplique. */
         private const val VOICE_SAMPLE_MS = 8_000L
+
+        private const val TAB_SUMMARY = 0
+        private const val TAB_REPORT = 1
+        private const val TAB_TRANSCRIPT = 2
 
         /** Réécoute : jusqu'à la réplique suivante, une minute au plus. */
         private const val CLIP_MS = 60_000L

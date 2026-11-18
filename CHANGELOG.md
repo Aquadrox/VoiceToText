@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.35.0 — 2026-11-18
+
+- [Android] Rapport complet d'une réunion, rédigé par l'IA quand vous le demandez (onglet Rapport) : synthèse, points clés, chapitres avec leur passage de transcription, analyse (accords, désaccords, risques, chiffres, questions ouvertes) et plan d'action (qui, quoi, échéance, priorité).
+- [Android] Dans le rapport : sommaire, recherche sans tenir compte des majuscules ni des accents, filtres (décisions, actions, citations…), et chaque élément renvoie au moment où il a été dit, avec ▶ pour le réécouter. Les actions se cochent au fur et à mesure.
+- [Android] Rapport enregistré en un fichier HTML qui s'ouvre dans n'importe quel navigateur, avec le sommaire et la recherche, ou partagé en texte. Les longs enregistrements sont analysés partie par partie ; le compte rendu habituel ne change pas.
+
 ## 0.34.0 — 2026-11-17
 
 - [Android] Choix du micro dans Réglages → Dictée : micro du téléphone, casque filaire, micro USB ou casque Bluetooth. Un micro branché apparaît aussitôt dans la liste ; débranché, Android reprend son micro en attendant. Le choix vaut pour la dictée et les réunions.
