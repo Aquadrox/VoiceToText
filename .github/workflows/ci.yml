@@ -329,7 +329,7 @@ jobs:
       - name: Tests Android (Kotlin)
         if: steps.changes.outputs.android == 'true'
         working-directory: apps/android
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testClavierDebugUnitTest testBulleDebugUnitTest
       - name: Moteur natif (ARM64)
         if: steps.changes.outputs.android == 'true'
         run: apps/android/build-native.sh
