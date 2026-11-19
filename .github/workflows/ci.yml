@@ -77,6 +77,9 @@ jobs:
         run: cargo clippy ${{ steps.changes.outputs.packages }} --all-targets -- -D warnings
       - if: steps.changes.outputs.code == 'true'
         run: cargo test ${{ steps.changes.outputs.packages }}
+      - name: Tests interface PC (JS)
+        if: steps.changes.outputs.code == 'true'
+        run: node --test apps/desktop/ui-tests/*.test.mjs
 
   windows:
     runs-on: windows-latest
@@ -323,6 +326,10 @@ jobs:
         run: cargo clippy -p vtt-android --all-targets -- -D warnings
       - if: steps.changes.outputs.android == 'true'
         run: cargo test -p vtt-android
+      - name: Tests Android (Kotlin)
+        if: steps.changes.outputs.android == 'true'
+        working-directory: apps/android
+        run: ./gradlew --no-daemon testDebugUnitTest
       - name: Moteur natif (ARM64)
         if: steps.changes.outputs.android == 'true'
         run: apps/android/build-native.sh
