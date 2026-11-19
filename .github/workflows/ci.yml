@@ -198,9 +198,13 @@ jobs:
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       # git avant checkout : sans lui, l'action télécharge les sources sans
-      # l'historique dont changes.sh a besoin.
+      # l'historique dont changes.sh a besoin. Miroir Azure (identique aux
+      # runners ubuntu-latest) + retries pour éviter les timeouts intermittents
+      # sur archive.ubuntu.com depuis les runners GitHub.
       - name: Outils de base (git, curl)
         run: |
+          sed -i -E 's#http://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list
+          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git curl
       - uses: actions/checkout@v7

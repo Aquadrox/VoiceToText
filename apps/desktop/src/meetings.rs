@@ -1033,16 +1033,7 @@ impl Meetings {
     }
 
     fn meeting_dir(&self, id: &str) -> Result<PathBuf, String> {
-        // Identifiant = horodatage : rien d'autre n'est accepté (chemin).
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
-            return Err("réunion inconnue".into());
-        }
-        let dir = self.dir.join(id);
-        if dir.join(RECORD_FILE).is_file() {
-            Ok(dir)
-        } else {
-            Err("réunion introuvable".into())
-        }
+        resolve_meeting_dir(&self.dir, id)
     }
 
     /// Dernier état connu : en mémoire si elle est en cours, sinon sur disque.
@@ -1139,24 +1130,9 @@ impl Meetings {
         };
         let text = {
             let mut record = lock(&session.record);
-            let fresh: Vec<Segment> = record
-                .segments()
-                .into_iter()
-                .filter(|s| !s.copied)
-                .collect();
-            for segment in &mut record.segments {
-                segment.copied = true;
-            }
+            let text = collect_fresh_turns(&mut record);
             record.save(&session.dir);
-            let names = record.names();
-            meeting::turns(&fresh)
-                .into_iter()
-                .map(|r| {
-                    let who = meeting::speaker_label(r.track, r.speaker, &names);
-                    format!("{who} : {}", r.text)
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
+            text
         };
         if text.is_empty() {
             let _ = self
@@ -1173,6 +1149,41 @@ impl Meetings {
             Err(e) => log::warn!("nouvelles répliques : {e}"),
         }
     }
+}
+
+/// Résout le dossier d'une réunion par son identifiant horodaté (refuse toute
+/// traversée de chemin ou dossier sans enregistrement).
+fn resolve_meeting_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("réunion inconnue".into());
+    }
+    let dir = root.join(id);
+    if dir.join(RECORD_FILE).is_file() {
+        Ok(dir)
+    } else {
+        Err("réunion introuvable".into())
+    }
+}
+
+/// Formate les répliques non encore copiées et les marque toutes comme copiées.
+fn collect_fresh_turns(record: &mut MeetingRecord) -> String {
+    let fresh: Vec<Segment> = record
+        .segments()
+        .into_iter()
+        .filter(|s| !s.copied)
+        .collect();
+    for segment in &mut record.segments {
+        segment.copied = true;
+    }
+    let names = record.names();
+    meeting::turns(&fresh)
+        .into_iter()
+        .map(|r| {
+            let who = meeting::speaker_label(r.track, r.speaker, &names);
+            format!("{who} : {}", r.text)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// « Réunion du 4 nov. 2026 à 14:30 », « Appel Zoom du … », « Conférence du … ».
@@ -1564,33 +1575,23 @@ pub struct Answer {
 /// Contexte donné au LLM pour une question : au plus ce nombre de caractères.
 const MAX_CONTEXT_CHARS: usize = 40_000;
 
-/// Question au LLM sur un enregistrement (`id`) ou sur tous.
-#[tauri::command(async)]
-pub fn ask_meetings(
-    meetings: State<'_, MeetingsState>,
-    question: String,
-    id: Option<String>,
-) -> Result<Answer, String> {
-    let question = question.trim();
-    if question.is_empty() {
-        return Err("question vide".into());
-    }
-    let config = meetings.config();
-    let cleaner = settings::summarizer(&config)
-        .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
+/// Rassemble les extraits pertinents (ou la transcription entière pour un seul
+/// enregistrement si elle tient sous `MAX_CONTEXT_CHARS`) et le nombre de
+/// sources retenues.
+fn build_ask_context(
+    records: &[MeetingRecord],
+    question: &str,
+    single_record: bool,
+) -> (String, usize) {
     let keywords = vtt_core::search::keywords(question);
-    let records = match &id {
-        Some(id) => vec![meetings.load(id)?.0],
-        None => meetings.all(),
-    };
     let mut context = String::new();
     let mut sources = 0;
-    for record in &records {
+    for record in records {
         let segments = record.segments();
         let mut lines =
             vtt_core::search::excerpts(&record.title, &segments, &keywords, &record.names());
         // Un seul enregistrement : tout, s'il tient.
-        if id.is_some() {
+        if single_record {
             let all = vtt_core::search::excerpts(
                 &record.title,
                 &segments,
@@ -1616,6 +1617,28 @@ pub fn ask_meetings(
             break;
         }
     }
+    (context, sources)
+}
+
+/// Question au LLM sur un enregistrement (`id`) ou sur tous.
+#[tauri::command(async)]
+pub fn ask_meetings(
+    meetings: State<'_, MeetingsState>,
+    question: String,
+    id: Option<String>,
+) -> Result<Answer, String> {
+    let question = question.trim();
+    if question.is_empty() {
+        return Err("question vide".into());
+    }
+    let config = meetings.config();
+    let cleaner = settings::summarizer(&config)
+        .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
+    let records = match &id {
+        Some(id) => vec![meetings.load(id)?.0],
+        None => meetings.all(),
+    };
+    let (context, sources) = build_ask_context(&records, question, id.is_some());
     if context.is_empty() {
         return Err(
             "aucun passage ne correspond aux mots de la question : reformulez avec les mots \
@@ -1646,6 +1669,13 @@ pub fn ask_meetings(
 const CLIP_BEFORE_MS: u64 = 2_000;
 const CLIP_MS: u64 = 30_000;
 
+fn clip_sample_range(start_ms: u64) -> (usize, usize) {
+    let rate = u64::from(vtt_core::SAMPLE_RATE);
+    let from = (start_ms.saturating_sub(CLIP_BEFORE_MS) * rate / 1000) as usize;
+    let to = (start_ms.saturating_add(CLIP_MS) * rate / 1000) as usize;
+    (from, to)
+}
+
 /// Extrait audio (WAV en `data:` URL) qui commence peu avant `start_ms` :
 /// audio conservé (les deux pistes mêlées) ou fichier importé d'origine.
 #[tauri::command(async)]
@@ -1658,9 +1688,7 @@ pub fn meeting_clip(
     if !record.replayable(&dir) {
         return Err("audio non conservé pour cet enregistrement".into());
     }
-    let rate = u64::from(vtt_core::SAMPLE_RATE);
-    let from = (start_ms.saturating_sub(CLIP_BEFORE_MS) * rate / 1000) as usize;
-    let to = ((start_ms + CLIP_MS) * rate / 1000) as usize;
+    let (from, to) = clip_sample_range(start_ms);
     let samples = match (&record.kind, &record.source_path) {
         (MeetingKind::Fichier, Some(path)) => {
             let mut read = Vec::new();
@@ -1888,6 +1916,18 @@ pub fn retranscribe_meeting(meetings: State<'_, MeetingsState>, id: String) -> R
     meetings.inner().transcribe_audio(record, dir, true)
 }
 
+fn select_copy_text(record: &MeetingRecord, part: &str) -> String {
+    match part {
+        "summary" => record
+            .summary
+            .as_ref()
+            .map(|s| s.text.clone())
+            .unwrap_or_default(),
+        "transcript" => meeting::transcript_text(&record.segments(), &record.names(), true),
+        _ => markdown(record),
+    }
+}
+
 #[tauri::command]
 pub fn copy_meeting(
     meetings: State<'_, MeetingsState>,
@@ -1895,11 +1935,7 @@ pub fn copy_meeting(
     part: String,
 ) -> Result<(), String> {
     let (record, _) = meetings.load(&id)?;
-    let text = match part.as_str() {
-        "summary" => record.summary.map(|s| s.text).unwrap_or_default(),
-        "transcript" => meeting::transcript_text(&record.segments(), &record.names(), true),
-        _ => markdown(&record),
-    };
+    let text = select_copy_text(&record, &part);
     vtt_platform::copy_text(&text)
 }
 
@@ -2131,5 +2167,166 @@ mod tests {
             "Point - budget - Q4-.md"
         );
         assert_eq!(file_name(" Réunion. ", "wav"), "Réunion.wav");
+    }
+
+    fn temp_meeting_dir(name: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "vtt-meetings-{}-{name}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolve_meeting_dir_rejects_traversal_and_missing_records() {
+        let root = temp_meeting_dir("resolve");
+        assert!(resolve_meeting_dir(&root, "").is_err());
+        assert!(resolve_meeting_dir(&root, "../autre").is_err());
+        assert!(resolve_meeting_dir(&root, "123/456").is_err());
+        assert!(resolve_meeting_dir(&root, "123abc").is_err());
+        assert!(resolve_meeting_dir(&root, "999999").is_err());
+
+        // Dossier existant sans meeting.json : toujours introuvable.
+        let empty = root.join("111111");
+        fs::create_dir_all(&empty).unwrap();
+        assert!(resolve_meeting_dir(&root, "111111").is_err());
+
+        let valid = root.join("1793790000000");
+        fs::create_dir_all(&valid).unwrap();
+        record().save(&valid);
+        assert_eq!(resolve_meeting_dir(&root, "1793790000000").unwrap(), valid);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn voice_source_resolves_imported_files_and_kept_tracks_only() {
+        let dir = temp_meeting_dir("voice-source");
+
+        let mut imported = record();
+        imported.kind = MeetingKind::Fichier;
+        let audio_file = dir.join("enregistrement.wav");
+        imported.source_path = Some(audio_file.display().to_string());
+        assert!(voice_source(&imported, &dir).is_none());
+
+        fs::write(&audio_file, b"RIFF").unwrap();
+        assert!(matches!(
+            voice_source(&imported, &dir),
+            Some(VoiceSource::File(p)) if p == audio_file
+        ));
+
+        let mut meeting_rec = record();
+        let track_path = dir.join(Track::Eux.file());
+        fs::write(&track_path, b"audio").unwrap();
+        // Temporaire : ne doit pas réutiliser la piste.
+        meeting_rec.audio = MeetingAudio::Temporaire;
+        assert!(voice_source(&meeting_rec, &dir).is_none());
+
+        // Conservé : piste existante trouvée.
+        meeting_rec.audio = MeetingAudio::Conserve;
+        assert!(matches!(
+            voice_source(&meeting_rec, &dir),
+            Some(VoiceSource::Track(p)) if p == track_path
+        ));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn collect_fresh_turns_returns_only_uncopied_and_marks_all_copied() {
+        let mut rec = record();
+        // Segment 0 (Moi) non copié, segment 1 (Eux) déjà copié.
+        let first = collect_fresh_turns(&mut rec);
+        assert_eq!(first, "Moi : Bonjour.");
+        assert!(rec.segments.iter().all(|s| s.copied));
+        assert!(collect_fresh_turns(&mut rec).is_empty());
+
+        // Nouvelle réplique avec nom d'intervenant reconnu.
+        rec.speaker_track = Some(Track::Eux);
+        rec.speaker_turns = vec![diarize::Turn {
+            start_ms: 10_000,
+            end_ms: 14_000,
+            speaker: 0,
+        }];
+        rec.speaker_names = vec!["Paul".into()];
+        rec.segments.push(Segment {
+            track: Track::Eux,
+            start_ms: 10_000,
+            end_ms: 14_000,
+            text: "Merci pour le point.".into(),
+            copied: false,
+            speaker: None,
+        });
+        assert_eq!(collect_fresh_turns(&mut rec), "Paul : Merci pour le point.");
+    }
+
+    #[test]
+    fn build_ask_context_filters_across_meetings_and_keeps_full_single_record() {
+        let mut budget = record();
+        budget.title = "Budget Q4".into();
+        budget.segments = vec![Segment {
+            track: Track::Moi,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "Le budget marketing est validé à dix mille euros.".into(),
+            copied: false,
+            speaker: None,
+        }];
+
+        let mut hiring = record();
+        hiring.id = "1793790009999".into();
+        hiring.title = "Recrutement".into();
+        hiring.segments = vec![Segment {
+            track: Track::Eux,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "Deux développeurs rejoignent l'équipe en janvier.".into(),
+            copied: false,
+            speaker: None,
+        }];
+
+        let all = [budget.clone(), hiring];
+        let (ctx, sources) = build_ask_context(&all, "Quel est le budget ?", false);
+        assert_eq!(sources, 1);
+        assert!(ctx.contains("budget marketing"), "{ctx}");
+        assert!(!ctx.contains("développeurs"), "{ctx}");
+
+        let (empty, zero) = build_ask_context(&all, "xylophone", false);
+        assert_eq!(zero, 0);
+        assert!(empty.is_empty());
+
+        // Sur un seul enregistrement court, toute la transcription est incluse.
+        let (single, single_sources) = build_ask_context(&[budget], "résumé global", true);
+        assert_eq!(single_sources, 1);
+        assert!(single.contains("budget marketing"), "{single}");
+    }
+
+    #[test]
+    fn select_copy_text_clip_range_and_default_title_work() {
+        let mut rec = record();
+        assert_eq!(select_copy_text(&rec, "summary"), "");
+        assert!(select_copy_text(&rec, "transcript").contains("Bonjour."));
+        assert!(select_copy_text(&rec, "all").contains("# Point projet"));
+
+        rec.summary = Some(MeetingSummary {
+            text: "Synthèse finale.".into(),
+            at_ms: 1,
+            model: "test".into(),
+            cost: None,
+            currency: "€".into(),
+        });
+        assert_eq!(select_copy_text(&rec, "summary"), "Synthèse finale.");
+
+        let rate = vtt_core::SAMPLE_RATE as usize;
+        assert_eq!(clip_sample_range(0), (0, 30 * rate));
+        assert_eq!(clip_sample_range(5_000), (3 * rate, 35 * rate));
+
+        let title = default_title("Réunion");
+        assert!(title.starts_with("Réunion du "), "{title}");
+        assert!(title.contains(" à "), "{title}");
     }
 }

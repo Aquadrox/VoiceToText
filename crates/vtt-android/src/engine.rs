@@ -375,12 +375,173 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Priv
     result
 }
 
+/// Dictées récentes (la plus récente d'abord).
+pub fn history(file: &Path, limit: usize) -> Result<Vec<Entry>, String> {
+    History::open(file.to_owned(), usize::MAX)
+        .recent(limit)
+        .map_err(|e| format!("historique : {e}"))
+}
+
+pub fn clear_history(file: &Path) -> Result<(), String> {
+    History::open(file.to_owned(), usize::MAX)
+        .clear()
+        .map_err(|e| format!("historique : {e}"))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::thread;
+
+    use vtt_core::config::PromptPreset;
+    use vtt_core::usage::Usage;
+    use vtt_core::{Cleaned, Directives};
+
     use super::*;
+
+    /// Sérialise les tests qui manipulent les statiques globales `ENGINE` et `API_KEY`.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct Guard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Guard {
+        fn acquire() -> Self {
+            let guard = lock(&TEST_LOCK);
+            release();
+            set_api_key(None);
+            Self { _lock: guard }
+        }
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            release();
+            set_api_key(None);
+        }
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "vtt-android-engine-{}-{name}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn speech_samples() -> Vec<f32> {
+        vec![0.1; 16_000]
+    }
+
+    struct FixedTranscriber(String);
+
+    impl Transcriber for FixedTranscriber {
+        fn transcribe(&self, _clip: &AudioClip) -> Result<String, Error> {
+            Ok(self.0.clone())
+        }
+    }
+
+    struct SpyCleaner {
+        calls: Arc<AtomicUsize>,
+        reply: String,
+        usage: Option<Usage>,
+    }
+
+    impl PostProcessor for SpyCleaner {
+        fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let text = match directives.translate_to {
+                Some(lang) => format!("[{lang}] {raw}"),
+                None => self.reply.clone(),
+            };
+            Ok(Cleaned {
+                text,
+                usage: self.usage,
+                fallback: None,
+            })
+        }
+
+        fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Cleaned {
+                text: format!("{instruction} => {}", selection.unwrap_or("<vide>")),
+                usage: self.usage,
+                fallback: None,
+            })
+        }
+    }
+
+    fn install_test_engine(
+        raw: &str,
+        cleaner: Option<Box<dyn PostProcessor>>,
+        history_file: Option<PathBuf>,
+        pricing: Pricing,
+        translate_to: &str,
+    ) {
+        let pipeline = Pipeline::new(
+            Box::new(FixedTranscriber(raw.to_owned())),
+            cleaner,
+            Box::new(Collect),
+        );
+        *lock(&ENGINE) = Some(Engine {
+            pipeline,
+            model: "test-model".into(),
+            history: history_file.map(|file| History::open(file, 50)),
+            pricing,
+            translate_to: translate_to.into(),
+        });
+    }
+
+    fn serve_once(status: u16, body: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&request);
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (url, handle)
+    }
 
     #[test]
     fn outcomes_become_simple_results() {
+        let _guard = Guard::acquire();
         let inserted = Outcome::Inserted {
             raw: "euh bonjour".into(),
             text: "Bonjour.".into(),
@@ -412,24 +573,240 @@ mod tests {
         set_api_key(Some("  ".into()));
         assert_eq!(*lock(&API_KEY), None);
     }
-}
 
-/// Dictées récentes (la plus récente d'abord).
-pub fn history(file: &Path, limit: usize) -> Result<Vec<Entry>, String> {
-    History::open(file.to_owned(), usize::MAX)
-        .recent(limit)
-        .map_err(|e| format!("historique : {e}"))
-}
+    #[test]
+    fn set_api_key_trims_and_clears() {
+        let _guard = Guard::acquire();
+        set_api_key(Some("  sk-test-123 \n".into()));
+        assert_eq!(lock(&API_KEY).as_deref(), Some("sk-test-123"));
+        set_api_key(Some("   ".into()));
+        assert_eq!(*lock(&API_KEY), None);
+        set_api_key(Some("sk-2".into()));
+        set_api_key(None);
+        assert_eq!(*lock(&API_KEY), None);
+    }
 
-pub fn clear_history(file: &Path) -> Result<(), String> {
-    History::open(file.to_owned(), usize::MAX)
-        .clear()
-        .map_err(|e| format!("historique : {e}"))
-}
+    #[test]
+    fn start_validates_toml_and_requires_downloaded_model() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("start");
+        let models_dir = dir.join("models");
+        let history_file = dir.join("history.jsonl");
+        std::fs::create_dir_all(&models_dir).unwrap();
 
-#[cfg(test)]
-mod history_tests {
-    use super::*;
+        assert!(start(&models_dir, &history_file, "invalide = = =").is_err());
+
+        let err = start(&models_dir, &history_file, "").unwrap_err();
+        assert!(err.contains("non téléchargé"), "{err}");
+        assert!(!loaded());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loaded_release_and_unloaded_transcribe_reflect_engine_state() {
+        let _guard = Guard::acquire();
+        assert!(!loaded());
+        let err = transcribe(speech_samples()).unwrap_err();
+        assert!(err.contains("moteur non démarré"), "{err}");
+
+        install_test_engine(
+            "bonjour le monde",
+            None,
+            None,
+            Pricing::default(),
+            "anglais",
+        );
+        assert!(loaded());
+        assert_eq!(
+            transcribe(speech_samples()).unwrap().as_deref(),
+            Some("bonjour le monde")
+        );
+        assert_eq!(transcribe(vec![0.0; 16_000]).unwrap(), None);
+
+        release();
+        assert!(!loaded());
+        assert!(transcribe(speech_samples()).is_err());
+    }
+
+    #[test]
+    fn privacy_password_skips_llm_and_never_writes_history() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("password");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cleaner = Box::new(SpyCleaner {
+            calls: Arc::clone(&calls),
+            reply: "NE DOIT PAS SERVIR".into(),
+            usage: None,
+        });
+        install_test_engine(
+            "mon code secret",
+            Some(cleaner),
+            Some(file.clone()),
+            Pricing::default(),
+            "anglais",
+        );
+
+        let result = dictate(
+            speech_samples(),
+            Some("com.bank".into()),
+            Mode::Dictate,
+            Privacy::Password,
+        );
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.raw, "mon code secret");
+        assert_eq!(result.text, "mon code secret");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(history(&file, 10).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn privacy_no_history_runs_llm_without_persisting_history() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("no-history");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cleaner = Box::new(SpyCleaner {
+            calls: Arc::clone(&calls),
+            reply: "Texte nettoyé.".into(),
+            usage: None,
+        });
+        install_test_engine(
+            "texte brut",
+            Some(cleaner),
+            Some(file.clone()),
+            Pricing::default(),
+            "anglais",
+        );
+
+        let result = dictate(
+            speech_samples(),
+            Some("org.mozilla.firefox".into()),
+            Mode::Dictate,
+            Privacy::NoHistory,
+        );
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.text, "Texte nettoyé.");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(history(&file, 10).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn privacy_normal_records_history_with_app_and_cost() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("normal");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cleaner = Box::new(SpyCleaner {
+            calls: Arc::clone(&calls),
+            reply: "Bonjour à tous.".into(),
+            usage: Some(Usage {
+                input_tokens: 1_000,
+                cached_input_tokens: 0,
+                output_tokens: 500,
+            }),
+        });
+        let pricing = Pricing {
+            input_per_million: 1.0,
+            cached_input_per_million: 0.0,
+            output_per_million: 2.0,
+            currency: "€".into(),
+        };
+        install_test_engine(
+            "bonjour a tous",
+            Some(cleaner),
+            Some(file.clone()),
+            pricing,
+            "anglais",
+        );
+
+        let result = dictate(
+            speech_samples(),
+            Some("com.whatsapp".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+        );
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.text, "Bonjour à tous.");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let entries = history(&file, 10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].app.as_deref(), Some("com.whatsapp"));
+        assert_eq!(entries[0].duration_ms, 1_000);
+        assert_eq!(entries[0].currency.as_deref(), Some("€"));
+        assert!((entries[0].cost.unwrap() - 0.002).abs() < 1e-9);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn translate_and_command_modes_forward_language_and_selection() {
+        let _guard = Guard::acquire();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cleaner = Box::new(SpyCleaner {
+            calls: Arc::clone(&calls),
+            reply: "unused".into(),
+            usage: None,
+        });
+        install_test_engine(
+            "rends plus court",
+            Some(cleaner),
+            None,
+            Pricing::default(),
+            "espagnol",
+        );
+
+        let translated = dictate(speech_samples(), None, Mode::Translate, Privacy::Normal);
+        assert_eq!(translated.kind, "text");
+        assert_eq!(translated.text, "[espagnol] rends plus court");
+
+        let commanded = dictate(
+            speech_samples(),
+            None,
+            Mode::Command(Some("texte initial".into())),
+            Privacy::Normal,
+        );
+        assert_eq!(commanded.kind, "text");
+        assert_eq!(commanded.text, "rends plus court => texte initial");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn summarizer_respects_enabled_flag_custom_prompt_and_api_key() {
+        let _guard = Guard::acquire();
+        let mut config = Config::default();
+        config.llm.enabled = false;
+        assert!(summarizer(&config).is_none());
+
+        let (url, server) = serve_once(
+            200,
+            r#"{"choices":[{"message":{"content":"Résumé court."}}]}"#,
+        );
+        config.llm.enabled = true;
+        config.llm.base_url = url;
+        config.prompts.push(PromptPreset {
+            name: "Synthese".into(),
+            kind: PromptKind::CompteRendu,
+            text: "Prompt compte rendu personnalisé".into(),
+        });
+        config.meetings.summary_prompt = "Synthese".into();
+        set_api_key(Some("sk-android-key".into()));
+
+        let client = summarizer(&config).unwrap();
+        let cleaned = client
+            .summarize("Point équipe", "[00:00] Moi : Salut.", None, false)
+            .unwrap();
+        let req = server.join().unwrap();
+        assert_eq!(cleaned.text, "Résumé court.");
+        assert!(req.contains("Prompt compte rendu personnalisé"), "{req}");
+        assert!(req.contains("Bearer sk-android-key"), "{req}");
+    }
 
     #[test]
     fn inserted_dictations_become_history_entries() {
@@ -461,8 +838,7 @@ mod history_tests {
         assert_eq!(e.translated.as_deref(), Some("anglais"));
         assert!(entry(&Outcome::Skipped, &clip, None, &pricing).is_none());
 
-        let dir = std::env::temp_dir().join(format!("vtt-android-history-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("history");
         let file = dir.join("history.jsonl");
         History::open(file.clone(), 10).append(&e).unwrap();
         assert_eq!(history(&file, 5).unwrap().len(), 1);

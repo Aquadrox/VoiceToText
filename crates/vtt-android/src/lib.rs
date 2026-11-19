@@ -323,6 +323,24 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_savePrompts<'a
     java(&mut env, &json)
 }
 
+/// Mode de dictée envoyé par Android : 0 dictée, 1 traduction, 2 Command Mode.
+fn decode_mode(mode: jint, selection: String) -> engine::Mode {
+    match mode {
+        1 => engine::Mode::Translate,
+        2 => engine::Mode::Command(Some(selection).filter(|s| !s.is_empty())),
+        _ => engine::Mode::Dictate,
+    }
+}
+
+/// Discrétion demandée par le champ : 1 sans historique, 2 mot de passe.
+fn decode_privacy(privacy: jint) -> engine::Privacy {
+    match privacy {
+        1 => engine::Privacy::NoHistory,
+        2 => engine::Privacy::Password,
+        _ => engine::Privacy::Normal,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     mut env: JNIEnv<'a>,
@@ -342,18 +360,13 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
         buffer.clear();
     }
     let app = Some(text(&mut env, &app)).filter(|a| !a.is_empty());
-    // 0 : dictée ; 1 : traduction ; 2 : Command Mode (sélection éventuelle).
-    let mode = match mode {
-        1 => engine::Mode::Translate,
-        2 => engine::Mode::Command(Some(text(&mut env, &selection)).filter(|s| !s.is_empty())),
-        _ => engine::Mode::Dictate,
+    let selection = if mode == 2 {
+        text(&mut env, &selection)
+    } else {
+        String::new()
     };
-    // 1 : pas d'historique ; 2 : mot de passe (ni LLM ni historique).
-    let privacy = match privacy {
-        1 => engine::Privacy::NoHistory,
-        2 => engine::Privacy::Password,
-        _ => engine::Privacy::Normal,
-    };
+    let mode = decode_mode(mode, selection);
+    let privacy = decode_privacy(privacy);
     // Erreur rattrapée : `{"error": …}` sans `kind`, affichée comme une
     // dictée en erreur.
     let json = protect(|| {
@@ -462,6 +475,18 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingFeed<'a
     java(&mut env, &json)
 }
 
+fn clamp_progress(percent: jint) -> u8 {
+    percent.clamp(0, 100) as u8
+}
+
+fn decode_speaker_count(count: jint) -> Option<usize> {
+    (count > 0).then_some(count as usize)
+}
+
+fn decode_index(index: jint, err: &str) -> Result<usize, String> {
+    usize::try_from(index).map_err(|_| err.to_owned())
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingProgress<'a>(
     mut env: JNIEnv<'a>,
@@ -472,7 +497,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingProgres
 ) -> jstring {
     let root = PathBuf::from(text(&mut env, &root));
     let id = text(&mut env, &id);
-    let percent = percent.clamp(0, 100) as u8;
+    let percent = clamp_progress(percent);
     let json = protect(|| reply(meetings::set_progress(&root, &id, percent)));
     java(&mut env, &json)
 }
@@ -596,9 +621,11 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingActionD
 ) -> jstring {
     let root = PathBuf::from(text(&mut env, &root));
     let id = text(&mut env, &id);
-    let json = protect(|| match usize::try_from(index) {
-        Ok(index) => reply(meetings::set_action_done(&root, &id, index, done != 0)),
-        Err(_) => reply(Err::<(), _>("action introuvable".to_owned())),
+    let json = protect(|| {
+        reply(
+            decode_index(index, "action introuvable")
+                .and_then(|index| meetings::set_action_done(&root, &id, index, done != 0)),
+        )
     });
     java(&mut env, &json)
 }
@@ -743,7 +770,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingSpeaker
 ) -> jstring {
     let root = PathBuf::from(text(&mut env, &root));
     let id = text(&mut env, &id);
-    let count = (count > 0).then_some(count as usize);
+    let count = decode_speaker_count(count);
     let json = protect(|| reply(meetings::set_speaker_count(&root, &id, count)));
     java(&mut env, &json)
 }
@@ -761,10 +788,10 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingRenameS
     let id = text(&mut env, &id);
     let name = text(&mut env, &name);
     let json = protect(|| {
-        reply(match usize::try_from(index) {
-            Ok(index) => meetings::rename_speaker(&root, &id, index, &name),
-            Err(_) => Err("intervenant inconnu".into()),
-        })
+        reply(
+            decode_index(index, "intervenant inconnu")
+                .and_then(|index| meetings::rename_speaker(&root, &id, index, &name)),
+        )
     });
     java(&mut env, &json)
 }
@@ -833,6 +860,7 @@ mod tests {
     #[test]
     fn protect_returns_the_result_when_nothing_panics() {
         assert_eq!(protect(|| reply(Ok(1))), r#"{"ok":1}"#);
+        assert_eq!(reply::<()>(Err("boom".into())), r#"{"error":"boom"}"#);
     }
 
     #[test]
@@ -845,5 +873,52 @@ mod tests {
         );
         let owned = protect(|| panic!("{} échantillons", 3));
         assert!(owned.contains("3 échantillons"), "{owned}");
+
+        let non_string: serde_json::Value =
+            serde_json::from_str(&protect(|| std::panic::panic_any(42usize))).unwrap();
+        assert_eq!(
+            non_string["error"],
+            "erreur interne du moteur : cause inconnue"
+        );
+    }
+
+    #[test]
+    fn decode_mode_and_privacy_match_android_contract() {
+        assert_eq!(decode_mode(0, "ignoré".into()), engine::Mode::Dictate);
+        assert_eq!(decode_mode(1, "ignoré".into()), engine::Mode::Translate);
+        assert_eq!(
+            decode_mode(2, "texte sélectionné".into()),
+            engine::Mode::Command(Some("texte sélectionné".into()))
+        );
+        assert_eq!(decode_mode(2, String::new()), engine::Mode::Command(None));
+        assert_eq!(decode_mode(-1, String::new()), engine::Mode::Dictate);
+        assert_eq!(decode_mode(99, String::new()), engine::Mode::Dictate);
+
+        assert_eq!(decode_privacy(0), engine::Privacy::Normal);
+        assert_eq!(decode_privacy(1), engine::Privacy::NoHistory);
+        assert_eq!(decode_privacy(2), engine::Privacy::Password);
+        assert_eq!(decode_privacy(-5), engine::Privacy::Normal);
+        assert_eq!(decode_privacy(42), engine::Privacy::Normal);
+    }
+
+    #[test]
+    fn meeting_audio_and_numeric_decoders_handle_boundaries() {
+        assert_eq!(meeting_audio("memoire"), MeetingAudio::Memoire);
+        assert_eq!(meeting_audio("temporaire"), MeetingAudio::Temporaire);
+        assert_eq!(meeting_audio("conserve"), MeetingAudio::Conserve);
+        assert_eq!(meeting_audio("autre"), MeetingAudio::Conserve);
+
+        assert_eq!(clamp_progress(-10), 0);
+        assert_eq!(clamp_progress(0), 0);
+        assert_eq!(clamp_progress(47), 47);
+        assert_eq!(clamp_progress(150), 100);
+
+        assert_eq!(decode_speaker_count(-2), None);
+        assert_eq!(decode_speaker_count(0), None);
+        assert_eq!(decode_speaker_count(3), Some(3));
+
+        assert_eq!(decode_index(0, "introuvable"), Ok(0));
+        assert_eq!(decode_index(5, "introuvable"), Ok(5));
+        assert_eq!(decode_index(-1, "introuvable"), Err("introuvable".into()));
     }
 }

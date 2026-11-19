@@ -1019,9 +1019,29 @@ fn run_command(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::atomic::AtomicU64;
+
+    use vtt_core::config::LlmProfile;
+    use vtt_core::history::History;
+    use vtt_core::usage::{Ledger, Usage};
+    use vtt_core::{Cleaned, Directives, Error, Transcriber};
+
     use super::*;
 
     const MIN: Duration = Duration::from_secs(60);
+
+    fn temp_dir(name: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "vtt-controller-{}-{name}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     fn policy(idle_min: u32, fullscreen: bool) -> UnloadPolicy {
         UnloadPolicy::from_config(&AsrConfig {
@@ -1029,6 +1049,43 @@ mod tests {
             unload_in_fullscreen: fullscreen,
             ..AsrConfig::default()
         })
+    }
+
+    struct FixedTranscriber(String);
+
+    impl Transcriber for FixedTranscriber {
+        fn transcribe(&self, _clip: &AudioClip) -> Result<String, Error> {
+            Ok(self.0.clone())
+        }
+    }
+
+    struct EchoCleaner;
+
+    impl PostProcessor for EchoCleaner {
+        fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+            let text = match directives.translate_to {
+                Some(lang) => format!("[{lang}] {raw}"),
+                None => raw.to_uppercase(),
+            };
+            Ok(Cleaned {
+                text,
+                usage: None,
+                fallback: None,
+            })
+        }
+    }
+
+    struct CaptureSink(Arc<Mutex<Vec<String>>>);
+
+    impl TextSink for CaptureSink {
+        fn insert(&self, text: &str) -> Result<(), Error> {
+            lock(&self.0).push(text.to_owned());
+            Ok(())
+        }
+
+        fn undo(&self) -> Result<(), Error> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -1049,6 +1106,11 @@ mod tests {
             ..a.clone()
         };
         assert!(!same_model(&a, &other));
+        let lang = AsrConfig {
+            language: "en".into(),
+            ..a.clone()
+        };
+        assert!(!same_model(&a, &lang));
     }
 
     #[test]
@@ -1080,5 +1142,219 @@ mod tests {
     fn fullscreen_is_not_queried_when_disabled() {
         let p = policy(0, false);
         assert_eq!(p.reason(MIN * 5, || panic!("appel inutile")), None);
+    }
+
+    #[test]
+    fn device_trims_and_maps_blank_to_default() {
+        let mut config = Config::default();
+        assert_eq!(device(&config), None);
+        config.audio.device = "   ".into();
+        assert_eq!(device(&config), None);
+        config.audio.device = "  Micro USB  ".into();
+        assert_eq!(device(&config).as_deref(), Some("Micro USB"));
+    }
+
+    #[test]
+    fn tariffs_pick_fallback_pricing_only_when_fallback_answered() {
+        let mut config = Config::default();
+        config.llm.pricing.currency = "€".into();
+        config.llm.pricing.input_per_million = 1.0;
+
+        let mut fallback_llm = config.llm.clone();
+        fallback_llm.enabled = true;
+        fallback_llm.model = "modele-secours".into();
+        fallback_llm.pricing.currency = "$".into();
+        fallback_llm.pricing.input_per_million = 5.0;
+        config.llm.fallback_profile = "Secours".into();
+        config.llm_profiles.push(LlmProfile {
+            name: "Secours".into(),
+            llm: fallback_llm,
+        });
+
+        let tariffs = Tariffs::from_config(&config);
+        let main_outcome = Outcome::Inserted {
+            raw: "a".into(),
+            text: "A".into(),
+            post_process_error: None,
+            snippet: false,
+            usage: None,
+            command: false,
+            fallback: None,
+            translated: None,
+        };
+        let fallback_outcome = Outcome::Inserted {
+            raw: "a".into(),
+            text: "A".into(),
+            post_process_error: None,
+            snippet: false,
+            usage: None,
+            command: false,
+            fallback: Some("Secours".into()),
+            translated: None,
+        };
+
+        assert_eq!(tariffs.for_outcome(&Outcome::Skipped).currency, "€");
+        assert_eq!(tariffs.for_outcome(&main_outcome).currency, "€");
+        assert_eq!(tariffs.for_outcome(&fallback_outcome).currency, "$");
+        assert!((tariffs.for_outcome(&fallback_outcome).input_per_million - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn process_blocks_clipboard_retry_for_commands_and_refuses_terminal_commands() {
+        let inserted = Arc::new(Mutex::new(Vec::new()));
+        let pipeline = Pipeline::new(
+            Box::new(FixedTranscriber("bonjour".into())),
+            Some(Box::new(EchoCleaner)),
+            Box::new(CaptureSink(Arc::clone(&inserted))),
+        );
+        let clip = AudioClip {
+            samples: vec![0.1; 16_000],
+        };
+
+        let command_job = Job {
+            clip: clip.clone(),
+            target: Target::default(),
+            command: true,
+            translate_to: None,
+        };
+        let err_with_hint = process(
+            &pipeline,
+            &command_job,
+            &Target::default(),
+            Some(Delivery::Clipboard),
+            "Alt+Shift+R",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err_with_hint.contains("Alt+Shift+R"), "{err_with_hint}");
+
+        let err_no_hint = process(
+            &pipeline,
+            &command_job,
+            &Target::default(),
+            Some(Delivery::Clipboard),
+            "",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err_no_hint.contains("Réessayer"), "{err_no_hint}");
+
+        // Dans un terminal, run_command refuse immédiatement sans simuler Ctrl+C.
+        let terminal = Target {
+            app: Some("wt.exe".into()),
+            title: None,
+        };
+        assert!(process(&pipeline, &command_job, &terminal, None, "").is_err());
+
+        // Dictée avec mode traduction : la langue atteint le post-processeur et le sink.
+        let translate_job = Job {
+            clip,
+            target: Target::default(),
+            command: false,
+            translate_to: Some("anglais".into()),
+        };
+        let out = process(&pipeline, &translate_job, &Target::default(), None, "").unwrap();
+        assert!(matches!(
+            out,
+            Outcome::Inserted { ref text, ref translated, .. }
+                if text == "[anglais] bonjour" && translated.as_deref() == Some("anglais")
+        ));
+        assert_eq!(*lock(&inserted), vec!["[anglais] bonjour"]);
+    }
+
+    #[test]
+    fn record_tracks_last_raw_stats_costs_and_skips_double_counting_on_retry() {
+        let dir = temp_dir("record");
+        let history_file = dir.join("history.jsonl");
+        let usage_file = dir.join("usage.json");
+        let recorders = Recorders {
+            history: Arc::new(Mutex::new(Some(History::open(history_file.clone(), 20)))),
+            ledger: Arc::new(Mutex::new(Ledger::open(usage_file))),
+            last_raw: Arc::new(Mutex::new(None)),
+            meeting_jobs: Arc::new(Mutex::new(VecDeque::new())),
+        };
+        let job = Job {
+            clip: AudioClip {
+                samples: vec![0.1; 16_000],
+            },
+            target: Target {
+                app: Some("slack.exe".into()),
+                title: None,
+            },
+            command: false,
+            translate_to: None,
+        };
+        let pricing = Pricing {
+            input_per_million: 1.0,
+            cached_input_per_million: 0.0,
+            output_per_million: 2.0,
+            currency: "€".into(),
+        };
+        let usage = Usage {
+            input_tokens: 1_000,
+            cached_input_tokens: 0,
+            output_tokens: 500,
+        };
+
+        // Skipped : rien d'enregistré.
+        record(
+            &recorders,
+            &job,
+            &job.target,
+            &Outcome::Skipped,
+            &pricing,
+            true,
+        );
+        assert_eq!(*lock(&recorders.last_raw), None);
+        assert_eq!(costs::summary(&recorders.ledger).today.dictations, 0);
+
+        // Dictée normale : mémorise last_raw, coût, stats et historique.
+        let dictation = Outcome::Inserted {
+            raw: "bonjour tout le monde".into(),
+            text: "Bonjour tout le monde.".into(),
+            post_process_error: None,
+            snippet: false,
+            usage: Some(usage),
+            command: false,
+            fallback: None,
+            translated: None,
+        };
+        record(&recorders, &job, &job.target, &dictation, &pricing, true);
+        assert_eq!(
+            lock(&recorders.last_raw).as_deref(),
+            Some("bonjour tout le monde")
+        );
+        assert_eq!(costs::summary(&recorders.ledger).today.dictations, 1);
+        assert_eq!(costs::summary(&recorders.ledger).today.requests, 1);
+        assert_eq!(costs::summary(&recorders.ledger).today.words, 4);
+
+        // Réessai (`stats = false`) : coût réel compté, dictée non recomptée.
+        record(&recorders, &job, &job.target, &dictation, &pricing, false);
+        assert_eq!(costs::summary(&recorders.ledger).today.dictations, 1);
+        assert_eq!(costs::summary(&recorders.ledger).today.requests, 2);
+
+        // Command Mode : ne remplace pas last_raw par la consigne, incrémente `commands`.
+        let command = Outcome::Inserted {
+            raw: "rends plus formel".into(),
+            text: "Veuillez agréer.".into(),
+            post_process_error: None,
+            snippet: false,
+            usage: Some(usage),
+            command: true,
+            fallback: None,
+            translated: None,
+        };
+        record(&recorders, &job, &job.target, &command, &pricing, true);
+        assert_eq!(
+            lock(&recorders.last_raw).as_deref(),
+            Some("bonjour tout le monde")
+        );
+        let sum = costs::summary(&recorders.ledger);
+        assert_eq!(sum.today.dictations, 2);
+        assert_eq!(sum.today.commands, 1);
+        assert_eq!(sum.today.requests, 3);
+        assert_eq!(History::open(history_file, 20).recent(10).unwrap().len(), 3);
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
