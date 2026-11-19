@@ -67,6 +67,8 @@ struct View<'a> {
     dictionary: usize,
     snippets: usize,
     voice_commands: bool,
+    screen_context: bool,
+    screen_context_excluded_apps: &'a [String],
     translation: &'a str,
     languages: &'static [&'static str],
     history: bool,
@@ -97,6 +99,8 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         dictionary: config.dictionary.len(),
         snippets: config.snippets.len(),
         voice_commands: config.dictation.voice_commands,
+        screen_context: config.dictation.screen_context,
+        screen_context_excluded_apps: &config.dictation.screen_context_excluded_apps,
         translation: &config.translation.language,
         languages: TRANSLATION_LANGUAGES,
         history: config.history.enabled,
@@ -117,6 +121,10 @@ pub struct Update {
     pub llm_model: String,
     pub model: String,
     pub voice_commands: bool,
+    #[serde(default)]
+    pub screen_context: Option<bool>,
+    #[serde(default)]
+    pub screen_context_excluded_apps: Option<Vec<String>>,
     pub translation: String,
     pub history: bool,
 }
@@ -148,6 +156,13 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     translation.validate()?;
     config.asr.model = update.model.clone();
     config.dictation.voice_commands = update.voice_commands;
+    if let Some(enabled) = update.screen_context {
+        config.dictation.screen_context = enabled;
+    }
+    if let Some(excluded) = &update.screen_context_excluded_apps {
+        config.dictation.screen_context_excluded_apps =
+            vtt_core::context::clean_excluded_apps(excluded);
+    }
     config.translation = translation;
     config.history.enabled = update.history;
     to_toml(&config)
@@ -316,6 +331,8 @@ mod tests {
             llm_model: "deepseek-flash".into(),
             model: model.into(),
             voice_commands: true,
+            screen_context: None,
+            screen_context_excluded_apps: None,
             translation: "anglais".into(),
             history: true,
         }
@@ -519,5 +536,44 @@ mod tests {
         let mut no_language = update_with(models::DEFAULT_MODEL, "https://api.z.ai");
         no_language.translation = " ".into();
         assert!(update("", &no_language).is_err());
+    }
+
+    #[test]
+    fn screen_context_is_opt_in_and_cleans_excluded_apps() {
+        let json = view("", Path::new("/nulle-part")).unwrap();
+        assert!(json.contains("\"screen_context\":false"), "{json}");
+        assert!(
+            json.contains("\"screen_context_excluded_apps\":[]"),
+            "{json}"
+        );
+
+        let mut req = update_with(models::DEFAULT_MODEL, "https://api.deepseek.com");
+        req.screen_context = Some(true);
+        req.screen_context_excluded_apps = Some(vec![
+            " com.whatsapp ".into(),
+            "".into(),
+            "COM.WHATSAPP".into(),
+            "banque".into(),
+        ]);
+        let saved = update("", &req).unwrap();
+        let (config, _) = parse(&saved).unwrap();
+        assert!(config.dictation.screen_context);
+        assert_eq!(
+            config.dictation.screen_context_excluded_apps,
+            ["com.whatsapp", "banque"]
+        );
+
+        // Une mise à jour sans ces champs conserve les valeurs existantes.
+        let preserved = update(
+            &saved,
+            &update_with(models::DEFAULT_MODEL, "https://api.deepseek.com"),
+        )
+        .unwrap();
+        let (config, _) = parse(&preserved).unwrap();
+        assert!(config.dictation.screen_context);
+        assert_eq!(
+            config.dictation.screen_context_excluded_apps,
+            ["com.whatsapp", "banque"]
+        );
     }
 }

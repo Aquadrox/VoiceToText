@@ -351,6 +351,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     mode: jint,
     selection: JString<'a>,
     privacy: jint,
+    context: JString<'a>,
 ) -> jstring {
     let length = env.get_array_length(&samples).unwrap_or(0).max(0) as usize;
     let mut buffer = vec![0f32; length];
@@ -366,12 +367,17 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     } else {
         String::new()
     };
-    let mode = decode_mode(mode, selection);
     let privacy = decode_privacy(privacy);
+    let context_text = if privacy == engine::Privacy::Normal && mode != 2 {
+        Some(text(&mut env, &context)).filter(|c| !c.trim().is_empty())
+    } else {
+        None
+    };
+    let mode = decode_mode(mode, selection);
     // Erreur rattrapée : `{"error": …}` sans `kind`, affichée comme une
     // dictée en erreur.
     let json = protect(|| {
-        let result = engine::dictate(buffer, app, mode, privacy);
+        let result = engine::dictate(buffer, app, mode, privacy, context_text.as_deref());
         serde_json::to_string(&result).unwrap_or_default()
     });
     java(&mut env, &json)

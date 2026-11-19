@@ -530,15 +530,24 @@ Synchroniser réglages (dictionnaire, snippets, styles, prompts, profils — jam
 - ✅ Saut 2D — Pont JNI `vtt-android` (`sync.rs`) + écran Android **Synchronisation Wi-Fi** (`SyncSettings` avec lien profond QR `vttsync://`, collage presse-papier, découverte native `NsdManager`, synchro en un appui, préférences par pair, secours `IP:port`, tests Rust + Kotlin JVM)
 - ⬜ À vérifier sur le terrain : appairage QR et synchronisation réelle PC ↔ Android / Steam Deck sur Wi-Fi local (et règles pare-feu Windows)
 
-### 3. Contexte du champ actif / d'écran (opt-in) ⬜
+### 3. Contexte du champ actif / d'écran (opt-in) ✅
 
 Améliorer l'orthographe des noms propres, termes techniques et symboles de code visibles autour du curseur, sans jamais quitter les garde-fous de confidentialité :
 
-- ⬜ Option dédiée désactivée par défaut (réglable globalement et par application), strictement bloquée sur les champs de mot de passe et la navigation privée ; texte jamais journalisé ni enregistré dans l'historique
-- ⬜ Lecture du texte autour du curseur sur Windows (UI Automation) et Android (service d'accessibilité / `InputConnection`), repli propre sur Linux
-- ⬜ Extraction locale des termes utiles (noms propres, identifiants, jargon) dans `vtt-core`, bornée en taille et désamorcée contre l'injection de prompt, puis transmise à l'ASR et au LLM
+- ✅ Saut 3A (PR #102) — Cœur `vtt-core::context`, `vtt-asr` et `vtt-llm` : option `dictation.screen_context` désactivée par défaut + `screen_context_excluded_apps`, blocage strict des mots de passe, gestionnaires de mots de passe et fenêtres de navigation privée, extraction locale bornée filtrant les secrets et désamorcée contre l'injection, transfert éphémère vers Whisper et vers le message utilisateur LLM sans casser le cache prompt
+- ✅ Saut 3B (PR #103) — Bureau (`vtt-platform` + `apps/desktop`) : lecture du texte autour du curseur sur Windows via UI Automation (vérification stricte `CurrentIsPassword()` avant toute lecture), repli propre Linux, capture asynchrone non bloquante dans le contrôleur, réglages opt-in et applications exclues dans **Réglages → Dictée et traduction**
+- ✅ Saut 3C (PR #105) — Android (`vtt-android` + clavier / bulle) : lecture bornée autour du curseur via `InputConnection` (clavier) et `AccessibilityNodeInfo` (bulle), strictement bloquée sur `Privacy::Password`, `Privacy::NoHistory` (navigation privée / bulle sans historique) et gestionnaires de mots de passe, prise en charge des préfixes/segments de paquets Android dans les exclusions, réglages Android et tests Rust + Kotlin JVM
+- ⬜ À vérifier sur le terrain : qualité de l'extraction de noms propres/jargon sur PC (Windows UIA) et Android (clavier et bulle), blocage effectif sur mots de passe et navigation privée
 
-### 4. Prévisualisation en continu (dictée longue) ⬜
+### 4. Synchronisation Wi-Fi : appairage direct par clic + code de confirmation ⬜
+
+Rendre l'appairage PC ↔ téléphone plus rapide et pratique sans avoir à scanner de QR code (#104) :
+
+- ⬜ Saut 4A — Protocole cryptographique + transport dans `vtt-core::sync` : échange de clés éphémères X25519 avec engagement anti-MITM, dérivation d'un code de vérification court à 6 chiffres (SAS) lié aux deux appareils, requêtes TCP d'appairage direct avec expiration courte et validation mutuelle
+- ⬜ Saut 4B — Interface PC (`apps/desktop`) : acceptation d'appairage direct lorsque la page **Réglages → Synchronisation** est ouverte, clic sur un appareil détecté, modale de confirmation avec le code à 6 chiffres (initiateur ou destinataire) et tests Rust + UI JS
+- ⬜ Saut 4C — Interface Android (`vtt-android` + `SyncSettings.kt`) : serveur local temporaire pendant que la page Synchronisation est ouverte, clic sur un PC détecté → dialogue de confirmation du code à 6 chiffres (dans les deux sens PC ↔ téléphone), tests Rust + Kotlin JVM et clôture `#104`
+
+### 5. Prévisualisation en continu (dictée longue) ⬜
 
 Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres :
 

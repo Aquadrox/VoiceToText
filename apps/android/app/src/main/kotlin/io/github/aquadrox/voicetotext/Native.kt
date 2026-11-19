@@ -61,8 +61,16 @@ object Native {
     /**
      * Dicte (16 kHz mono) : `{"kind": "text|undo|skip|error", "text", "error", "ms"}`.
      * `mode` : [DICTATE], [TRANSLATE] ou [COMMAND] (consigne appliquée à `selection`).
+     * `context` : texte borné autour du curseur (ignoré hors [NORMAL] et hors opt-in).
      */
-    external fun dictate(samples: FloatArray, app: String, mode: Int, selection: String, privacy: Int): String
+    external fun dictate(
+        samples: FloatArray,
+        app: String,
+        mode: Int,
+        selection: String,
+        privacy: Int,
+        context: String,
+    ): String
 
     /** Dictées récentes : `{"ok": [...]}`. */
     external fun history(historyFile: String, limit: Int): String

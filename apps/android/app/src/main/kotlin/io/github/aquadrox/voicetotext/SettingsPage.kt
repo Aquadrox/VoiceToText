@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedDispatcher
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.Normalizer
 
@@ -56,6 +57,7 @@ object SettingsIndex {
         Entry(Section.DICTATION, "keyboard", "Clavier VoiceToText", "activer choisir changer de clavier méthode de saisie"),
         Entry(Section.DICTATION, "translation", "Langue de traduction", "traduire anglais espagnol allemand mode traduction langue"),
         Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande épeler lettres"),
+        Entry(Section.DICTATION, "screen_context", "Contexte du champ actif", "contexte ecran noms propres orthographe confidentialite applications exclues"),
         Entry(Section.CLEANUP, "llm", "Nettoyer le texte avec un LLM", "ponctuation majuscules correction ia intelligence artificielle brut"),
         Entry(Section.CLEANUP, "provider", "Fournisseur du LLM", "deepseek openai mistral glm openrouter ollama local serveur"),
         Entry(Section.CLEANUP, "key", "Clé API", "token jeton mot de passe compte"),
@@ -136,6 +138,8 @@ object Config {
             .put("llm_model", llm.getString("model"))
             .put("model", view.getString("model"))
             .put("voice_commands", view.getBoolean("voice_commands"))
+            .put("screen_context", view.optBoolean("screen_context", false))
+            .put("screen_context_excluded_apps", view.optJSONArray("screen_context_excluded_apps") ?: JSONArray())
             .put("translation", view.getString("translation"))
             .put("history", view.getBoolean("history"))
         for (key in change.keys()) update.put(key, change.get(key))

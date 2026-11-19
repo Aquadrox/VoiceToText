@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.37.0 — 2026-11-19
+
+- Contexte du champ actif (option désactivée par défaut) : lit quelques mots autour du curseur pour mieux orthographier les noms propres, sigles et termes techniques lors de la reconnaissance vocale et du nettoyage IA. Jamais lu sur les mots de passe, la navigation privée ni les gestionnaires de mots de passe ; les secrets éventuels sont écartés localement et rien n'est enregistré dans l'historique ni les journaux.
+- [PC] Lecture du champ actif sous Windows via UI Automation, activable dans Réglages → Dictée et traduction avec liste d'applications exclues.
+- [Android] Lecture du contexte autour du curseur depuis le clavier et la bulle de dictée, activable dans Réglages → Dictée avec liste d'applications exclues.
+
 ## 0.36.0 — 2026-11-19
 
 - Synchronisation locale Wi-Fi entre PC, Steam Deck et Android, chiffrée de bout en bout et sans cloud ni compte : dictionnaire, snippets, styles, prompts, profils LLM et réunions sont fusionnés sur votre réseau local. Les clés API ne quittent jamais leur appareil.

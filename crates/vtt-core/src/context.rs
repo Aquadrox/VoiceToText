@@ -341,6 +341,29 @@ pub fn is_sensitive_target(app: Option<&str>, title: Option<&str>, is_password: 
     false
 }
 
+fn app_matches_exclusion(app_key: &str, exclusion_key: &str) -> bool {
+    if exclusion_key.is_empty() {
+        return false;
+    }
+    if app_key == exclusion_key {
+        return true;
+    }
+    // Nom de paquet Android (ex. « com.whatsapp », « com.bank.mobile ») :
+    // accepter un préfixe de paquet (« com.bank ») ou un segment entier (« whatsapp »).
+    if app_key.contains('.') {
+        if app_key
+            .strip_prefix(exclusion_key)
+            .is_some_and(|rest| rest.starts_with('.'))
+        {
+            return true;
+        }
+        if !exclusion_key.contains('.') && app_key.split('.').any(|seg| seg == exclusion_key) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Détermine si la lecture du contexte autour du curseur est autorisée pour
 /// cette dictée : option activée, cible non sensible et application non exclue.
 pub fn is_context_allowed(config: &DictationConfig, target: &Target, is_password: bool) -> bool {
@@ -355,7 +378,7 @@ pub fn is_context_allowed(config: &DictationConfig, target: &Target, is_password
         let excluded = config
             .screen_context_excluded_apps
             .iter()
-            .any(|ex| normalize_app_key(ex) == key);
+            .any(|ex| app_matches_exclusion(&key, &normalize_app_key(ex)));
         if excluded {
             return false;
         }
@@ -887,5 +910,29 @@ mod tests {
         assert!(terms.join(", ").chars().count() <= MAX_CONTEXT_CHARS);
         // Garde les termes les plus proches de la fin (du curseur).
         assert!(terms.iter().any(|t| t == "SymboleTechniqueNumero199"));
+    }
+
+    #[test]
+    fn excluded_apps_match_android_package_prefixes_and_segments() {
+        let cfg = DictationConfig {
+            screen_context: true,
+            screen_context_excluded_apps: vec![
+                "com.bank".into(),
+                "whatsapp".into(),
+                "signal.exe".into(),
+            ],
+            ..DictationConfig::default()
+        };
+        let app = |name: &str| Target {
+            app: Some(name.into()),
+            ..Target::default()
+        };
+
+        assert!(!is_context_allowed(&cfg, &app("com.bank.mobile"), false));
+        assert!(!is_context_allowed(&cfg, &app("com.whatsapp"), false));
+        assert!(!is_context_allowed(&cfg, &app("Signal.exe"), false));
+        assert!(is_context_allowed(&cfg, &app("com.banker.news"), false));
+        assert!(is_context_allowed(&cfg, &app("com.myapp.chat"), false));
+        assert!(is_context_allowed(&cfg, &app("sig.exe"), false));
     }
 }

@@ -14,6 +14,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
@@ -21,6 +22,7 @@ import android.widget.RadioGroup
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
@@ -38,6 +40,9 @@ class DictationSettings : SettingsPage() {
     private lateinit var keyboardActivate: Button
     private lateinit var language: Spinner
     private lateinit var voiceCommands: Switch
+    private lateinit var screenContext: Switch
+    private lateinit var excludedBox: LinearLayout
+    private lateinit var excludedInput: EditText
     private var languages = emptyList<String>()
     private lateinit var microphones: RadioGroup
     private lateinit var microphoneState: TextView
@@ -111,6 +116,31 @@ class DictationSettings : SettingsPage() {
                     if (on) "✓ Commandes vocales activées" else "✓ Commandes vocales désactivées : tout est écrit tel quel",
                 )
             }.anchor("voice_commands")
+            divider()
+            screenContext = toggle(
+                "Contexte du champ actif",
+                "Lit quelques mots autour du curseur pour mieux orthographier les noms propres et termes techniques. Jamais lu sur les mots de passe, la navigation privée ni les gestionnaires de mots de passe ; rien n'est enregistré.",
+            ) { on ->
+                excludedBox.visibility = if (on) View.VISIBLE else View.GONE
+                saveSettings(
+                    JSONObject().put("screen_context", on),
+                    if (on) "✓ Contexte du champ actif activé" else "✓ Contexte du champ actif désactivé",
+                )
+            }.anchor("screen_context")
+            excludedBox = LinearLayout(this@DictationSettings).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                note("Applications exclues (noms ou paquets séparés par des virgules ; les gestionnaires de mots de passe sont déjà exclus).")
+                excludedInput = field("Ex. : whatsapp, banque, com.example.app")
+                secondary("Enregistrer les exclusions") {
+                    val apps = ContextLogic.parseExcludedApps(excludedInput.text.toString())
+                    excludedInput.setText(ContextLogic.formatExcludedApps(apps))
+                    saveSettings(
+                        JSONObject().put("screen_context_excluded_apps", JSONArray(apps)),
+                        if (apps.isEmpty()) "✓ Aucune application exclue" else "✓ ${apps.size} application(s) exclue(s) du contexte",
+                    )
+                }
+            }.also { addView(it) }
         }
         refresh()
         language.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -250,6 +280,13 @@ class DictationSettings : SettingsPage() {
     private fun refresh() {
         val view = Config.view(store) ?: return say("Réglages illisibles.")
         voiceCommands.quietly(view.getBoolean("voice_commands"))
+        val contextOn = view.optBoolean("screen_context", false)
+        screenContext.quietly(contextOn)
+        excludedBox.visibility = if (contextOn) View.VISIBLE else View.GONE
+        val excluded = view.optJSONArray("screen_context_excluded_apps")
+            ?.let { a -> List(a.length()) { a.getString(it) } }
+            .orEmpty()
+        excludedInput.setText(ContextLogic.formatExcludedApps(excluded))
         val translation = view.getString("translation")
         languages = view.getJSONArray("languages").let { a -> List(a.length()) { a.getString(it) } }
             .let { if (translation in it) it else it + translation }

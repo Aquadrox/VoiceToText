@@ -23,6 +23,10 @@ object Dictation {
     var language = "anglais"
         private set
 
+    /** Lecture opt-in du contexte autour du curseur (réglages ; faux par défaut). */
+    var screenContext = false
+        private set
+
     val ready: Boolean
         get() = loaded >= 0 && !loading
 
@@ -59,6 +63,7 @@ object Dictation {
             main.post {
                 loading = false
                 language = settings?.optString("translation")?.ifEmpty { null } ?: language
+                screenContext = settings?.optBoolean("screen_context", false) ?: false
                 if (error.isEmpty()) loaded = version
                 val callbacks = waiting.toList()
                 waiting.clear()
@@ -88,6 +93,7 @@ object Dictation {
         mode: Int,
         selection: String,
         privacy: Int,
+        context: String = "",
         done: (JSONObject) -> Unit,
     ) {
         // Modèle libéré ou réglages modifiés pendant l'enregistrement :
@@ -95,7 +101,7 @@ object Dictation {
         if (stale(store)) prepare(store) {}
         worker.execute {
             val result = try {
-                JSONObject(Native.dictate(samples, app, mode, selection, privacy))
+                JSONObject(Native.dictate(samples, app, mode, selection, privacy, context))
             } catch (e: Throwable) {
                 JSONObject().put("kind", "error").put("error", failure(e))
             }
