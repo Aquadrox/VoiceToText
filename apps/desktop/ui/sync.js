@@ -5,7 +5,88 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 let currentSyncView = null;
 let currentOfferUri = "";
+let currentDirectSessionId = "";
 let syncExpiryTimer = null;
+let directExpiryTimer = null;
+let lastDirectGate = null;
+
+function stopDirectExpiryTimer() {
+  if (directExpiryTimer) {
+    clearInterval(directExpiryTimer);
+    directExpiryTimer = null;
+  }
+}
+
+function updateDirectExpiryText(expiresAtMs) {
+  const el = $("sync-direct-expiry");
+  if (!el) return;
+  const remainingMs = expiresAtMs - Date.now();
+  if (remainingMs <= 0) {
+    el.textContent = "Demande expirée : relancez l'appairage si besoin.";
+    stopDirectExpiryTimer();
+    return;
+  }
+  const sec = Math.ceil(remainingMs / 1000);
+  const min = Math.floor(sec / 60);
+  const rem = String(sec % 60).padStart(2, "0");
+  el.textContent = `Expire dans ${min}:${rem}.`;
+}
+
+function renderPendingDirect(pending) {
+  const box = $("sync-direct-box");
+  if (!box) return;
+  stopDirectExpiryTimer();
+
+  if (!pending) {
+    currentDirectSessionId = "";
+    box.hidden = true;
+    return;
+  }
+
+  currentDirectSessionId = pending.session_id;
+  const title = $("sync-direct-title");
+  if (title) {
+    title.textContent = pending.incoming
+      ? `Demande d'appairage reçue de « ${pending.remote_device_name} »`
+      : `Appairage direct avec « ${pending.remote_device_name} »`;
+  }
+  const codeEl = $("sync-direct-code");
+  if (codeEl) {
+    codeEl.textContent = pending.formatted_code || pending.code;
+  }
+  const approveBtn = $("sync-direct-approve");
+  const rejectBtn = $("sync-direct-reject");
+  if (approveBtn) {
+    approveBtn.disabled = Boolean(pending.local_approved);
+    approveBtn.textContent = pending.local_approved
+      ? "En attente de l'autre appareil…"
+      : "Appairer (OK)";
+  }
+  if (rejectBtn) {
+    rejectBtn.disabled = false;
+    rejectBtn.textContent = pending.incoming && !pending.local_approved ? "Refuser" : "Annuler";
+  }
+
+  updateDirectExpiryText(pending.expires_at_ms);
+  directExpiryTimer = setInterval(() => updateDirectExpiryText(pending.expires_at_ms), 1000);
+  box.hidden = false;
+}
+
+function isSyncPanelVisible() {
+  const panel = document.querySelector('.panel[data-panel="synchronisation"]');
+  return Boolean(panel && !panel.hidden && typeof isShown === "function" && isShown("reglages"));
+}
+
+async function syncDirectPairingGate() {
+  const want = isSyncPanelVisible();
+  if (want === lastDirectGate) return;
+  lastDirectGate = want;
+  try {
+    await invoke("sync_set_direct_pairing_enabled", { enabled: want });
+  } catch {
+    // Serveur pas encore prêt ou déjà arrêté : sans gravité.
+  }
+}
 
 function showSyncResult(text, isError = false) {
   const box = $("sync-result");
@@ -261,12 +342,45 @@ function peerCard(peer) {
 function discoveredItem(peer) {
   const li = document.createElement("li");
   li.className = "sync-discovered-item";
+
+  const info = document.createElement("div");
+  info.className = "sync-discovered-info";
   const strong = document.createElement("strong");
   strong.textContent = peer.device_name;
   const meta = document.createElement("span");
   meta.className = "muted small";
-  meta.textContent = ` ${peer.addr} — ${peer.already_paired ? "Déjà appairé" : "Non appairé (scannez son QR code)"}`;
-  li.append(strong, meta);
+  meta.textContent = ` ${peer.addr} — ${peer.already_paired ? "Déjà appairé" : "Non appairé"}`;
+  info.append(strong, meta);
+  li.append(info);
+
+  if (!peer.already_paired) {
+    const pairBtn = document.createElement("button");
+    pairBtn.type = "button";
+    pairBtn.className = "primary sync-direct-pair-btn";
+    pairBtn.textContent = "Appairer";
+    pairBtn.disabled = Boolean(currentSyncView?.pending_direct);
+    pairBtn.addEventListener("click", async () => {
+      pairBtn.disabled = true;
+      pairBtn.textContent = "Connexion…";
+      showSyncResult(`Demande d'appairage envoyée à ${peer.device_name}…`);
+      try {
+        const pending = await invoke("sync_start_direct_pairing", {
+          deviceId: peer.device_id,
+          addr: peer.addr,
+        });
+        renderPendingDirect(pending);
+        showSyncResult(
+          `Comparez le code ${pending.formatted_code || pending.code} sur les deux appareils puis cliquez sur Appairer (OK).`,
+        );
+      } catch (e) {
+        showSyncResult(String(e), true);
+        pairBtn.disabled = false;
+        pairBtn.textContent = "Appairer";
+      }
+    });
+    li.append(pairBtn);
+  }
+
   return li;
 }
 
@@ -298,6 +412,7 @@ function renderSyncView(view) {
     nameInput.value = view.device_name;
   }
 
+  renderPendingDirect(view.pending_direct || null);
   renderActiveOffer(view.active_offer);
 
   const peersList = $("sync-peers-list");
@@ -327,6 +442,7 @@ function renderSyncView(view) {
 async function loadSyncView() {
   if (!$("sync-status-badge")) return;
   try {
+    await syncDirectPairingGate();
     const view = await invoke("sync_view");
     renderSyncView(view);
   } catch (e) {
@@ -336,6 +452,44 @@ async function loadSyncView() {
 
 function initSyncUI() {
   if (!$("sync-status-badge")) return;
+
+  $("sync-direct-approve")?.addEventListener("click", async () => {
+    const sessionId = currentDirectSessionId;
+    if (!sessionId) return;
+    const btn = $("sync-direct-approve");
+    btn.disabled = true;
+    btn.textContent = "En attente de l'autre appareil…";
+    try {
+      const view = await invoke("sync_respond_direct_pairing", {
+        sessionId,
+        approve: true,
+      });
+      renderSyncView(view);
+    } catch (e) {
+      showSyncResult(String(e), true);
+      await loadSyncView();
+    }
+  });
+
+  $("sync-direct-reject")?.addEventListener("click", async () => {
+    const sessionId = currentDirectSessionId;
+    if (!sessionId) return;
+    const btn = $("sync-direct-reject");
+    btn.disabled = true;
+    try {
+      const view = await invoke("sync_respond_direct_pairing", {
+        sessionId,
+        approve: false,
+      });
+      renderSyncView(view);
+      showSyncResult("Appairage direct annulé.");
+    } catch (e) {
+      showSyncResult(String(e), true);
+      await loadSyncView();
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   $("sync-toggle-listen").addEventListener("click", async () => {
     const btn = $("sync-toggle-listen");
@@ -434,6 +588,16 @@ function initSyncUI() {
       showSyncResult(String(e), true);
     } finally {
       btn.disabled = false;
+    }
+  });
+
+  window.addEventListener("hashchange", () => {
+    setTimeout(syncDirectPairingGate, 0);
+  });
+  window.addEventListener("beforeunload", () => {
+    if (lastDirectGate) {
+      lastDirectGate = false;
+      invoke("sync_set_direct_pairing_enabled", { enabled: false }).catch(() => {});
     }
   });
 

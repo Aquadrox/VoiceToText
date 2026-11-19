@@ -12,6 +12,15 @@ function setupSync(invoke) {
     "section",
     { className: "panel" },
     el("div", { id: "sync-result", className: "result", hidden: true }),
+    el(
+      "div",
+      { id: "sync-direct-box", className: "sync-direct-box", hidden: true },
+      el("p", { id: "sync-direct-title", className: "sync-direct-title" }),
+      el("div", { id: "sync-direct-code", className: "sync-direct-code" }),
+      el("p", { id: "sync-direct-expiry", className: "hint" }),
+      el("button", { id: "sync-direct-approve", textContent: "Appairer (OK)" }),
+      el("button", { id: "sync-direct-reject", textContent: "Refuser" }),
+    ),
     el("span", { id: "sync-status-badge", className: "sync-badge" }),
     el("button", { id: "sync-toggle-listen", textContent: "Activer l'écoute locale" }),
     el("button", { id: "sync-refresh", textContent: "Actualiser" }),
@@ -52,7 +61,9 @@ function sampleView(overrides = {}) {
     server_error: null,
     device_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     device_name: "PC Bureau",
+    direct_pairing_enabled: true,
     active_offer: null,
+    pending_direct: null,
     discovered: [
       {
         device_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -228,4 +239,84 @@ test("appairage manuel, synchronisation avec secours IP:port et oubli confirmé 
   assert.equal(calls.filter((c) => c.cmd === "sync_remove_peer").length, 1);
   assert.equal(document.getElementById("sync-peers-list").children.length, 0);
   assert.equal(document.getElementById("sync-peers-empty").hidden, false);
+});
+
+test("appairage direct par clic sur un appareil détecté : affiche le code 6 chiffres, confirme puis gère le refus", async () => {
+  const calls = [];
+  let pending = null;
+
+  const { env, document } = setupSync(async (cmd, args) => {
+    calls.push({ cmd, args });
+    if (cmd === "sync_view") return sampleView({ pending_direct: pending });
+    if (cmd === "sync_start_direct_pairing") {
+      pending = {
+        session_id: "sess-direct-1",
+        remote_device_id: args.deviceId,
+        remote_device_name: "Steam Deck",
+        code: "482917",
+        formatted_code: "482 917",
+        expires_at_ms: Date.now() + 60_000,
+        incoming: false,
+        local_approved: false,
+      };
+      return pending;
+    }
+    if (cmd === "sync_respond_direct_pairing") {
+      if (args.approve && pending) {
+        pending = { ...pending, local_approved: true };
+      } else {
+        pending = null;
+      }
+      return sampleView({ pending_direct: pending });
+    }
+    return {};
+  });
+
+  await env.eval("loadSyncView")();
+
+  const discList = document.getElementById("sync-discovered-list");
+  // L'appareil déjà appairé n'a pas de bouton d'appairage direct.
+  assert.equal(discList.children[0].querySelector(".sync-direct-pair-btn"), null);
+  // L'appareil non appairé propose un bouton « Appairer ».
+  const directBtn = discList.children[1].querySelector(".sync-direct-pair-btn");
+  assert.ok(directBtn);
+  assert.equal(directBtn.textContent, "Appairer");
+
+  // 1. Clic sur l'appareil détecté -> affiche le code à 6 chiffres.
+  directBtn.dispatchEvent("click");
+  await flush();
+  await flush();
+
+  const startCall = calls.find((c) => c.cmd === "sync_start_direct_pairing");
+  assert.equal(startCall.args.deviceId, "cccccccccccccccccccccccccccccccc");
+  assert.equal(startCall.args.addr, "192.168.1.30:41739");
+  assert.equal(document.getElementById("sync-direct-box").hidden, false);
+  assert.equal(document.getElementById("sync-direct-code").textContent, "482 917");
+  assert.match(document.getElementById("sync-direct-title").textContent, /Steam Deck/);
+
+  // 2. Clic sur Appairer (OK) -> envoie approve: true et passe en attente.
+  const approveBtn = document.getElementById("sync-direct-approve");
+  approveBtn.dispatchEvent("click");
+  await flush();
+  await flush();
+
+  const approveCall = calls.find(
+    (c) => c.cmd === "sync_respond_direct_pairing" && c.args.approve === true,
+  );
+  assert.equal(approveCall.args.sessionId, "sess-direct-1");
+  assert.equal(approveCall.args.approve, true);
+  assert.equal(approveBtn.disabled, true);
+  assert.match(approveBtn.textContent, /En attente/);
+
+  // 3. Clic sur Annuler -> envoie approve: false et ferme la boîte.
+  document.getElementById("sync-direct-reject").dispatchEvent("click");
+  await flush();
+  await flush();
+
+  const rejectCall = calls.find(
+    (c) => c.cmd === "sync_respond_direct_pairing" && c.args.approve === false,
+  );
+  assert.equal(rejectCall.args.sessionId, "sess-direct-1");
+  assert.equal(rejectCall.args.approve, false);
+  assert.equal(document.getElementById("sync-direct-box").hidden, true);
 });

@@ -1891,13 +1891,54 @@ label.choice input[type="radio"] {
   margin-top: 6px;
 }
 
+.sync-direct-box {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 2px solid var(--signal);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.sync-direct-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.sync-direct-code {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  user-select: all;
+}
+
 .sync-discovered-list {
-  margin: 6px 0 0;
-  padding-left: 18px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 .sync-discovered-item {
-  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.sync-discovered-info {
+  min-width: 0;
+  flex: 1;
 }
 
 @media (max-width: 760px) {

@@ -901,6 +901,20 @@
 
                 <div id="sync-result" class="result" hidden></div>
 
+                <div id="sync-direct-box" class="sync-direct-box" hidden>
+                  <p id="sync-direct-title" class="sync-direct-title"></p>
+                  <p class="hint">
+                    Vérifiez que ce code à 6 chiffres est identique sur l'autre appareil, puis cliquez sur
+                    <strong>Appairer (OK)</strong> des deux côtés.
+                  </p>
+                  <div id="sync-direct-code" class="sync-direct-code" aria-live="polite"></div>
+                  <p id="sync-direct-expiry" class="hint"></p>
+                  <div class="row">
+                    <button id="sync-direct-approve" type="button" class="primary">Appairer (OK)</button>
+                    <button id="sync-direct-reject" type="button">Refuser</button>
+                  </div>
+                </div>
+
                 <div class="group" data-untracked>
                   <h3>Cet appareil</h3>
                   <div class="sync-status-row">
@@ -921,8 +935,9 @@
                 <div class="group" data-untracked>
                   <h3>Appairer un nouvel appareil</h3>
                   <p class="hint">
-                    Affichez un QR code éphémère (valide 5 minutes, à usage unique) à scanner depuis
-                    Android ou collez le lien d'appairage d'un autre PC / Steam Deck.
+                    Cliquez directement sur un appareil détecté ci-dessous pour comparer un code à
+                    6 chiffres sans scanner de QR code, ou utilisez un QR code éphémère (valide
+                    5 minutes, à usage unique).
                   </p>
                   <div class="row">
                     <button id="sync-open-qr" type="button" class="primary">Afficher un QR code d'appairage</button>
