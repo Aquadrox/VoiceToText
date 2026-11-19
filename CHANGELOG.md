@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.36.0 — 2026-11-19
+
+- Synchronisation locale Wi-Fi entre PC, Steam Deck et Android, chiffrée de bout en bout et sans cloud ni compte : dictionnaire, snippets, styles, prompts, profils LLM et réunions sont fusionnés sur votre réseau local. Les clés API ne quittent jamais leur appareil.
+- [PC] Nouvelle section Réglages → Synchronisation : écoute locale activée à la demande (ou automatiquement dès qu'un appareil est appairé), QR code d'appairage à usage unique avec empreinte de vérification, copie de lien entre PC, découverte automatique mDNS, synchro en un clic et secours manuel IP:port.
+- [Android] Nouvelle section Synchronisation Wi-Fi : scannez le QR code du PC avec l'appareil photo du téléphone (ou collez le lien), découvrez vos PC sur le Wi-Fi et synchronisez réglages et réunions en un appui, avec secours manuel IP:port.
+
 ## 0.35.1 — 2026-11-18
 
 - [Android] Le bouton « Toutes les réunions » de l'écran d'accueil s'affiche en entier, à la même hauteur que « Enregistrer ».
