@@ -5,6 +5,7 @@ import android.os.Looper
 import android.util.Log
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Moteur partagé par le clavier et la bulle : chargement du modèle quand les
@@ -13,6 +14,8 @@ import java.util.concurrent.Executors
 object Dictation {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val nextLiveGen = AtomicLong(0)
+    private val cancelledLiveGen = AtomicLong(0)
 
     /** Version des réglages chargée dans le moteur (-1 : pas encore). */
     private var loaded = -1L
@@ -81,6 +84,7 @@ object Dictation {
     fun release() {
         // Réunion en cours de transcription : le modèle reste chargé.
         if (loaded < 0 || loading || MeetingService.processing != null) return
+        liveCancel()
         loaded = -1
         worker.execute { runCatching { Native.release() } }
     }
@@ -107,6 +111,91 @@ object Dictation {
             }
             main.post { done(result) }
         }
+    }
+
+    /**
+     * Démarre une session mains libres en continu sur le fil du moteur.
+     * Renvoie l'identifiant de génération à passer à [liveFeed] et [liveFinish].
+     */
+    fun liveStart(
+        store: Store,
+        app: String,
+        mode: Int,
+        privacy: Int,
+        context: String = "",
+        onError: (Long, String) -> Unit = { _, _ -> },
+    ): Long {
+        val gen = nextLiveGen.incrementAndGet()
+        if (stale(store)) prepare(store) {}
+        worker.execute {
+            if (cancelledLiveGen.get() >= gen) return@execute
+            val error = try {
+                LiveLogic.parseError(Native.liveStart(app, mode, privacy, context))
+            } catch (e: Throwable) {
+                failure(e)
+            }
+            if (!error.isNullOrEmpty() && cancelledLiveGen.get() < gen) {
+                main.post {
+                    if (cancelledLiveGen.get() < gen) onError(gen, error)
+                }
+            }
+        }
+        return gen
+    }
+
+    /**
+     * Envoie une tranche audio incrémentale à la session mains libres ;
+     * `onPreview` est rappelé sur le fil principal uniquement si l'aperçu a changé.
+     */
+    fun liveFeed(
+        generation: Long,
+        samples: FloatArray,
+        onPreview: (String) -> Unit,
+    ) {
+        if (samples.isEmpty() || cancelledLiveGen.get() >= generation) return
+        worker.execute {
+            if (cancelledLiveGen.get() >= generation) return@execute
+            val parsed = try {
+                LiveLogic.parseFeed(Native.liveFeed(samples))
+            } catch (e: Throwable) {
+                Log.w("VoiceToText", "Erreur prévisualisation en continu", e)
+                null
+            }
+            if (parsed != null && parsed.changed && parsed.preview.isNotEmpty() && cancelledLiveGen.get() < generation) {
+                main.post {
+                    if (cancelledLiveGen.get() < generation) onPreview(parsed.preview)
+                }
+            }
+        }
+    }
+
+    /**
+     * Finalise la session mains libres avec le reliquat audio sur le fil du
+     * moteur ; réponse JSON (même forme que [run]) sur le fil principal.
+     */
+    fun liveFinish(
+        generation: Long,
+        tail: FloatArray,
+        done: (JSONObject) -> Unit,
+    ) {
+        worker.execute {
+            if (cancelledLiveGen.get() >= generation) return@execute
+            val result = try {
+                JSONObject(Native.liveFinish(tail))
+            } catch (e: Throwable) {
+                JSONObject().put("kind", "error").put("error", failure(e))
+            }
+            if (cancelledLiveGen.get() < generation) {
+                main.post { done(result) }
+            }
+        }
+    }
+
+    /** Annule immédiatement toute session mains libres en cours sans bloquer. */
+    fun liveCancel() {
+        val latest = nextLiveGen.get()
+        cancelledLiveGen.accumulateAndGet(latest) { current, candidate -> maxOf(current, candidate) }
+        runCatching { Native.liveCancel() }
     }
 
     /** Message d'une exception inattendue, gardé aussi dans le journal Android. */

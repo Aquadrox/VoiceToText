@@ -548,13 +548,14 @@ Rendre l'appairage PC ↔ téléphone plus rapide et pratique sans avoir à scan
 - ✅ Saut 4C — Interface Android (`vtt-android` + `SyncSettings.kt` + `NsdDiscovery.kt`) : serveur local temporaire + annonce DNS-SD pendant que la page Synchronisation est ouverte, clic sur un PC détecté → carte de confirmation du code à 6 chiffres (dans les deux sens PC ↔ téléphone), tests Rust + Kotlin JVM et version **v0.38.0**
 - ⬜ À vérifier sur le terrain : appairage direct par code à 6 chiffres PC → téléphone et téléphone → PC sur le Wi-Fi réel
 
-### 5. Prévisualisation en continu (dictée longue) 🚧
+### 5. Prévisualisation en continu (dictée longue) ✅
 
 Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres (#93) :
 
 - ✅ Saut 5A (PR #109) — Cœur `vtt-core` : `Chunker::with_bounds` (réutilisation de la découpe aux pauses des réunions sans modifier le comportement 6–15 s des réunions), module `live` (`LiveSession` 3,5–9 s avec seuil micro dictée, assemblage propre et aperçu glissant UTF-8 aux frontières de mots), `Pipeline::transcribe_chunk` et `Pipeline::finalize_raw` (un seul passage LLM cohérent + insertion unique, commandes vocales, snippets, styles, traduction et repli préservés)
-- ✅ Saut 5B — Bureau (`vtt-platform` + `apps/desktop`) : lecture incrémentale non destructive du micro (`Recorder::drain_live` / `stop_with_tail`), transcription par tranches sur le worker pendant le mode mains libres, aperçu en continu dans la pastille flottante (et zone de test), finalisation LLM unique à l'arrêt et conservation de l'audio complet pour « Réessayer »
-- ⬜ Saut 5C — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres, tests Rust + Kotlin JVM et montée de version **v0.39.0**
+- ✅ Saut 5B (PR #110) — Bureau (`vtt-platform` + `apps/desktop`) : lecture incrémentale non destructive du micro (`Recorder::drain_live` / `stop_with_tail`), transcription par tranches sur le worker pendant le mode mains libres, aperçu en continu dans la pastille flottante (et zone de test), finalisation LLM unique à l'arrêt et conservation de l'audio complet pour « Réessayer »
+- ✅ Saut 5C — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres (`LiveLogic`, `Recorder::drainLive`, `Dictation`, `VoiceKeyboard`), tests Rust + Kotlin JVM et montée de version **v0.39.0**
+- ⬜ À vérifier sur le terrain : prévisualisation en continu sur une longue dictée mains libres côté PC (pastille flottante + « Réessayer ») et côté Android (clavier mains libres, champ mot de passe sans aperçu ni LLM, navigation privée sans historique)
 
 ## Prochaines étapes — Puis ⬜
 

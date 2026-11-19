@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.39.0 — 2026-11-19
+
+- Prévisualisation en continu pendant la dictée mains libres : la reconnaissance vocale découpe désormais les longues dictées aux pauses au fil de la parole pour afficher les derniers mots reconnus en direct, puis exécute un seul nettoyage IA cohérent et une seule insertion à l'arrêt.
+- [PC] Aperçu en direct dans la pastille flottante (et dans la zone de test des réglages) en mode mains libres, avec conservation de l'audio complet pour « Réessayer » et annulation immédiate par Échap.
+- [Android] Aperçu en direct dans la barre d'état du clavier lors d'une dictée mains libres (appui court sur le micro) ; strictement désactivé sur les champs de mot de passe et sans historique en navigation privée.
+
 ## 0.38.0 — 2026-11-19
 
 - Synchronisation Wi-Fi : appairage direct sans scanner de QR code. Ouvrez Réglages → Synchronisation sur le PC et sur le téléphone, cliquez directement sur l'appareil détecté sur le réseau local, vérifiez que le code à 6 chiffres affiché sur les deux écrans est identique, puis validez des deux côtés.

@@ -342,6 +342,15 @@ fn decode_privacy(privacy: jint) -> engine::Privacy {
     }
 }
 
+fn read_float_array(env: &mut JNIEnv, samples: &JFloatArray) -> Vec<f32> {
+    let length = env.get_array_length(samples).unwrap_or(0).max(0) as usize;
+    let mut buffer = vec![0f32; length];
+    if env.get_float_array_region(samples, 0, &mut buffer).is_err() {
+        buffer.clear();
+    }
+    buffer
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     mut env: JNIEnv<'a>,
@@ -353,14 +362,7 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
     privacy: jint,
     context: JString<'a>,
 ) -> jstring {
-    let length = env.get_array_length(&samples).unwrap_or(0).max(0) as usize;
-    let mut buffer = vec![0f32; length];
-    if env
-        .get_float_array_region(&samples, 0, &mut buffer)
-        .is_err()
-    {
-        buffer.clear();
-    }
+    let buffer = read_float_array(&mut env, &samples);
     let app = Some(text(&mut env, &app)).filter(|a| !a.is_empty());
     let selection = if mode == 2 {
         text(&mut env, &selection)
@@ -381,6 +383,70 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_dictate<'a>(
         serde_json::to_string(&result).unwrap_or_default()
     });
     java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_liveStart<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    app: JString<'a>,
+    mode: jint,
+    privacy: jint,
+    context: JString<'a>,
+) -> jstring {
+    let app = Some(text(&mut env, &app)).filter(|a| !a.is_empty());
+    let privacy = decode_privacy(privacy);
+    let context_text = if privacy == engine::Privacy::Normal && mode != 2 {
+        Some(text(&mut env, &context)).filter(|c| !c.trim().is_empty())
+    } else {
+        None
+    };
+    let mode = decode_mode(mode, String::new());
+    let json = protect(|| {
+        reply(engine::live_start(
+            app,
+            mode,
+            privacy,
+            context_text.as_deref(),
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_liveFeed<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    samples: JFloatArray<'a>,
+) -> jstring {
+    let buffer = read_float_array(&mut env, &samples);
+    let json = protect(|| reply(engine::live_feed(&buffer)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_liveFinish<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    tail: JFloatArray<'a>,
+) -> jstring {
+    let buffer = read_float_array(&mut env, &tail);
+    let json = protect(|| {
+        let result = engine::live_finish(buffer);
+        serde_json::to_string(&result).unwrap_or_default()
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_liveCancel(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    protect(|| {
+        engine::live_cancel();
+        String::new()
+    });
 }
 
 /// Notes de version pour le téléphone (changements `[Android]` et communs),
