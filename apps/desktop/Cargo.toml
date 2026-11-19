@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 dirs = "6"
 png = "0.18"
+# Génération de la matrice QR pour l'appairage Wi-Fi local (Rust pur).
+qrcode = { version = "0.14", default-features = false }
 # Import de fichiers audio et vidéo (Rust pur, sans FFmpeg).
 symphonia = { version = "0.5", default-features = false, features = ["aac", "adpcm", "flac", "isomp4", "mkv", "mp3", "ogg", "pcm", "vorbis", "wav"] }
 flate2 = "1"

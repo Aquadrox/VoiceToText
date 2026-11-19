@@ -25,6 +25,8 @@ pub struct Paths {
     pub meetings_dir: PathBuf,
     /// Captures commentées gardées (si l'utilisateur le demande).
     pub captures_dir: PathBuf,
+    /// Identité locale et appareils appairés pour la synchronisation Wi-Fi.
+    pub sync_peers_file: PathBuf,
 }
 
 impl Paths {
@@ -44,6 +46,7 @@ impl Paths {
             version_file: data_dir.join("version.json"),
             meetings_dir: data_dir.join("meetings"),
             captures_dir: data_dir.join("captures"),
+            sync_peers_file: config_dir.join("sync_peers.json"),
         }
     }
 
@@ -135,6 +138,7 @@ impl Paths {
             version_file: dir.join("version.json"),
             meetings_dir: dir.join("meetings"),
             captures_dir: dir.join("captures"),
+            sync_peers_file: dir.join("sync_peers.json"),
         }
     }
 }

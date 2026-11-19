@@ -567,6 +567,7 @@ registerPage("reglages", {
       showGeneral(),
       loadMeetingSettings(),
       loadApiKeys(),
+      loadSyncView(),
       refresh().then((view) => {
         if (!providerFilled) {
           fillProvider(view.llm);
