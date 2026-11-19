@@ -3,8 +3,10 @@ package io.github.aquadrox.voicetotext
 import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -15,8 +17,10 @@ import java.util.concurrent.Executors
 
 /**
  * Synchronisation locale Wi-Fi (pair-à-pair chiffrée, sans cloud) :
- * - appairage en scannant le QR code du PC (lien `vttsync://v1?...`) ou en le collant ;
- * - découverte automatique sur le Wi-Fi via Android [NsdDiscovery] ;
+ * - appairage direct par clic sur un appareil détecté + code à 6 chiffres
+ *   (dans les deux sens PC ↔ téléphone, sans scanner de QR code) ;
+ * - appairage par QR code du PC (`vttsync://v1?...`) ou collage du lien ;
+ * - découverte et annonce temporaire sur le Wi-Fi via Android [NsdDiscovery] ;
  * - synchronisation en un appui (dictionnaire, snippets, styles, prompts,
  *   profils LLM et réunions ; jamais les clés API) avec secours manuel `IP:port`.
  */
@@ -26,6 +30,13 @@ class SyncSettings : SettingsPage() {
 
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var discovery: NsdDiscovery
+
+    private lateinit var directCard: LinearLayout
+    private lateinit var directTitle: TextView
+    private lateinit var directCode: TextView
+    private lateinit var directExpiry: TextView
+    private lateinit var directApprove: Button
+    private lateinit var directReject: Button
 
     private lateinit var pairInput: EditText
     private lateinit var pairButton: Button
@@ -40,7 +51,21 @@ class SyncSettings : SettingsPage() {
     private var discovered: List<DiscoveredDevice> = emptyList()
     private val manualOverrides = mutableMapOf<String, String>()
     private var localDeviceName: String = defaultPhoneName()
+    private var localDeviceId: String = ""
+    private var listeningPort: Int? = null
+    private var pendingDirect: PendingDirectPairing? = null
+    private var lastShownSessionId: String? = null
+    private var lastEventSeq: Long = 0L
     private var busy = false
+    private var active = false
+
+    private val directPoller = object : Runnable {
+        override fun run() {
+            if (!active || isDestroyed) return
+            pollDirectState()
+            main.postDelayed(this, POLL_DIRECT_MS)
+        }
+    }
 
     override fun LinearLayout.build() {
         note(
@@ -48,15 +73,41 @@ class SyncSettings : SettingsPage() {
                 "avec votre PC ou Steam Deck sur le même Wi-Fi. Les clés API ne quittent jamais ce téléphone.",
         )
 
-        card("Appairer un appareil", R.drawable.ic_wifi).anchor("sync_pair").apply {
-            note(
-                "Sur votre PC, ouvrez Réglages → Synchronisation → Afficher un QR code, " +
-                    "puis scannez-le avec l'appareil photo du téléphone (il s'ouvrira ici) ou collez le lien ci-dessous.",
-            )
-            pairInput = field("vttsync://v1?id=...")
+        directCard = card("", 0).apply {
+            background = rounded(getColor(R.color.card), 14f, getColor(R.color.signal), 2)
+            visibility = View.GONE
+            directTitle = text("", 16f, bold = true)
+            note("Vérifiez que ce code à 6 chiffres est identique sur l'autre appareil, puis appuyez sur Appairer (OK) des deux côtés.")
+            directCode = text("", 28f, bold = true).apply {
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                gravity = Gravity.CENTER_HORIZONTAL
+                letterSpacing = 0.16f
+                background = rounded(getColor(R.color.bg), 10f, getColor(R.color.border_strong))
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                (layoutParams as LinearLayout.LayoutParams).apply {
+                    topMargin = dp(8)
+                    bottomMargin = dp(6)
+                }
+            }
+            directExpiry = note("")
             row {
-                secondary("Coller") { pastePairingUri() }
-                pairButton = primary("Appairer") { pairFromInput() }
+                directApprove = primary("Appairer (OK)") { respondDirect(true) }
+                directReject = secondary("Refuser") { respondDirect(false) }
+            }
+        }
+
+        card("Détectés sur le Wi-Fi", R.drawable.ic_refresh_cw).anchor("sync_nsd").apply {
+            discoveryStatus = note("Recherche des appareils VoiceToText sur le réseau local…")
+            discoveredEmpty = note("Aucun autre appareil détecté pour l'instant. Ouvrez Réglages → Synchronisation sur votre PC.")
+            discoveredContainer = LinearLayout(this@SyncSettings).apply { orientation = LinearLayout.VERTICAL }
+            addView(discoveredContainer)
+            secondary("Actualiser la découverte") {
+                discoveryStatus.text = "Recherche en cours…"
+                discovery.restart()
+                val port = listeningPort
+                if (port != null && localDeviceId.isNotEmpty()) {
+                    discovery.advertise(localDeviceId, localDeviceName, port)
+                }
             }
         }
 
@@ -66,14 +117,15 @@ class SyncSettings : SettingsPage() {
             addView(peersContainer)
         }
 
-        card("Détectés sur le Wi-Fi", R.drawable.ic_refresh_cw).anchor("sync_nsd").apply {
-            discoveryStatus = note("Recherche des appareils VoiceToText sur le réseau local…")
-            discoveredEmpty = note("Aucun appareil détecté pour l'instant.")
-            discoveredContainer = LinearLayout(this@SyncSettings).apply { orientation = LinearLayout.VERTICAL }
-            addView(discoveredContainer)
-            secondary("Actualiser la découverte") {
-                discoveryStatus.text = "Recherche en cours…"
-                discovery.restart()
+        card("Appairer par QR code ou lien", R.drawable.ic_wifi).anchor("sync_pair").apply {
+            note(
+                "En alternative à l'appairage direct ci-dessus : sur votre PC, ouvrez Réglages → Synchronisation → Afficher un QR code, " +
+                    "puis scannez-le avec l'appareil photo du téléphone ou collez le lien ci-dessous.",
+            )
+            pairInput = field("vttsync://v1?id=...")
+            row {
+                secondary("Coller") { pastePairingUri() }
+                pairButton = primary("Appairer") { pairFromInput() }
             }
         }
 
@@ -116,19 +168,178 @@ class SyncSettings : SettingsPage() {
 
     override fun onResume() {
         super.onResume()
+        active = true
         discovery.start()
+        startDirectListener()
         loadView()
+        main.removeCallbacks(directPoller)
+        main.postDelayed(directPoller, POLL_DIRECT_MS)
     }
 
     override fun onPause() {
+        active = false
+        main.removeCallbacks(directPoller)
         discovery.stop()
+        listeningPort = null
+        worker.execute { runCatching { Native.syncStopListener() } }
         super.onPause()
     }
 
     override fun onDestroy() {
+        active = false
+        main.removeCallbacks(directPoller)
         discovery.destroy()
+        runCatching { Native.syncStopListener() }
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    /** Démarre le serveur TCP temporaire Android et annonce ce téléphone via NSD. */
+    private fun startDirectListener() {
+        worker.execute {
+            val reply = JSONObject(
+                Native.syncStartListener(
+                    store.configPath,
+                    store.syncPeersFile,
+                    store.meetingsDir,
+                    defaultPhoneName(),
+                ),
+            )
+            main.post {
+                if (!active || isDestroyed) return@post
+                val ok = reply.optJSONObject("ok") ?: return@post
+                val port = ok.optInt("port", 0)
+                val id = ok.optString("device_id", "")
+                val name = ok.optString("device_name", defaultPhoneName())
+                if (port > 0 && id.isNotEmpty()) {
+                    listeningPort = port
+                    localDeviceId = id
+                    localDeviceName = name
+                    discovery.advertise(id, name, port)
+                }
+            }
+        }
+    }
+
+    private fun pollDirectState() {
+        val raw = runCatching { Native.syncDirectState() }.getOrNull() ?: return
+        val ok = runCatching { JSONObject(raw).optJSONObject("ok") }.getOrNull() ?: return
+        applyDirectState(SyncLogic.parseDirectState(ok))
+    }
+
+    private fun applyDirectState(state: DirectPairingState) {
+        val prevPending = pendingDirect
+        pendingDirect = state.pending
+        renderPendingDirect(state.pending)
+        if ((prevPending == null) != (state.pending == null)) {
+            renderDiscovered()
+        }
+
+        val ev = state.lastEvent
+        if (ev != null && ev.seq > lastEventSeq) {
+            lastEventSeq = ev.seq
+            when (ev.kind) {
+                "paired" -> {
+                    saved("✓ ${ev.message}")
+                    loadView()
+                }
+                "synced" -> {
+                    if (ev.configChanged) store.notifyConfigChanged()
+                    saved("✓ ${ev.message}")
+                    loadView()
+                }
+                "ended" -> {
+                    if (ev.message.isNotEmpty()) say(ev.message)
+                }
+            }
+        }
+    }
+
+    private fun renderPendingDirect(pending: PendingDirectPairing?) {
+        if (pending == null) {
+            lastShownSessionId = null
+            directCard.visibility = View.GONE
+            return
+        }
+        directTitle.text = if (pending.incoming) {
+            "Demande d'appairage reçue de « ${pending.remoteDeviceName} »"
+        } else {
+            "Appairage direct avec « ${pending.remoteDeviceName} »"
+        }
+        directCode.text = pending.formattedCode
+        directApprove.isEnabled = !pending.localApproved
+        directApprove.text = if (pending.localApproved) "En attente de l'autre appareil…" else "Appairer (OK)"
+        directReject.isEnabled = true
+        directReject.text = if (pending.incoming && !pending.localApproved) "Refuser" else "Annuler"
+
+        val remSec = ((pending.expiresAtMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+        directExpiry.text = if (remSec > 0L) {
+            "Expire dans 0:${remSec.toString().padStart(2, '0')}."
+        } else {
+            "Demande expirée."
+        }
+
+        directCard.visibility = View.VISIBLE
+        if (lastShownSessionId != pending.sessionId) {
+            lastShownSessionId = pending.sessionId
+            directCard.reveal()
+        }
+    }
+
+    private fun startDirectPairing(device: DiscoveredDevice, button: Button) {
+        if (busy || pendingDirect != null) return
+        busy = true
+        button.isEnabled = false
+        button.text = "Connexion…"
+        say("Demande d'appairage envoyée à ${device.deviceName}…")
+        worker.execute {
+            val reply = JSONObject(
+                Native.syncStartDirectPairing(
+                    store.configPath,
+                    store.syncPeersFile,
+                    store.meetingsDir,
+                    defaultPhoneName(),
+                    device.deviceId,
+                    device.addr,
+                ),
+            )
+            main.post {
+                busy = false
+                if (reply.has("error")) {
+                    button.isEnabled = true
+                    button.text = "Appairer"
+                    say("Appairage direct impossible : ${reply.getString("error")}")
+                } else {
+                    val pending = SyncLogic.parsePendingDirect(reply.optJSONObject("ok"))
+                    pendingDirect = pending
+                    renderPendingDirect(pending)
+                    renderDiscovered()
+                    if (pending != null) {
+                        say("Comparez le code ${pending.formattedCode} sur les deux écrans puis appuyez sur Appairer (OK).")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun respondDirect(approve: Boolean) {
+        val current = pendingDirect ?: return
+        directApprove.isEnabled = false
+        directReject.isEnabled = false
+        if (approve) directApprove.text = "En attente de l'autre appareil…"
+        worker.execute {
+            val reply = JSONObject(Native.syncRespondDirectPairing(current.sessionId, approve))
+            main.post {
+                val ok = reply.optJSONObject("ok")
+                if (ok == null) {
+                    say(reply.optString("error", "Impossible de répondre à l'appairage."))
+                    pollDirectState()
+                } else {
+                    applyDirectState(SyncLogic.parseDirectState(ok))
+                    if (!approve) say("Appairage direct annulé.")
+                }
+            }
+        }
     }
 
     /** Lien `vttsync://v1?...` ouvert depuis l'appareil photo après scan du QR code du PC. */
@@ -212,6 +423,7 @@ class SyncSettings : SettingsPage() {
                     say(reply.optString("error", "Impossible de lire les appareils appairés."))
                     return@post
                 }
+                localDeviceId = ok.optString("device_id", localDeviceId)
                 localDeviceName = ok.optString("device_name", defaultPhoneName())
                 if (!deviceNameInput.hasFocus()) {
                     deviceNameInput.setText(localDeviceName)
@@ -243,6 +455,10 @@ class SyncSettings : SettingsPage() {
                 } else {
                     localDeviceName = ok.optString("device_name", name)
                     deviceNameInput.setText(localDeviceName)
+                    val port = listeningPort
+                    if (active && port != null && localDeviceId.isNotEmpty()) {
+                        discovery.advertise(localDeviceId, localDeviceName, port)
+                    }
                     saved("✓ Nom enregistré : $localDeviceName")
                 }
             }
@@ -318,7 +534,7 @@ class SyncSettings : SettingsPage() {
     private fun confirmRemovePeer(peer: PairedDevice) {
         AlertDialog.Builder(this)
             .setTitle("Oublier « ${peer.deviceName} » ?")
-            .setMessage("Sa clé de synchronisation sera révoquée sur ce téléphone. Vous pourrez le réappairer plus tard avec un nouveau QR code.")
+            .setMessage("Sa clé de synchronisation sera révoquée sur ce téléphone. Vous pourrez le réappairer plus tard directement ou avec un QR code.")
             .setPositiveButton("Oublier") { _, _ ->
                 worker.execute {
                     val reply = JSONObject(
@@ -399,14 +615,25 @@ class SyncSettings : SettingsPage() {
         discoveredEmpty.visibility = if (discovered.isEmpty()) View.VISIBLE else View.GONE
         val pairedIds = peers.map { it.deviceId }.toSet()
         discovered.forEachIndexed { index, device ->
-            if (index > 0) discoveredContainer.divider(6)
-            val state = if (device.deviceId in pairedIds) "Déjà appairé" else "Non appairé — scannez son QR code"
+            if (index > 0) discoveredContainer.divider(8)
+            val alreadyPaired = device.deviceId in pairedIds
+            val state = if (alreadyPaired) "Déjà appairé" else "Non appairé"
             discoveredContainer.text(device.deviceName, 15f, bold = true)
             discoveredContainer.note("${device.addr} · $state")
+            if (!alreadyPaired) {
+                lateinit var pairDirectBtn: Button
+                pairDirectBtn = discoveredContainer.primary("Appairer") {
+                    startDirectPairing(device, pairDirectBtn)
+                }.apply {
+                    isEnabled = pendingDirect == null && !busy
+                }
+            }
         }
     }
 
     companion object {
+        private const val POLL_DIRECT_MS = 450L
+
         fun defaultPhoneName(): String {
             val model = Build.MODEL?.trim().orEmpty()
             return if (model.isNotEmpty()) model else "Android"

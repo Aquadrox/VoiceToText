@@ -22,6 +22,30 @@ data class PairedDevice(
     val syncMeetings: Boolean,
 )
 
+data class PendingDirectPairing(
+    val sessionId: String,
+    val remoteDeviceId: String,
+    val remoteDeviceName: String,
+    val code: String,
+    val formattedCode: String,
+    val expiresAtMs: Long,
+    val incoming: Boolean,
+    val localApproved: Boolean,
+)
+
+data class DirectStatusEvent(
+    val seq: Long,
+    val kind: String,
+    val message: String,
+    val configChanged: Boolean,
+)
+
+data class DirectPairingState(
+    val listeningPort: Int?,
+    val pending: PendingDirectPairing?,
+    val lastEvent: DirectStatusEvent?,
+)
+
 /**
  * Logique pure de synchronisation Wi-Fi sur Android (sans dépendance SDK,
  * testée directement sur la JVM).
@@ -43,6 +67,23 @@ object SyncLogic {
         if (raw.isNullOrBlank()) return null
         val match = URI_REGEX.find(raw.trim()) ?: return null
         return match.value.trimEnd('.', ',', ';', ')', ']')
+    }
+
+    /** Formate un code à 6 chiffres en deux groupes lisibles (`"482917"` → `"482 917"`). */
+    fun formatPairingCode(code: String): String {
+        val trimmed = code.trim()
+        return if (trimmed.length == 6 && trimmed.all { it in '0'..'9' }) {
+            "${trimmed.substring(0, 3)} ${trimmed.substring(3)}"
+        } else {
+            trimmed
+        }
+    }
+
+    /** Filtre cet appareil lui-même de la liste mDNS/NSD lorsqu'il s'annonce sur le Wi-Fi. */
+    fun filterSelf(devices: List<DiscoveredDevice>, selfDeviceId: String?): List<DiscoveredDevice> {
+        val own = selfDeviceId?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        if (own.isEmpty()) return devices
+        return devices.filterNot { it.deviceId.equals(own, ignoreCase = true) }
     }
 
     /**
@@ -88,6 +129,43 @@ object SyncLogic {
                 syncMeetings = p.optBoolean("sync_meetings", true),
             )
         }
+    }
+
+    /** Lit un objet JSON de demande d'appairage direct en attente. */
+    fun parsePendingDirect(obj: JSONObject?): PendingDirectPairing? {
+        if (obj == null) return null
+        val sessionId = obj.optString("session_id", "").trim()
+        val code = obj.optString("code", "").trim()
+        if (sessionId.isEmpty() || code.isEmpty()) return null
+        val formatted = obj.optString("formatted_code", "").ifEmpty { formatPairingCode(code) }
+        return PendingDirectPairing(
+            sessionId = sessionId,
+            remoteDeviceId = obj.optString("remote_device_id", ""),
+            remoteDeviceName = obj.optString("remote_device_name", "Appareil"),
+            code = code,
+            formattedCode = formatted,
+            expiresAtMs = obj.optLong("expires_at_ms", 0L),
+            incoming = obj.optBoolean("incoming", false),
+            localApproved = obj.optBoolean("local_approved", false),
+        )
+    }
+
+    /** Lit la réponse JSON `ok` de `Native.syncDirectState()` ou `Native.syncRespondDirectPairing()`. */
+    fun parseDirectState(ok: JSONObject): DirectPairingState {
+        val port = if (ok.has("listening_port") && !ok.isNull("listening_port")) ok.optInt("listening_port") else null
+        val pending = parsePendingDirect(ok.optJSONObject("pending"))
+        val evObj = ok.optJSONObject("last_event")
+        val lastEvent = if (evObj != null && evObj.optLong("seq", 0L) > 0L) {
+            DirectStatusEvent(
+                seq = evObj.getLong("seq"),
+                kind = evObj.optString("kind", ""),
+                message = evObj.optString("message", ""),
+                configChanged = evObj.optBoolean("config_changed", false),
+            )
+        } else {
+            null
+        }
+        return DirectPairingState(listeningPort = port, pending = pending, lastEvent = lastEvent)
     }
 
     /**

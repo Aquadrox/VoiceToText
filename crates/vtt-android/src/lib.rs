@@ -1007,6 +1007,93 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncRemovePeer
     java(&mut env, &json)
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncStartListener<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let json = protect(|| {
+        reply(sync::start_listener(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncStopListener(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    protect(|| {
+        sync::stop_listener();
+        String::new()
+    });
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncStartDirectPairing<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    device_id: JString<'a>,
+    addr: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let device_id = text(&mut env, &device_id);
+    let addr = text(&mut env, &addr);
+    let json = protect(|| {
+        reply(sync::start_direct_pairing(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &device_id,
+            &addr,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncRespondDirectPairing<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    session_id: JString<'a>,
+    approve: jboolean,
+) -> jstring {
+    let session_id = text(&mut env, &session_id);
+    let json = protect(|| reply(sync::respond_direct_pairing(&session_id, approve != 0)));
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncDirectState<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+) -> jstring {
+    let json = protect(|| reply(Ok::<_, String>(sync::direct_state())));
+    java(&mut env, &json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

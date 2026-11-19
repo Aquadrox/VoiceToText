@@ -239,6 +239,39 @@ object Native {
         deviceId: String,
     ): String
 
+    /**
+     * Démarre le serveur TCP temporaire d'appairage direct (actif uniquement tant
+     * que l'écran Synchronisation est ouvert) : `{"ok": {"port", "device_id", "device_name"}}`.
+     */
+    external fun syncStartListener(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+    ): String
+
+    /** Arrête immédiatement le serveur TCP temporaire d'appairage direct. */
+    external fun syncStopListener()
+
+    /**
+     * Initie un appairage direct par code à 6 chiffres vers un appareil détecté
+     * (bloquant : handshake X25519 ~10 ms sur le LAN).
+     */
+    external fun syncStartDirectPairing(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        deviceId: String,
+        addr: String,
+    ): String
+
+    /** Approuve (`approve = true`) ou refuse (`false`) l'appairage direct en cours. */
+    external fun syncRespondDirectPairing(sessionId: String, approve: Boolean): String
+
+    /** État mémoire courant de l'appairage direct (aucune E/S disque/réseau). */
+    external fun syncDirectState(): String
+
     const val DICTATE = 0
     const val TRANSLATE = 1
     const val COMMAND = 2

@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.38.0 — 2026-11-19
+
+- Synchronisation Wi-Fi : appairage direct sans scanner de QR code. Ouvrez Réglages → Synchronisation sur le PC et sur le téléphone, cliquez directement sur l'appareil détecté sur le réseau local, vérifiez que le code à 6 chiffres affiché sur les deux écrans est identique, puis validez des deux côtés.
+- [PC] Bouton Appairer sur chaque appareil détecté en Wi-Fi et carte de confirmation du code à 6 chiffres (acceptation ouverte uniquement tant que la page Synchronisation est affichée).
+- [Android] Le téléphone s'annonce temporairement sur le Wi-Fi tant que l'écran Synchronisation Wi-Fi est ouvert : vous pouvez lancer l'appairage par code à 6 chiffres depuis le PC comme depuis le téléphone.
+
 ## 0.37.0 — 2026-11-19
 
 - Contexte du champ actif (option désactivée par défaut) : lit quelques mots autour du curseur pour mieux orthographier les noms propres, sigles et termes techniques lors de la reconnaissance vocale et du nettoyage IA. Jamais lu sur les mots de passe, la navigation privée ni les gestionnaires de mots de passe ; les secrets éventuels sont écartés localement et rien n'est enregistré dans l'historique ni les journaux.
