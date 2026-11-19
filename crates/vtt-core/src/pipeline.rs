@@ -19,7 +19,7 @@ pub const SAMPLE_RATE: u32 = 16_000;
 const MIN_CLIP_MS: u64 = 300;
 
 /// Niveau RMS sous lequel un enregistrement est considéré comme du silence (~ -46 dBFS).
-const SILENCE_RMS: f32 = 0.005;
+pub(crate) const SILENCE_RMS: f32 = 0.005;
 
 /// Audio mono 16 kHz, échantillons f32 dans [-1, 1].
 #[derive(Debug, Clone, Default)]
@@ -31,6 +31,15 @@ impl AudioClip {
     pub fn duration_ms(&self) -> u64 {
         self.samples.len() as u64 * 1000 / SAMPLE_RATE as u64
     }
+}
+
+/// Texte brut issu d'une ou plusieurs tranches ASR, prêt pour la finalisation
+/// unique (commandes vocales, snippets, style, nettoyage LLM, insertion).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RawDictation {
+    pub raw: String,
+    pub duration_ms: u64,
+    pub asr_ms: u64,
 }
 
 /// Fenêtre active au début de la dictée, là où le texte sera inséré.
@@ -438,6 +447,19 @@ impl Pipeline {
         Ok(self.transcribe(clip)?.map(|(text, _)| text))
     }
 
+    /// Transcription d'une tranche de dictée longue, filtrée comme une dictée
+    /// (durée minimale, silence, hallucinations) et avec les termes d'appoint
+    /// de la cible ; renvoie `(texte_brut, durée_asr_ms)`.
+    pub fn transcribe_chunk(
+        &self,
+        clip: &AudioClip,
+        hints: &[String],
+    ) -> Result<Option<(String, u64)>, Error> {
+        Ok(self
+            .transcribe_with_hints(clip, hints)?
+            .map(|(text, asr_ms)| (text, u64::try_from(asr_ms).unwrap_or(u64::MAX))))
+    }
+
     pub fn run(&self, clip: &AudioClip, target: &Target) -> Result<Outcome, Error> {
         self.run_to(clip, target, self.sink.as_ref())
     }
@@ -465,10 +487,37 @@ impl Pipeline {
         sink: Option<&dyn TextSink>,
         translate_to: Option<&str>,
     ) -> Result<Outcome, Error> {
-        let sink = sink.unwrap_or(self.sink.as_ref());
         let Some((raw, asr_ms)) = self.transcribe_with_hints(clip, &target.context_terms)? else {
             return Ok(Outcome::Skipped);
         };
+        let dictation = RawDictation {
+            raw,
+            duration_ms: clip.duration_ms(),
+            asr_ms: u64::try_from(asr_ms).unwrap_or(u64::MAX),
+        };
+        self.finalize_raw(&dictation, target, sink, translate_to)
+    }
+
+    /// Finalisation unique d'une dictée déjà transcrite (une tranche unique ou
+    /// plusieurs tranches assemblées par [`crate::live::LiveSession`]) :
+    /// commandes vocales, snippets, style, un seul passage LLM cohérent (avec
+    /// secours et traduction éventuelle) et une seule insertion dans `sink`.
+    pub fn finalize_raw(
+        &self,
+        dictation: &RawDictation,
+        target: &Target,
+        sink: Option<&dyn TextSink>,
+        translate_to: Option<&str>,
+    ) -> Result<Outcome, Error> {
+        let sink = sink.unwrap_or(self.sink.as_ref());
+        let raw = text::strip_hallucinations(&dictation.raw);
+        if raw.is_empty() {
+            self.last_asr_ms.store(0, Ordering::Relaxed);
+            return Ok(Outcome::Skipped);
+        }
+        let asr_ms = dictation.asr_ms;
+        self.last_asr_ms.store(asr_ms, Ordering::Relaxed);
+
         if self.voice_commands && text::is_undo_command(&raw) {
             sink.undo()?;
             log::info!("commande vocale : annulation de la dernière dictée");
@@ -482,7 +531,7 @@ impl Pipeline {
             sink.insert(snippet)?;
             log::info!(
                 "dictée de {} ms : ASR {asr_ms} ms, snippet n°{}, insertion {} ms",
-                clip.duration_ms(),
+                dictation.duration_ms,
                 index + 1,
                 started.elapsed().as_millis()
             );
@@ -574,7 +623,7 @@ impl Pipeline {
         };
         log::info!(
             "dictée de {} ms : ASR {asr_ms} ms, nettoyage {post_ms} ms{tokens}, insertion {} ms",
-            clip.duration_ms(),
+            dictation.duration_ms,
             started.elapsed().as_millis()
         );
         Ok(Outcome::Inserted {
@@ -1198,5 +1247,155 @@ mod tests {
         p.run(&clip_ms(1000), &t).unwrap();
         assert_eq!(*asr_seen.lock().unwrap(), ["SyncServer", "ChaCha20"]);
         assert_eq!(*llm_seen.lock().unwrap(), ["SyncServer", "ChaCha20"]);
+    }
+
+    #[test]
+    fn live_session_chunks_transcribe_and_finalize_in_one_llm_pass() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct SeqAsr {
+            replies: Vec<&'static str>,
+            index: AtomicUsize,
+            hints_seen: Arc<Mutex<Vec<Vec<String>>>>,
+        }
+        impl Transcriber for SeqAsr {
+            fn transcribe(&self, _: &AudioClip) -> Result<String, Error> {
+                let i = self.index.fetch_add(1, Ordering::Relaxed);
+                Ok(self.replies.get(i).copied().unwrap_or("").to_owned())
+            }
+            fn transcribe_with_hints(
+                &self,
+                clip: &AudioClip,
+                hints: &[String],
+            ) -> Result<String, Error> {
+                self.hints_seen.lock().unwrap().push(hints.to_vec());
+                self.transcribe(clip)
+            }
+        }
+
+        struct CountingUpper(Arc<AtomicUsize>);
+        impl PostProcessor for CountingUpper {
+            fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Upper.process(raw, directives)
+            }
+        }
+
+        let hints_seen = Arc::new(Mutex::new(Vec::new()));
+        let llm_calls = Arc::new(AtomicUsize::new(0));
+        let sink = Recorder::default();
+        let p = Pipeline::new(
+            Box::new(SeqAsr {
+                replies: vec![
+                    "première phrase.",
+                    "Sous-titrage ST' 501",
+                    "nouvelle ligne, deuxième phrase.",
+                ],
+                index: AtomicUsize::new(0),
+                hints_seen: Arc::clone(&hints_seen),
+            }),
+            Some(Box::new(CountingUpper(Arc::clone(&llm_calls)))),
+            Box::new(sink.clone()),
+        )
+        .with_voice_commands(true)
+        .with_styles(&styles());
+
+        let t = Target {
+            app: Some("slack.exe".into()),
+            title: None,
+            context_terms: vec!["VoiceToText".into()],
+        };
+
+        let mut session = crate::live::LiveSession::with_bounds(1_000, 3_000);
+        let speech = |s: f32| {
+            (0..(s * SAMPLE_RATE as f32) as usize)
+                .map(|i| if i % 2 == 0 { 0.2 } else { -0.2 })
+                .collect::<Vec<_>>()
+        };
+        let silence = |s: f32| vec![0.0f32; (s * SAMPLE_RATE as f32) as usize];
+
+        let mut stream = Vec::new();
+        stream.extend(speech(1.5));
+        stream.extend(silence(0.4));
+        stream.extend(speech(1.5));
+        stream.extend(silence(0.4));
+        stream.extend(speech(1.2));
+
+        for chunk in session.feed(&stream) {
+            if let Some((text, ms)) = p.transcribe_chunk(&chunk, &t.context_terms).unwrap() {
+                session.push_text(&text, ms);
+            }
+        }
+        assert_eq!(session.preview(80), "première phrase.");
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 0);
+        assert!(sink.0.lock().unwrap().is_empty());
+
+        if let Some(tail) = session.finish()
+            && let Some((text, ms)) = p.transcribe_chunk(&tail, &t.context_terms).unwrap()
+        {
+            session.push_text(&text, ms);
+        }
+
+        let mut raw = session.to_raw();
+        raw.asr_ms = 420;
+        let outcome = p.finalize_raw(&raw, &t, None, Some("anglais")).unwrap();
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(p.last_asr_ms(), 420);
+        assert_eq!(hints_seen.lock().unwrap().len(), 3);
+        assert!(
+            hints_seen
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|h| h == &["VoiceToText"])
+        );
+        assert_eq!(
+            outcome,
+            Outcome::Inserted {
+                raw: "première phrase.\nDeuxième phrase.".into(),
+                text: "PREMIÈRE PHRASE.\nDEUXIÈME PHRASE. [décontracté] (anglais)".into(),
+                post_process_error: None,
+                snippet: false,
+                usage: Some(USAGE),
+                command: false,
+                fallback: None,
+                translated: Some("anglais".into()),
+            }
+        );
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            ["PREMIÈRE PHRASE.\nDEUXIÈME PHRASE. [décontracté] (anglais)"]
+        );
+    }
+
+    #[test]
+    fn finalize_raw_skips_empty_or_hallucination_only() {
+        let (p, sink) = pipeline("inutilisé", Some(Box::new(Upper)));
+        let empty = RawDictation {
+            raw: "   Sous-titrage ST' 501  ".into(),
+            duration_ms: 4_000,
+            asr_ms: 150,
+        };
+        assert_eq!(
+            p.finalize_raw(&empty, &no_target(), None, None).unwrap(),
+            Outcome::Skipped
+        );
+        assert_eq!(p.last_asr_ms(), 0);
+        assert!(sink.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn transcribe_chunk_skips_short_and_silent() {
+        let (p, _) = pipeline("bonjour", None);
+        assert_eq!(p.transcribe_chunk(&clip_ms(100), &[]).unwrap(), None);
+        let silent = AudioClip {
+            samples: vec![0.0; SAMPLE_RATE as usize],
+        };
+        assert_eq!(p.transcribe_chunk(&silent, &[]).unwrap(), None);
+        let (text, _ms) = p
+            .transcribe_chunk(&clip_ms(1000), &[])
+            .unwrap()
+            .expect("tranche valide");
+        assert_eq!(text, "bonjour");
     }
 }
