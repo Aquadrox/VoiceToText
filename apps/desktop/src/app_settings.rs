@@ -187,6 +187,9 @@ pub fn save_app_settings(
     config.asr.unload_after_min = asr.unload_after_min;
     config.asr.unload_in_fullscreen = asr.unload_in_fullscreen;
     config.updates = updates;
+    let mut dictation = dictation;
+    dictation.screen_context_excluded_apps =
+        vtt_core::context::clean_excluded_apps(&dictation.screen_context_excluded_apps);
     config.dictation = dictation;
     config.translation = TranslationConfig {
         language: translation.language.trim().to_owned(),

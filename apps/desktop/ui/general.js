@@ -171,6 +171,9 @@ function fillGeneral(view) {
   $("dict-sounds").checked = view.dictation.sounds;
   $("dict-media").checked = view.dictation.pause_media;
   $("dict-commands").checked = view.dictation.voice_commands;
+  $("dict-context").checked = Boolean(view.dictation.screen_context);
+  $("dict-context-excluded").value = (view.dictation.screen_context_excluded_apps ?? []).join(", ");
+  updateContextExcludedVisibility();
 
   // Une langue saisie à la main dans config.toml reste proposée.
   const languages = view.languages.includes(view.translation.language)
@@ -179,6 +182,13 @@ function fillGeneral(view) {
   $("tr-language").replaceChildren(...languages.map((l) => option(l, l)));
   $("tr-language").value = view.translation.language;
 }
+
+function updateContextExcludedVisibility() {
+  const wrap = $("dict-context-excluded-wrap");
+  if (wrap) wrap.hidden = !$("dict-context")?.checked;
+}
+
+$("dict-context")?.addEventListener("change", updateContextExcludedVisibility);
 
 /** Réglages généraux appliqués (zone de test, raccourcis cités dans les sections). */
 let generalView = null;
@@ -199,6 +209,7 @@ function fillAndKeep(view, keep = []) {
   generalView = view;
   for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.markClean(name);
   SettingsUI.restorePending(pending);
+  updateContextExcludedVisibility();
   showEngineNote();
   showVisionWarning();
   for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.refresh(name);
@@ -255,6 +266,11 @@ function readGeneral(applying) {
       sounds: v("dict-sounds"),
       pause_media: v("dict-media"),
       voice_commands: v("dict-commands"),
+      screen_context: Boolean(v("dict-context")),
+      screen_context_excluded_apps: String(v("dict-context-excluded") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     },
     translation: { language: v("tr-language") },
     captures: {

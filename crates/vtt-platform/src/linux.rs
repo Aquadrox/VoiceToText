@@ -703,6 +703,12 @@ pub fn foreground_target() -> Target {
     }
 }
 
+/// Lecture du champ actif : repli propre sous Linux (non disponible de façon
+/// uniforme sur X11/Wayland/SteamOS sans activer AT-SPI2).
+pub fn focused_field_context() -> crate::FocusedField {
+    crate::FocusedField::default()
+}
+
 /// Classe d'une fenêtre : `WM_CLASS` contient « instance\0classe\0 ».
 fn window_class(value: &[u8]) -> Option<String> {
     let mut parts = value.split(|&b| b == 0).filter(|p| !p.is_empty());

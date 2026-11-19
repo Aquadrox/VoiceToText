@@ -538,6 +538,17 @@
                     <input id="dict-commands" type="checkbox" />
                     <span><strong>Commandes vocales</strong><small>« nouvelle ligne », « nouveau paragraphe », « point à la ligne », « annule la dernière dictée » ; mot épelé lettre par lettre (« A, Q, U, A… ») recollé.</small></span>
                   </label>
+                  <label class="option field">
+                    <input id="dict-context" type="checkbox" />
+                    <span>
+                      <strong>Contexte du champ actif (opt-in)</strong>
+                      <small>Extrait localement les noms propres, sigles et symboles de code autour du curseur (Windows) pour mieux les orthographier. Jamais lu sur les mots de passe, gestionnaires de mots de passe ni fenêtres privées ; jamais journalisé ni gardé dans l'historique.</small>
+                    </span>
+                  </label>
+                  <div id="dict-context-excluded-wrap" class="field" hidden>
+                    <label for="dict-context-excluded">Applications exclues du contexte (séparées par des virgules)</label>
+                    <input id="dict-context-excluded" type="text" placeholder="banque.exe, signal.exe" spellcheck="false" />
+                  </div>
                 </div>
 
                 <div class="group">
