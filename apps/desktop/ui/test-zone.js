@@ -14,6 +14,14 @@ const STATE_LABELS = {
   processing: "Transcription…",
 };
 
+function renderLivePreview(text) {
+  const element = $("test-live-preview");
+  if (!element) return;
+  const value = String(text ?? "").trim();
+  element.textContent = value ? `En cours : ${value}` : "";
+  element.hidden = !value;
+}
+
 function renderTestState(status) {
   const element = $("test-state");
   element.dataset.state = status.state;
@@ -23,6 +31,7 @@ function renderTestState(status) {
       : status.state === "error"
         ? `⚠ ${status.message}`
         : (STATE_LABELS[status.state] ?? status.state);
+  if (status.state !== "handsfree") renderLivePreview("");
 }
 
 /** Libellé lisible d'un modèle (fichier → « Parakeet TDT v3 »). */
@@ -130,6 +139,7 @@ $("test-clear").addEventListener("click", () => {
   $("test-input").value = "";
   $("test-report").hidden = true;
   $("test-empty").hidden = false;
+  renderLivePreview("");
   $("test-input").focus();
 });
 
@@ -140,7 +150,11 @@ try {
 }
 
 window.__TAURI__.event.listen("status", (event) => renderTestState(event.payload));
-window.__TAURI__.event.listen("dictation", (event) => renderReport(event.payload));
+window.__TAURI__.event.listen("live-preview", (event) => renderLivePreview(event.payload));
+window.__TAURI__.event.listen("dictation", (event) => {
+  renderLivePreview("");
+  renderReport(event.payload);
+});
 window.addEventListener("settings-applied", renderTestConfig);
 invoke("current_status")
   .then(renderTestState)

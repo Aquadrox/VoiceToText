@@ -15,7 +15,13 @@ use vtt_core::{AudioClip, SAMPLE_RATE, audio};
 
 enum Command {
     Start(Sender<Result<(), String>>),
+    /// Lit les nouveaux échantillons captés depuis le dernier appel, en 16 kHz
+    /// mono, sans vider le tampon complet (conservé pour `Stop` / « Réessayer »).
+    DrainLive(Sender<Vec<f32>>),
     Stop(Sender<AudioClip>),
+    /// Ferme le micro et renvoie l'audio complet ainsi que les derniers
+    /// échantillons non encore lus par `DrainLive` (16 kHz mono).
+    StopWithTail(Sender<(AudioClip, Vec<f32>)>),
     /// Micro à utiliser à partir du prochain enregistrement.
     SetDevice(Option<String>),
 }
@@ -58,11 +64,31 @@ impl Recorder {
             .map_err(|_| "thread audio arrêté".to_owned())?
     }
 
+    /// Renvoie les nouveaux échantillons captés depuis le précédent appel
+    /// (16 kHz mono), sans altérer le tampon complet. Vide hors enregistrement.
+    pub fn drain_live(&self) -> Vec<f32> {
+        let (reply, response) = mpsc::channel();
+        if self.tx.send(Command::DrainLive(reply)).is_err() {
+            return Vec::new();
+        }
+        response.recv().unwrap_or_default()
+    }
+
     /// Ferme le micro et renvoie l'audio en 16 kHz mono (vide si rien n'était enregistré).
     pub fn stop(&self) -> AudioClip {
         let (reply, response) = mpsc::channel();
         if self.tx.send(Command::Stop(reply)).is_err() {
             return AudioClip::default();
+        }
+        response.recv().unwrap_or_default()
+    }
+
+    /// Ferme le micro et renvoie `(audio_complet, reliquat_non_lu)` en 16 kHz
+    /// mono, pour la dictée mains libres en continu.
+    pub fn stop_with_tail(&self) -> (AudioClip, Vec<f32>) {
+        let (reply, response) = mpsc::channel();
+        if self.tx.send(Command::StopWithTail(reply)).is_err() {
+            return (AudioClip::default(), Vec::new());
         }
         response.recv().unwrap_or_default()
     }
@@ -78,6 +104,8 @@ struct Active {
     buffer: Arc<Mutex<Vec<f32>>>,
     channels: usize,
     sample_rate: u32,
+    /// Position (en échantillons entrelacés) déjà lue par [`Recorder::drain_live`].
+    live_cursor: usize,
 }
 
 /// Noms des micros disponibles, pour le choix dans les réglages.
@@ -100,10 +128,19 @@ fn run(rx: Receiver<Command>, mut device: Option<String>, level: Arc<AtomicU32>)
                 };
                 let _ = reply.send(result);
             }
+            Command::DrainLive(reply) => {
+                let samples = active.as_mut().map(drain_live).unwrap_or_default();
+                let _ = reply.send(samples);
+            }
             Command::Stop(reply) => {
                 let clip = active.take().map(finish).unwrap_or_default();
                 level.store(0f32.to_bits(), Ordering::Relaxed);
                 let _ = reply.send(clip);
+            }
+            Command::StopWithTail(reply) => {
+                let pair = active.take().map(finish_with_tail).unwrap_or_default();
+                level.store(0f32.to_bits(), Ordering::Relaxed);
+                let _ = reply.send(pair);
             }
             Command::SetDevice(name) => device = name,
         }
@@ -154,6 +191,7 @@ fn open(name: Option<&str>, level: &Arc<AtomicU32>) -> Result<Active, String> {
         buffer,
         channels: config.channels as usize,
         sample_rate: config.sample_rate,
+        live_cursor: 0,
     })
 }
 
@@ -184,18 +222,91 @@ where
     )
 }
 
+/// Convertit la tranche `[cursor..]` (alignée sur des trames complètes) en
+/// 16 kHz mono et renvoie `(échantillons, nouveau_curseur)`.
+fn slice_to_16k(
+    interleaved: &[f32],
+    cursor: usize,
+    channels: usize,
+    sample_rate: u32,
+) -> (Vec<f32>, usize) {
+    let channels = channels.max(1);
+    let end = interleaved.len() - (interleaved.len() % channels);
+    if cursor >= end {
+        return (Vec::new(), cursor);
+    }
+    let mono = audio::downmix(&interleaved[cursor..end], channels);
+    (audio::resample(&mono, sample_rate, SAMPLE_RATE), end)
+}
+
+fn drain_live(active: &mut Active) -> Vec<f32> {
+    let channels = active.channels.max(1);
+    let slice = {
+        let buf = active.buffer.lock().unwrap_or_else(|e| e.into_inner());
+        let end = buf.len() - (buf.len() % channels);
+        if active.live_cursor >= end {
+            return Vec::new();
+        }
+        let copy = buf[active.live_cursor..end].to_vec();
+        active.live_cursor = end;
+        copy
+    };
+    let mono = audio::downmix(&slice, channels);
+    audio::resample(&mono, active.sample_rate, SAMPLE_RATE)
+}
+
 fn finish(active: Active) -> AudioClip {
+    finish_with_tail(active).0
+}
+
+fn finish_with_tail(active: Active) -> (AudioClip, Vec<f32>) {
     // Fermer le flux d'abord pour que le callback ne touche plus au tampon.
     let Active {
         _stream,
         buffer,
         channels,
         sample_rate,
+        live_cursor,
     } = active;
     drop(_stream);
     let interleaved = std::mem::take(&mut *buffer.lock().unwrap_or_else(|e| e.into_inner()));
-    let mono = audio::downmix(&interleaved, channels);
-    AudioClip {
-        samples: audio::resample(&mono, sample_rate, SAMPLE_RATE),
+    let (tail, _) = slice_to_16k(&interleaved, live_cursor, channels, sample_rate);
+    let (full, _) = slice_to_16k(&interleaved, 0, channels, sample_rate);
+    (AudioClip { samples: full }, tail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slice_to_16k_drains_incrementally_on_frame_boundaries() {
+        // Stéréo 48 kHz : rapport exact 3:1 vers 16 kHz.
+        let mut buf: Vec<f32> = Vec::new();
+        for i in 0..30 {
+            let v = i as f32 / 30.0;
+            buf.push(v);
+            buf.push(v);
+        }
+        // Trame incomplète en fin de tampon : ignorée jusqu'à complétion.
+        buf.push(0.9);
+        let (first, cursor) = slice_to_16k(&buf, 0, 2, 48_000);
+        assert_eq!(cursor, 60);
+        assert_eq!(first.len(), 10);
+
+        // Complète la trame + ajoute 29 trames (total 30 nouvelles trames).
+        buf.push(0.9);
+        for _ in 0..29 {
+            buf.push(0.5);
+            buf.push(0.5);
+        }
+        let (second, cursor2) = slice_to_16k(&buf, cursor, 2, 48_000);
+        assert_eq!(cursor2, 120);
+        assert_eq!(second.len(), 10);
+
+        // Rien de neuf : tranche vide, curseur inchangé.
+        let (empty, cursor3) = slice_to_16k(&buf, cursor2, 2, 48_000);
+        assert!(empty.is_empty());
+        assert_eq!(cursor3, cursor2);
     }
 }

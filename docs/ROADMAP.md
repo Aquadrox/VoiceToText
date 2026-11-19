@@ -552,8 +552,8 @@ Rendre l'appairage PC ↔ téléphone plus rapide et pratique sans avoir à scan
 
 Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres (#93) :
 
-- ✅ Saut 5A — Cœur `vtt-core` : `Chunker::with_bounds` (réutilisation de la découpe aux pauses des réunions sans modifier le comportement 6–15 s des réunions), module `live` (`LiveSession` 3,5–9 s avec seuil micro dictée, assemblage propre et aperçu glissant UTF-8 aux frontières de mots), `Pipeline::transcribe_chunk` et `Pipeline::finalize_raw` (un seul passage LLM cohérent + insertion unique, commandes vocales, snippets, styles, traduction et repli préservés)
-- ⬜ Saut 5B — Bureau (`vtt-platform` + `apps/desktop`) : lecture incrémentale non destructive du micro pendant la dictée mains libres, transcription par tranches sur le worker, aperçu en continu dans la pastille flottante (et zone de test), finalisation LLM unique à l'arrêt et conservation de l'audio complet pour « Réessayer »
+- ✅ Saut 5A (PR #109) — Cœur `vtt-core` : `Chunker::with_bounds` (réutilisation de la découpe aux pauses des réunions sans modifier le comportement 6–15 s des réunions), module `live` (`LiveSession` 3,5–9 s avec seuil micro dictée, assemblage propre et aperçu glissant UTF-8 aux frontières de mots), `Pipeline::transcribe_chunk` et `Pipeline::finalize_raw` (un seul passage LLM cohérent + insertion unique, commandes vocales, snippets, styles, traduction et repli préservés)
+- ✅ Saut 5B — Bureau (`vtt-platform` + `apps/desktop`) : lecture incrémentale non destructive du micro (`Recorder::drain_live` / `stop_with_tail`), transcription par tranches sur le worker pendant le mode mains libres, aperçu en continu dans la pastille flottante (et zone de test), finalisation LLM unique à l'arrêt et conservation de l'audio complet pour « Réessayer »
 - ⬜ Saut 5C — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres, tests Rust + Kotlin JVM et montée de version **v0.39.0**
 
 ## Prochaines étapes — Puis ⬜
