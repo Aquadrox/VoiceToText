@@ -18,6 +18,7 @@ async function setupOverlay(initial = {}) {
   const pill = el("div", { id: "pill", attrs: { "data-state": "idle" } });
   const label = el("span", { id: "label" });
   const lang = el("span", { id: "lang", hidden: true });
+  const preview = el("div", { id: "preview", hidden: true });
   const meter = el(
     "div",
     { id: "meter" },
@@ -27,10 +28,10 @@ async function setupOverlay(initial = {}) {
     el("i"),
     el("i"),
   );
-  document.body.append(pill, label, lang, meter);
+  document.body.append(pill, label, lang, preview, meter);
   env.load("overlay.js");
   await new Promise((r) => setImmediate(r));
-  return { env, pill, label, lang, bars: meter.children };
+  return { env, pill, label, lang, preview, bars: meter.children };
 }
 
 test("overlay formate elapsed et gère les transitions d'état et de traduction", async () => {
@@ -102,4 +103,36 @@ test("overlay affiche réunion, capture commentée, barres de niveau et visibili
   assert.equal(bars[0].style.transform, "scaleY(0.55)");
   env.emitTauri("level", -1);
   assert.equal(bars[2].style.transform, "scaleY(0.2)");
+});
+
+test("overlay affiche l'aperçu glissant uniquement en mode mains libres et l'efface à la sortie", async () => {
+  const { env, pill, preview } = await setupOverlay();
+
+  // Hors mains libres : ignoré.
+  env.emitTauri("status", { state: "listening" });
+  env.emitTauri("live-preview", "Ne doit pas s'afficher");
+  assert.equal(preview.hidden, true);
+  assert.equal(preview.textContent, "");
+  assert.equal(pill.classList.contains("has-preview"), false);
+
+  // En mains libres : affiché et classe has-preview activée.
+  env.emitTauri("status", { state: "handsfree", message: "AltGr" });
+  env.emitTauri("live-preview", "… ceci est une dictée longue en direct.");
+  assert.equal(preview.hidden, false);
+  assert.equal(preview.textContent, "… ceci est une dictée longue en direct.");
+  assert.equal(pill.classList.contains("has-preview"), true);
+
+  // Passage en transcription finale : aperçu effacé proprement.
+  env.emitTauri("status", { state: "processing" });
+  assert.equal(preview.hidden, true);
+  assert.equal(preview.textContent, "");
+  assert.equal(pill.classList.contains("has-preview"), false);
+
+  // Retour en mains libres puis effacement explicite par chaîne vide.
+  env.emitTauri("status", { state: "handsfree", message: "AltGr" });
+  env.emitTauri("live-preview", "Nouvelle phrase");
+  assert.equal(preview.hidden, false);
+  env.emitTauri("live-preview", "   ");
+  assert.equal(preview.hidden, true);
+  assert.equal(pill.classList.contains("has-preview"), false);
 });

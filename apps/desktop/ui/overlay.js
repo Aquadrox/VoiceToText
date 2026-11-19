@@ -1,6 +1,7 @@
 // Pastille d'état : écoute, transcription, chargement, erreur.
 const pill = document.getElementById("pill");
 const label = document.getElementById("label");
+const preview = document.getElementById("preview");
 const LABELS = { listening: "Écoute…", processing: "Transcription…" };
 // Mains libres : le message (nom du raccourci) sert au menu ; la pastille reste courte.
 const SHORT = { handsfree: "Mains libres · Échap annule", command: "Commande…" };
@@ -34,6 +35,15 @@ function showLanguage() {
   lang.textContent = translation ? `→ ${LANGUAGE_CODES[translation] ?? translation}` : "";
 }
 
+/** Aperçu glissant du texte transcrit pendant la dictée mains libres. */
+function setPreview(text) {
+  if (!preview) return;
+  const value = pill.dataset.state === "handsfree" ? String(text ?? "").trim() : "";
+  preview.textContent = value;
+  preview.hidden = !value;
+  pill.classList.toggle("has-preview", Boolean(value));
+}
+
 function elapsed(startedAt) {
   const seconds = Math.floor((Date.now() - startedAt) / 1000);
   const h = Math.floor(seconds / 3600);
@@ -47,14 +57,17 @@ function showIdle() {
   if (annotateStartedAt != null) {
     pill.dataset.state = "meeting";
     label.textContent = annotateDrawing ? "Dessin…" : `Capture ${elapsed(annotateStartedAt)}`;
+    setPreview("");
     return;
   }
   if (meetingStartedAt == null) {
     pill.dataset.state = "idle";
+    setPreview("");
     return;
   }
   pill.dataset.state = "meeting";
   label.textContent = `${meetingLabel} ${elapsed(meetingStartedAt)}`;
+  setPreview("");
 }
 setInterval(() => pill.dataset.state === "meeting" && showIdle(), 1000);
 
@@ -68,6 +81,7 @@ function render(status) {
   }
   pill.dataset.state = status.state;
   label.textContent = SHORT[status.state] ?? status.message ?? LABELS[status.state] ?? "";
+  setPreview("");
   if (status.state === "error") {
     errorTimer = setTimeout(showIdle, ERROR_VISIBLE_MS);
   }
@@ -80,10 +94,12 @@ function flash(text, state, duration) {
   clearTimeout(errorTimer);
   pill.dataset.state = state;
   label.textContent = text;
+  setPreview("");
   errorTimer = setTimeout(showIdle, duration);
 }
 
 window.__TAURI__.event.listen("status", (event) => render(event.payload));
+window.__TAURI__.event.listen("live-preview", (event) => setPreview(event.payload));
 
 // Mode traduction activé ou coupé : confirmation brève si la pastille est au repos.
 window.__TAURI__.event.listen("translation", (event) => {

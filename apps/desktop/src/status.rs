@@ -69,6 +69,13 @@ impl StatusReporter {
         let _ = self.app.emit_to("overlay", "level", level);
     }
 
+    /// Aperçu glissant du texte transcrit pendant une dictée mains libres ;
+    /// chaîne vide pour effacer. Jamais journalisé ni écrit sur disque.
+    pub fn live_preview(&self, text: &str) {
+        let _ = self.app.emit_to("overlay", "live-preview", text);
+        let _ = self.app.emit_to("main", "live-preview", text);
+    }
+
     /// Résultat d'une dictée, pour la zone de test des réglages. Envoyé
     /// seulement à la fenêtre principale (rien n'est écrit sur le disque).
     pub fn dictation(&self, report: &impl Serialize) {
