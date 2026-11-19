@@ -9,7 +9,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use vtt_core::config::{LlmConfig, Pricing, PromptKind};
+use vtt_core::config::{DictationConfig, LlmConfig, Pricing, PromptKind};
+use vtt_core::context;
 use vtt_core::history::{Entry, History};
 use vtt_core::{
     AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink, Transcriber,
@@ -30,6 +31,10 @@ struct Engine {
     pricing: Pricing,
     /// Langue du mode traduction.
     translate_to: String,
+    /// Options de dictée (contexte actif opt-in et applications exclues).
+    dictation: DictationConfig,
+    /// Dictionnaire perso pour éviter les doublons lors de l'extraction de contexte.
+    dictionary: Vec<String>,
 }
 
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
@@ -137,6 +142,8 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         engine.history = history;
         engine.pricing = config.llm.pricing.clone();
         engine.translate_to = config.translation.language.clone();
+        engine.dictation = config.dictation.clone();
+        engine.dictionary = config.dictionary.clone();
         log::info!("réglages appliqués");
         return Ok(());
     }
@@ -154,6 +161,8 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         history,
         pricing: config.llm.pricing.clone(),
         translate_to: config.translation.language.clone(),
+        dictation: config.dictation.clone(),
+        dictionary: config.dictionary.clone(),
     });
     log::info!("moteur prêt : {}", config.asr.model);
     Ok(())
@@ -318,8 +327,16 @@ fn entry(
 }
 
 /// Dicte `samples` (16 kHz mono) ; `app` : application de destination
-/// (styles par application).
-pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Privacy) -> Dictation {
+/// (styles par application). `context_text` : texte optionnel autour du curseur
+/// (strictement ignoré hors `Privacy::Normal`, en Command Mode, si l'option
+/// `dictation.screen_context` est désactivée ou si l'application est exclue).
+pub fn dictate(
+    samples: Vec<f32>,
+    app: Option<String>,
+    mode: Mode,
+    privacy: Privacy,
+    context_text: Option<&str>,
+) -> Dictation {
     let mut engine = lock(&ENGINE);
     let Some(engine) = engine.as_mut() else {
         return Dictation {
@@ -328,7 +345,7 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Priv
             ..Dictation::default()
         };
     };
-    let target = Target {
+    let mut target = Target {
         app: app.clone(),
         ..Target::default()
     };
@@ -348,6 +365,17 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Priv
         };
         result.ms = started.elapsed().as_millis() as u64;
         return result;
+    }
+    if privacy == Privacy::Normal
+        && !matches!(mode, Mode::Command(_))
+        && let Some(raw_context) = context_text.filter(|t| !t.trim().is_empty())
+        && context::is_context_allowed(&engine.dictation, &target, false)
+    {
+        let terms = context::extract_context_terms(raw_context, &engine.dictionary);
+        if !terms.is_empty() {
+            log::debug!("contexte actif : {} terme(s)", terms.len());
+            target.context_terms = terms;
+        }
     }
     let raw = match &mode {
         Mode::Dictate => engine.pipeline.run(&clip, &target),
@@ -442,11 +470,25 @@ mod tests {
         vec![0.1; 16_000]
     }
 
-    struct FixedTranscriber(String);
+    struct FixedTranscriber {
+        reply: String,
+        hints: Option<Arc<Mutex<Vec<String>>>>,
+    }
 
     impl Transcriber for FixedTranscriber {
         fn transcribe(&self, _clip: &AudioClip) -> Result<String, Error> {
-            Ok(self.0.clone())
+            Ok(self.reply.clone())
+        }
+
+        fn transcribe_with_hints(
+            &self,
+            _clip: &AudioClip,
+            hints: &[String],
+        ) -> Result<String, Error> {
+            if let Some(slot) = &self.hints {
+                *lock(slot) = hints.to_vec();
+            }
+            Ok(self.reply.clone())
         }
     }
 
@@ -454,11 +496,15 @@ mod tests {
         calls: Arc<AtomicUsize>,
         reply: String,
         usage: Option<Usage>,
+        last_context: Option<Arc<Mutex<Vec<String>>>>,
     }
 
     impl PostProcessor for SpyCleaner {
         fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(slot) = &self.last_context {
+                *lock(slot) = directives.context_terms.to_vec();
+            }
             let text = match directives.translate_to {
                 Some(lang) => format!("[{lang}] {raw}"),
                 None => self.reply.clone(),
@@ -487,8 +533,34 @@ mod tests {
         pricing: Pricing,
         translate_to: &str,
     ) {
+        install_test_engine_with_context(
+            raw,
+            None,
+            cleaner,
+            history_file,
+            pricing,
+            translate_to,
+            DictationConfig::default(),
+            Vec::new(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn install_test_engine_with_context(
+        raw: &str,
+        asr_hints: Option<Arc<Mutex<Vec<String>>>>,
+        cleaner: Option<Box<dyn PostProcessor>>,
+        history_file: Option<PathBuf>,
+        pricing: Pricing,
+        translate_to: &str,
+        dictation: DictationConfig,
+        dictionary: Vec<String>,
+    ) {
         let pipeline = Pipeline::new(
-            Box::new(FixedTranscriber(raw.to_owned())),
+            Box::new(FixedTranscriber {
+                reply: raw.to_owned(),
+                hints: asr_hints,
+            }),
             cleaner,
             Box::new(Collect),
         );
@@ -498,6 +570,8 @@ mod tests {
             history: history_file.map(|file| History::open(file, 50)),
             pricing,
             translate_to: translate_to.into(),
+            dictation,
+            dictionary,
         });
     }
 
@@ -566,7 +640,14 @@ mod tests {
         assert_eq!(outcome(Ok(Outcome::Skipped)).kind, "skip");
         assert_eq!(outcome(Err(Error::Asr("x".into()))).kind, "error");
         assert_eq!(
-            dictate(vec![0.0; 16_000], None, Mode::Dictate, Privacy::Normal).kind,
+            dictate(
+                vec![0.0; 16_000],
+                None,
+                Mode::Dictate,
+                Privacy::Normal,
+                None
+            )
+            .kind,
             "error",
             "pas de moteur"
         );
@@ -639,6 +720,7 @@ mod tests {
             calls: Arc::clone(&calls),
             reply: "NE DOIT PAS SERVIR".into(),
             usage: None,
+            last_context: None,
         });
         install_test_engine(
             "mon code secret",
@@ -653,6 +735,7 @@ mod tests {
             Some("com.bank".into()),
             Mode::Dictate,
             Privacy::Password,
+            None,
         );
         assert_eq!(result.kind, "text");
         assert_eq!(result.raw, "mon code secret");
@@ -673,6 +756,7 @@ mod tests {
             calls: Arc::clone(&calls),
             reply: "Texte nettoyé.".into(),
             usage: None,
+            last_context: None,
         });
         install_test_engine(
             "texte brut",
@@ -687,6 +771,7 @@ mod tests {
             Some("org.mozilla.firefox".into()),
             Mode::Dictate,
             Privacy::NoHistory,
+            None,
         );
         assert_eq!(result.kind, "text");
         assert_eq!(result.text, "Texte nettoyé.");
@@ -710,6 +795,7 @@ mod tests {
                 cached_input_tokens: 0,
                 output_tokens: 500,
             }),
+            last_context: None,
         });
         let pricing = Pricing {
             input_per_million: 1.0,
@@ -730,6 +816,7 @@ mod tests {
             Some("com.whatsapp".into()),
             Mode::Dictate,
             Privacy::Normal,
+            None,
         );
         assert_eq!(result.kind, "text");
         assert_eq!(result.text, "Bonjour à tous.");
@@ -753,6 +840,7 @@ mod tests {
             calls: Arc::clone(&calls),
             reply: "unused".into(),
             usage: None,
+            last_context: None,
         });
         install_test_engine(
             "rends plus court",
@@ -762,7 +850,13 @@ mod tests {
             "espagnol",
         );
 
-        let translated = dictate(speech_samples(), None, Mode::Translate, Privacy::Normal);
+        let translated = dictate(
+            speech_samples(),
+            None,
+            Mode::Translate,
+            Privacy::Normal,
+            None,
+        );
         assert_eq!(translated.kind, "text");
         assert_eq!(translated.text, "[espagnol] rends plus court");
 
@@ -771,10 +865,136 @@ mod tests {
             None,
             Mode::Command(Some("texte initial".into())),
             Privacy::Normal,
+            None,
         );
         assert_eq!(commanded.kind, "text");
         assert_eq!(commanded.text, "rends plus court => texte initial");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn screen_context_respects_opt_in_privacy_and_exclusions() {
+        let _guard = Guard::acquire();
+        let sample_ctx =
+            "Bonjour Élodie, le module ContextManager (sk-1234567890abcdefghijklmno) est prêt.";
+
+        // 1. Désactivé par défaut : aucun terme transmis même sur champ normal.
+        let asr_hints = Arc::new(Mutex::new(Vec::new()));
+        let llm_ctx = Arc::new(Mutex::new(Vec::new()));
+        install_test_engine_with_context(
+            "bonjour elodie",
+            Some(Arc::clone(&asr_hints)),
+            Some(Box::new(SpyCleaner {
+                calls: Arc::new(AtomicUsize::new(0)),
+                reply: "Bonjour Élodie.".into(),
+                usage: None,
+                last_context: Some(Arc::clone(&llm_ctx)),
+            })),
+            None,
+            Pricing::default(),
+            "anglais",
+            DictationConfig::default(),
+            Vec::new(),
+        );
+        dictate(
+            speech_samples(),
+            Some("com.slack".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            Some(sample_ctx),
+        );
+        assert!(lock(&asr_hints).is_empty());
+        assert!(lock(&llm_ctx).is_empty());
+
+        // 2. Activé : termes extraits sans le secret et transmis à l'ASR et au LLM.
+        let enabled_cfg = DictationConfig {
+            screen_context: true,
+            screen_context_excluded_apps: vec!["com.bank".into()],
+            ..DictationConfig::default()
+        };
+        install_test_engine_with_context(
+            "bonjour elodie",
+            Some(Arc::clone(&asr_hints)),
+            Some(Box::new(SpyCleaner {
+                calls: Arc::new(AtomicUsize::new(0)),
+                reply: "Bonjour Élodie.".into(),
+                usage: None,
+                last_context: Some(Arc::clone(&llm_ctx)),
+            })),
+            None,
+            Pricing::default(),
+            "anglais",
+            enabled_cfg,
+            Vec::new(),
+        );
+        dictate(
+            speech_samples(),
+            Some("com.slack".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            Some(sample_ctx),
+        );
+        let received_asr = lock(&asr_hints).clone();
+        let received_llm = lock(&llm_ctx).clone();
+        assert!(
+            received_asr.iter().any(|t| t == "Élodie"),
+            "{received_asr:?}"
+        );
+        assert!(
+            received_asr.iter().any(|t| t == "ContextManager"),
+            "{received_asr:?}"
+        );
+        assert!(
+            !received_asr.iter().any(|t| t.contains("sk-")),
+            "secret filtré : {received_asr:?}"
+        );
+        assert_eq!(received_asr, received_llm);
+
+        // 3. Navigation privée / NoHistory -> strictement bloqué.
+        lock(&asr_hints).clear();
+        lock(&llm_ctx).clear();
+        dictate(
+            speech_samples(),
+            Some("com.slack".into()),
+            Mode::Dictate,
+            Privacy::NoHistory,
+            Some(sample_ctx),
+        );
+        assert!(lock(&asr_hints).is_empty());
+        assert!(lock(&llm_ctx).is_empty());
+
+        // 4. Application exclue -> bloqué.
+        dictate(
+            speech_samples(),
+            Some("com.bank.mobile".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            Some(sample_ctx),
+        );
+        assert!(lock(&asr_hints).is_empty());
+        assert!(lock(&llm_ctx).is_empty());
+
+        // 5. Gestionnaire de mots de passe -> toujours bloqué.
+        dictate(
+            speech_samples(),
+            Some("com.x8bit.bitwarden".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            Some(sample_ctx),
+        );
+        assert!(lock(&asr_hints).is_empty());
+        assert!(lock(&llm_ctx).is_empty());
+
+        // 6. Mot de passe -> bloqué (transcription seule sans indices).
+        dictate(
+            speech_samples(),
+            Some("com.slack".into()),
+            Mode::Dictate,
+            Privacy::Password,
+            Some(sample_ctx),
+        );
+        assert!(lock(&asr_hints).is_empty());
+        assert!(lock(&llm_ctx).is_empty());
     }
 
     #[test]

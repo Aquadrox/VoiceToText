@@ -322,7 +322,18 @@ class VoiceKeyboard : InputMethodService() {
         }
         val current = mode
         val privacy = privacy(currentInputEditorInfo)
-        Dictation.run(store, samples, app, current, selection, privacy) { apply(it, current) }
+        val context = if (ContextLogic.canReadContext(Dictation.screenContext, privacy, current)) {
+            runCatching {
+                val ic = currentInputConnection
+                ContextLogic.aroundCursor(
+                    ic?.getTextBeforeCursor(ContextLogic.BEFORE_CURSOR_CHARS, 0),
+                    ic?.getTextAfterCursor(ContextLogic.AFTER_CURSOR_CHARS, 0),
+                )
+            }.getOrDefault("")
+        } else {
+            ""
+        }
+        Dictation.run(store, samples, app, current, selection, privacy, context) { apply(it, current) }
     }
 
     private fun apply(result: JSONObject, kind: Int) {

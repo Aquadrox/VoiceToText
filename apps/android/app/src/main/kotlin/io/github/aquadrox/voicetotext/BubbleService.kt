@@ -437,7 +437,18 @@ class BubbleService : AccessibilityService() {
         // Pas de bulle sur les mots de passe. La navigation privée est
         // invisible d'ici : historique de la bulle coupable à part.
         val privacy = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
-        Dictation.run(store, samples, app, current, selection, privacy) { result ->
+        val context = if (node != null && writable(node) &&
+            ContextLogic.canReadContext(Dictation.screenContext, privacy, current)
+        ) {
+            runCatching {
+                val full = content(node)
+                val (start, end) = range(node, full)
+                ContextLogic.windowAroundSelection(full, start, end)
+            }.getOrDefault("")
+        } else {
+            ""
+        }
+        Dictation.run(store, samples, app, current, selection, privacy, context) { result ->
             state = IDLE
             safely("insertion") {
                 val ok = apply(result, current)
