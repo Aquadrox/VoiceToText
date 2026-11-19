@@ -1370,7 +1370,7 @@ fn run_command(
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::AtomicUsize;
 
     use vtt_core::config::LlmProfile;
     use vtt_core::history::History;
