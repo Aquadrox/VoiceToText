@@ -178,6 +178,59 @@ object Native {
     /** Passage de l'audio conservé (PCM 16 bits 16 kHz mono), vide si indisponible. */
     external fun meetingClip(root: String, id: String, startMs: Long, endMs: Long): ShortArray?
 
+    // Synchronisation locale Wi-Fi (pair-à-pair chiffrée, sans clés API).
+
+    /** État local et liste des appareils appairés : `{"ok": {"device_id", "device_name", "peers": [...]}}`. */
+    external fun syncView(configPath: String, peersPath: String, meetingsDir: String, defaultName: String): String
+
+    /** Renomme le téléphone dans le registre de synchronisation. */
+    external fun syncRenameDevice(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        name: String,
+    ): String
+
+    /** Appaire avec un PC / Steam Deck à partir de l'URI QR (`vttsync://v1?...`) (bloquant : réseau). */
+    external fun syncPairUri(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        uri: String,
+    ): String
+
+    /** Synchronise réglages et réunions avec un appareil appairé (bloquant : réseau). */
+    external fun syncNow(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        deviceId: String,
+        addrOverride: String,
+    ): String
+
+    /** Active ou coupe la synchronisation des réglages ou des réunions pour un pair. */
+    external fun syncSetPeerPrefs(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        deviceId: String,
+        syncSettings: Boolean,
+        syncMeetings: Boolean,
+    ): String
+
+    /** Oublie un appareil appairé et révoque sa clé. */
+    external fun syncRemovePeer(
+        configPath: String,
+        peersPath: String,
+        meetingsDir: String,
+        defaultName: String,
+        deviceId: String,
+    ): String
+
     const val DICTATE = 0
     const val TRANSLATE = 1
     const val COMMAND = 2

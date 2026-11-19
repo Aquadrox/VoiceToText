@@ -149,6 +149,14 @@ class Store(private val context: Context) {
     val meetingsDir: String
         get() = File(context.filesDir, "meetings").apply { mkdirs() }.absolutePath
 
+    /** Chemin absolu de config.toml (lu et fusionné directement par le moteur de synchro). */
+    val configPath: String
+        get() = configFile.absolutePath
+
+    /** Identité locale et appareils appairés pour la synchronisation Wi-Fi. */
+    val syncPeersFile: String
+        get() = File(context.filesDir, "sync_peers.json").absolutePath
+
     /** Autorisation des notifications déjà demandée (Android 13 et plus). */
     var askedNotifications: Boolean
         get() = prefs.getBoolean("asked_notifications", false)
@@ -158,9 +166,13 @@ class Store(private val context: Context) {
         get() = if (configFile.exists()) configFile.readText() else ""
         set(value) {
             configFile.writeText(value)
-            // Le clavier recharge ses réglages au prochain affichage.
-            prefs.edit().putLong("version", version + 1).apply()
+            notifyConfigChanged()
         }
+
+    /** Signale au clavier et à la bulle que config.toml a changé sur disque (ex. après synchro). */
+    fun notifyConfigChanged() {
+        prefs.edit().putLong("version", version + 1).apply()
+    }
 
     /** Augmente à chaque changement de réglage ou de clé. */
     val version: Long

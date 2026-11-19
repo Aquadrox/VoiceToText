@@ -520,15 +520,15 @@ Réduire l'asymétrie entre le cœur Rust (déjà bien testé) et les couches ap
 - ✅ Saut 1B (PR #78) : tests unitaires Rust sur le pont JNI et le moteur Android (`crates/vtt-android/src/lib.rs`, `engine.rs` : 44 tests) et sur l'orchestration/réunions desktop (`controller.rs`, `meetings.rs` : `voicetotext` à 65 tests)
 - ✅ Saut 1C : socle de tests automatisés permanents en CI côté interface PC (`apps/desktop/ui-tests/*.test.mjs`, 15 tests Node sans dépendance) et côté Android (`apps/android/app/src/test`, 13 tests unitaires JVM Kotlin via `./gradlew testClavierDebugUnitTest testBulleDebugUnitTest`)
 
-### 2. Synchronisation locale Wi-Fi (pair-à-pair, chiffrée) ⬜
+### 2. Synchronisation locale Wi-Fi (pair-à-pair, chiffrée) ✅
 
 Synchroniser réglages (dictionnaire, snippets, styles, prompts, profils — jamais les clés API) et réunions (`meeting.json`) entre PC, Steam Deck et Android sur le réseau local, sans cloud ni compte :
 
-- ⬜ Protocole commun dans `vtt-core` : appairage par QR code (clé de session éphémère), chiffrement de bout en bout (ChaCha20-Poly1305), résolution de conflits simple et déterministe (horodatage / fusion dictionnaire et snippets)
-- ⬜ Découverte sur le réseau local par mDNS (avec saisie manuelle IP:port en secours)
-- ⬜ Synchronisation de la configuration et du vocabulaire (PC ↔ Android et PC ↔ PC)
-- ⬜ Synchronisation des réunions (`meeting.json`, transcription, compte rendu, rapport ; audio en option)
-- ⬜ Interfaces PC (page dédiée ou section Réglages : afficher / scanner QR code, appareils appairés, état de synchro) et Android
+- ✅ Saut 2A (PR #97) — Protocole commun dans `vtt-core::sync` : appairage par QR code (`vttsync://v1?...`, clé éphémère à usage unique), authentification mutuelle et chiffrement ChaCha20-Poly1305, registre d'appareils appairés (`PeerStore`), fusion déterministe de la configuration sans jamais partager de clé API ni de champ secret `extra_body`, et différentiel des réunions (`MeetingDigest`)
+- ✅ Saut 2B (PR #98) — Transport réseau local TCP (`SyncServer`, client avec secours manuel `IP:port`), découverte mDNS pur Rust (`_voicetotext._tcp.local.`, RFC 6762/6763) et synchronisation bidirectionnelle des réunions (`meeting.json`, préservation du `source_path` local, exclusion des enregistrements en cours)
+- ✅ Saut 2C (PR #99) — Interface PC (`apps/desktop`) : serveur/mDNS dans `SyncService` (démarré automatiquement uniquement dès qu'un pair existe), application à chaud, génération QR code SVG, section **Réglages → Synchronisation** (QR code + empreinte + lien copiable, appairage par lien, appareils appairés/détectés, secours `IP:port`, tests Rust + UI JS)
+- ✅ Saut 2D — Pont JNI `vtt-android` (`sync.rs`) + écran Android **Synchronisation Wi-Fi** (`SyncSettings` avec lien profond QR `vttsync://`, collage presse-papier, découverte native `NsdManager`, synchro en un appui, préférences par pair, secours `IP:port`, tests Rust + Kotlin JVM)
+- ⬜ À vérifier sur le terrain : appairage QR et synchronisation réelle PC ↔ Android / Steam Deck sur Wi-Fi local (et règles pare-feu Windows)
 
 ### 3. Contexte du champ actif / d'écran (opt-in) ⬜
 
