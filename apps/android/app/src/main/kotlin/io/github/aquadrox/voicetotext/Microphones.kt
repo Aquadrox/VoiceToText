@@ -111,7 +111,7 @@ object Microphones {
         }
     }
 
-    private fun bluetooth(type: Int) =
+    internal fun bluetooth(type: Int) =
         type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || type == AudioDeviceInfo.TYPE_BLE_HEADSET
 
     private fun key(device: AudioDeviceInfo): String =
@@ -134,10 +134,10 @@ object Microphones {
         }
     }
 
-    private fun named(kind: String, name: String) = if (name.isEmpty()) kind else "$kind : $name"
+    internal fun named(kind: String, name: String) = if (name.isEmpty()) kind else "$kind : $name"
 
     /** Place d'un micro du téléphone, d'après l'adresse que lui donne le fabricant. */
-    private fun place(address: String, position: Int) = when (address.lowercase()) {
+    internal fun place(address: String, position: Int) = when (address.lowercase()) {
         "bottom" -> "bas"
         "back" -> "arrière"
         "top" -> "haut"
@@ -146,7 +146,7 @@ object Microphones {
     }
 
     /** Ordre d'affichage ; null : pas un micro (téléphonie, tuner radio, flux internes). */
-    private fun rank(type: Int): Int? = when (type) {
+    internal fun rank(type: Int): Int? = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_MIC -> 0
         AudioDeviceInfo.TYPE_WIRED_HEADSET -> 1
         AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_ACCESSORY -> 2

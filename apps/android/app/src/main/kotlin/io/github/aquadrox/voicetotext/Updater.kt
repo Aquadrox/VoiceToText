@@ -117,7 +117,7 @@ object Updater {
         }.getOrNull()?.takeIf { it.code > BuildConfig.VERSION_CODE }
     }
 
-    private fun release(entry: JSONObject, version: String, notes: String, changelog: String): Release {
+    internal fun release(entry: JSONObject, version: String, notes: String, changelog: String): Release {
         val code = code(version) ?: error("Numéro de version illisible : $version")
         val url = entry.getString("url")
         require(url.startsWith(DOWNLOADS) && !url.contains("..")) { "Adresse de téléchargement inattendue." }

@@ -127,24 +127,26 @@ object BubbleStatus {
         store.bubbleStop = describe(exit)
     }
 
+    internal fun reasonLabel(reason: Int, status: Int = 0): String = when (reason) {
+        ApplicationExitInfo.REASON_CRASH -> "plantage de l'application"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "plantage du moteur de dictée"
+        ApplicationExitInfo.REASON_ANR -> "application bloquée (ANR)"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "mémoire insuffisante"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "consommation jugée excessive"
+        ApplicationExitInfo.REASON_SIGNALED -> "tuée par le système (signal $status)"
+        ApplicationExitInfo.REASON_OTHER -> "arrêtée par le système"
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "arrêt forcé, ou application fermée depuis les applications récentes"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "arrêtée par l'utilisateur"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission modifiée"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "composant du système arrêté"
+        ApplicationExitInfo.REASON_FREEZER -> "application figée par le système"
+        ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> "application désactivée puis réactivée"
+        ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "mise à jour de l'application"
+        else -> "code $reason"
+    }
+
     private fun describe(exit: ApplicationExitInfo): String {
-        val reason = when (exit.reason) {
-            ApplicationExitInfo.REASON_CRASH -> "plantage de l'application"
-            ApplicationExitInfo.REASON_CRASH_NATIVE -> "plantage du moteur de dictée"
-            ApplicationExitInfo.REASON_ANR -> "application bloquée (ANR)"
-            ApplicationExitInfo.REASON_LOW_MEMORY -> "mémoire insuffisante"
-            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "consommation jugée excessive"
-            ApplicationExitInfo.REASON_SIGNALED -> "tuée par le système (signal ${exit.status})"
-            ApplicationExitInfo.REASON_OTHER -> "arrêtée par le système"
-            ApplicationExitInfo.REASON_USER_REQUESTED -> "arrêt forcé, ou application fermée depuis les applications récentes"
-            ApplicationExitInfo.REASON_USER_STOPPED -> "arrêtée par l'utilisateur"
-            ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "permission modifiée"
-            ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "composant du système arrêté"
-            ApplicationExitInfo.REASON_FREEZER -> "application figée par le système"
-            ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> "application désactivée puis réactivée"
-            ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "mise à jour de l'application"
-            else -> "code ${exit.reason}"
-        }
+        val reason = reasonLabel(exit.reason, exit.status)
         val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(exit.timestamp))
         val detail = exit.description?.takeIf { it.isNotBlank() }?.let { " : $it" }.orEmpty()
         return "$reason$detail ($date)"

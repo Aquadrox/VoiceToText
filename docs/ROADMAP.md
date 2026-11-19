@@ -512,13 +512,13 @@ Accélérer la CI sans baisser la garde :
 
 Avancement par petits incréments validés un par un (une fonction / brique par PR) :
 
-### 1. Élargir la couverture de tests ⬜
+### 1. Élargir la couverture de tests ✅
 
 Réduire l'asymétrie entre le cœur Rust (déjà bien testé) et les couches applicatives (`apps/desktop`, `crates/vtt-android`, `vtt-platform`, UI) avant d'ajouter de nouvelles briques :
 
-- ⬜ Cartographier les zones peu ou pas couvertes (gestion des réunions, contrôleur desktop, pont JNI Android, `vtt-platform`)
-- ⬜ Ajouter des tests unitaires et d'intégration ciblés sur les flux critiques (`apps/desktop`, `crates/vtt-android`, `vtt-core` cas limites)
-- ⬜ Mettre en place une base de tests automatisés permanents côté Android (unitaires JVM / Robolectric) et UI desktop (vérifications automatisées en CI)
+- ✅ Saut 1A (PR #77) : tests unitaires Rust sur les modules desktop jusque-là sans tests (`paths`, `updates`, `prompts`, `vocabulary`, `history`, `costs`, `export` : `voicetotext` passé de 29 à 56 tests)
+- ✅ Saut 1B (PR #78) : tests unitaires Rust sur le pont JNI et le moteur Android (`crates/vtt-android/src/lib.rs`, `engine.rs` : 44 tests) et sur l'orchestration/réunions desktop (`controller.rs`, `meetings.rs` : `voicetotext` à 65 tests)
+- ✅ Saut 1C : socle de tests automatisés permanents en CI côté interface PC (`apps/desktop/ui-tests/*.test.mjs`, 15 tests Node sans dépendance) et côté Android (`apps/android/app/src/test`, 13 tests unitaires JVM Kotlin via `./gradlew testClavierDebugUnitTest testBulleDebugUnitTest`)
 
 ### 2. Synchronisation locale Wi-Fi (pair-à-pair, chiffrée) ⬜
 
