@@ -72,6 +72,34 @@ object Native {
         context: String,
     ): String
 
+    /**
+     * Démarre une session de dictée mains libres en continu :
+     * `{"ok": <sessionId>}` ou `{"error": "..."}`.
+     * `context` : texte borné autour du curseur (strictement ignoré hors [NORMAL]).
+     */
+    external fun liveStart(
+        app: String,
+        mode: Int,
+        privacy: Int,
+        context: String,
+    ): String
+
+    /**
+     * Envoie de nouveaux échantillons 16 kHz mono à la session mains libres en
+     * cours : `{"ok": {"changed": bool, "preview": "...", "segments": int}}` ou
+     * `{"error": "..."}`. En [PASSWORD], `preview` reste toujours vide.
+     */
+    external fun liveFeed(samples: FloatArray): String
+
+    /**
+     * Termine la session mains libres avec le reliquat audio, puis exécute
+     * l'unique passage LLM (hors [PASSWORD]) : même forme JSON que [dictate].
+     */
+    external fun liveFinish(tail: FloatArray): String
+
+    /** Annule immédiatement la session mains libres en cours (sans bloquer). */
+    external fun liveCancel()
+
     /** Dictées récentes : `{"ok": [...]}`. */
     external fun history(historyFile: String, limit: Int): String
 

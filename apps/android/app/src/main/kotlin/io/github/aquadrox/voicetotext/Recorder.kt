@@ -92,7 +92,7 @@ class Recorder(private val context: Context) {
                 }
                 var peak = 0
                 synchronized(lock) {
-                    if (count + n > samples.size) samples = samples.copyOf(samples.size * 2)
+                    if (count + n > samples.size) samples = samples.copyOf(maxOf(samples.size * 2, count + n))
                     buffer.copyInto(samples, count, 0, n)
                     count += n
                 }
@@ -102,6 +102,16 @@ class Recorder(private val context: Context) {
             }
         }
         return true
+    }
+
+    /**
+     * Prélève les échantillons captés depuis le début ou le précédent appel
+     * (16 kHz mono, flottants entre -1 et 1) sans interrompre le micro, pour
+     * alimenter la prévisualisation en continu en mode mains libres.
+     */
+    fun drainLive(): FloatArray = synchronized(lock) {
+        if (count == 0) return FloatArray(0)
+        FloatArray(count) { samples[it] / 32768f }.also { count = 0 }
     }
 
     /** Arrête et renvoie l'audio (flottants entre -1 et 1). */

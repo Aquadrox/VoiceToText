@@ -14,6 +14,7 @@ import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -61,8 +62,21 @@ class VoiceKeyboard : InputMethodService() {
         }
     }
 
+    /** Alimentation incrémentale de la prévisualisation en continu (mains libres). */
+    private val livePump = object : Runnable {
+        override fun run() {
+            if (!handsFree || liveGen == 0L || !recorder.recording) return
+            drainLiveToEngine()
+            ring.postDelayed(this, LiveLogic.LIVE_DRAIN_MS)
+        }
+    }
+
     private var pressedAt = 0L
     private var handsFree = false
+    /** Génération de la session mains libres en continu active (0 : aucune). */
+    private var liveGen = 0L
+    /** Discrétion du champ capturée au démarrage de la session mains libres. */
+    private var livePrivacy = Native.NORMAL
     /** Mode de la dictée en cours (Native.DICTATE, TRANSLATE, COMMAND). */
     private var mode = Native.DICTATE
     /** Longueur de la dernière insertion (commande « annule la dernière dictée »). */
@@ -84,7 +98,9 @@ class VoiceKeyboard : InputMethodService() {
             setTextColor(Color.parseColor(MUTED))
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(4))
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(4), 0, dp(4), dp(4))
         }
         bubbleAlert = TextView(this).apply {
             text = "Bulle arrêtée par le téléphone · touchez ici pour la relancer"
@@ -209,6 +225,7 @@ class VoiceKeyboard : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        cancelLive()
         if (recorder.recording) recorder.stop()
         handsFree = false
         super.onFinishInputView(finishingInput)
@@ -268,8 +285,7 @@ class VoiceKeyboard : InputMethodService() {
                 if (!recorder.recording) return true
                 if (kind == Native.DICTATE && SystemClock.uptimeMillis() - pressedAt < TAP_MS) {
                     // Appui court : mains libres jusqu'au prochain appui.
-                    handsFree = true
-                    show("Mains libres : appuyez pour terminer")
+                    enterHandsFree()
                 } else {
                     finishDictation()
                 }
@@ -277,6 +293,62 @@ class VoiceKeyboard : InputMethodService() {
         }
         view.performClick()
         return true
+    }
+
+    private fun enterHandsFree() {
+        handsFree = true
+        val currentMode = mode
+        val info = currentInputEditorInfo
+        val app = info?.packageName.orEmpty()
+        livePrivacy = privacy(info)
+        show(LiveLogic.handsFreeStatus(currentMode, Dictation.language, livePrivacy, ""))
+        if (!LiveLogic.canUseLive(livePrivacy, currentMode)) {
+            liveGen = 0L
+            return
+        }
+        val context = readContext(livePrivacy, currentMode)
+        liveGen = Dictation.liveStart(store, app, currentMode, livePrivacy, context) { gen, error ->
+            if (handsFree && liveGen == gen) {
+                show(error)
+            }
+        }
+        // Envoie les premiers échantillons captés pendant l'appui court, puis
+        // poursuit périodiquement tant que le mode mains libres reste actif.
+        drainLiveToEngine()
+        ring.removeCallbacks(livePump)
+        ring.postDelayed(livePump, LiveLogic.LIVE_DRAIN_MS)
+    }
+
+    private fun drainLiveToEngine() {
+        val gen = liveGen
+        if (!handsFree || gen == 0L || !recorder.recording) return
+        val samples = recorder.drainLive()
+        if (samples.isEmpty()) return
+        val currentMode = mode
+        val currentPrivacy = livePrivacy
+        Dictation.liveFeed(gen, samples) { preview ->
+            if (handsFree && liveGen == gen) {
+                val formatted = LiveLogic.handsFreeStatus(
+                    currentMode,
+                    Dictation.language,
+                    currentPrivacy,
+                    preview,
+                )
+                if (LiveLogic.canShowPreview(currentPrivacy, preview)) {
+                    showLivePreview(formatted)
+                } else {
+                    show(formatted)
+                }
+            }
+        }
+    }
+
+    private fun cancelLive() {
+        if (::ring.isInitialized) ring.removeCallbacks(livePump)
+        if (liveGen > 0L) {
+            liveGen = 0L
+            Dictation.liveCancel()
+        }
     }
 
     private fun startDictation(view: View) {
@@ -311,18 +383,30 @@ class VoiceKeyboard : InputMethodService() {
     }
 
     private fun finishDictation() {
+        if (::ring.isInitialized) ring.removeCallbacks(livePump)
+        val activeLiveGen = liveGen
+        liveGen = 0L
         val samples = recorder.stop()
         command.background = keyBackground(KEY)
-        show(if (mode == Native.COMMAND) "Application de la consigne…" else "Transcription…")
+        val current = mode
+        show(if (current == Native.COMMAND) "Application de la consigne…" else "Transcription…")
+        if (activeLiveGen > 0L) {
+            Dictation.liveFinish(activeLiveGen, samples) { apply(it, current) }
+            return
+        }
         val app = currentInputEditorInfo?.packageName.orEmpty()
-        val selection = if (mode == Native.COMMAND) {
+        val selection = if (current == Native.COMMAND) {
             currentInputConnection?.getSelectedText(0)?.toString().orEmpty()
         } else {
             ""
         }
-        val current = mode
         val privacy = privacy(currentInputEditorInfo)
-        val context = if (ContextLogic.canReadContext(Dictation.screenContext, privacy, current)) {
+        val context = readContext(privacy, current)
+        Dictation.run(store, samples, app, current, selection, privacy, context) { apply(it, current) }
+    }
+
+    private fun readContext(privacy: Int, current: Int): String =
+        if (ContextLogic.canReadContext(Dictation.screenContext, privacy, current)) {
             runCatching {
                 val ic = currentInputConnection
                 ContextLogic.aroundCursor(
@@ -333,8 +417,6 @@ class VoiceKeyboard : InputMethodService() {
         } else {
             ""
         }
-        Dictation.run(store, samples, app, current, selection, privacy, context) { apply(it, current) }
-    }
 
     private fun apply(result: JSONObject, kind: Int) {
         val connection = currentInputConnection
@@ -393,10 +475,19 @@ class VoiceKeyboard : InputMethodService() {
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun show(text: String) {
-        if (::status.isInitialized) status.text = text
+        if (!::status.isInitialized) return
+        status.setTextColor(Color.parseColor(MUTED))
+        status.text = text
+    }
+
+    private fun showLivePreview(text: String) {
+        if (!::status.isInitialized) return
+        status.setTextColor(Color.parseColor(PAPER))
+        status.text = text
     }
 
     override fun onDestroy() {
+        cancelLive()
         if (recorder.recording) recorder.stop()
         super.onDestroy()
     }

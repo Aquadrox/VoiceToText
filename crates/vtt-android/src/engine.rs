@@ -5,6 +5,7 @@
 //! Android) ; l'historique reste sur le téléphone.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,6 +13,7 @@ use serde::Serialize;
 use vtt_core::config::{DictationConfig, LlmConfig, Pricing, PromptKind};
 use vtt_core::context;
 use vtt_core::history::{Entry, History};
+use vtt_core::live::{DEFAULT_PREVIEW_CHARS, LiveSession};
 use vtt_core::{
     AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink, Transcriber,
 };
@@ -211,6 +213,8 @@ pub fn summarizer(config: &Config) -> Option<LlmCleaner> {
 /// prochain [`start`] le recharge. Sert à la bulle quand l'écran est éteint,
 /// pour que le téléphone ait moins de raisons d'arrêter l'application.
 pub fn release() {
+    live_cancel();
+    *lock(&LIVE) = None;
     if lock(&ENGINE).take().is_some() {
         log::info!("modèle libéré");
     }
@@ -282,6 +286,35 @@ pub enum Mode {
     Command(Option<String>),
 }
 
+struct ActiveLive {
+    id: u64,
+    session: LiveSession,
+    app: Option<String>,
+    mode: Mode,
+    privacy: Privacy,
+    /// Termes extraits localement au démarrage (toujours vides hors `Privacy::Normal`).
+    context_terms: Vec<String>,
+    /// Première erreur ASR rencontrée en direct ; renvoyée à l'arrêt si aucune
+    /// tranche n'a produit de texte exploitable.
+    asr_error: Option<String>,
+}
+
+static LIVE: Mutex<Option<ActiveLive>> = Mutex::new(None);
+static NEXT_LIVE_ID: AtomicU64 = AtomicU64::new(0);
+static CANCELLED_LIVE_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Résultat d'un apport audio incrémental en mode mains libres.
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub struct LiveFeed {
+    /// Vrai si une nouvelle tranche a fait évoluer l'aperçu visible.
+    pub changed: bool,
+    /// Aperçu glissant UTF-8 des derniers mots transcrits (toujours vide en
+    /// `Privacy::Password` ou tant qu'aucune tranche n'a produit de texte).
+    pub preview: String,
+    /// Nombre de tranches ayant déjà produit du texte exploitable.
+    pub segments: usize,
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -289,10 +322,40 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
+fn resolve_context_terms(
+    engine: &Engine,
+    target: &Target,
+    mode: &Mode,
+    privacy: Privacy,
+    context_text: Option<&str>,
+) -> Vec<String> {
+    if privacy == Privacy::Normal
+        && !matches!(mode, Mode::Command(_))
+        && let Some(raw_context) = context_text.filter(|t| !t.trim().is_empty())
+        && context::is_context_allowed(&engine.dictation, target, false)
+    {
+        let terms = context::extract_context_terms(raw_context, &engine.dictionary);
+        if !terms.is_empty() {
+            log::debug!("contexte actif : {} terme(s)", terms.len());
+            return terms;
+        }
+    }
+    Vec::new()
+}
+
 /// Entrée d'historique d'une dictée insérée (comme sur PC).
 fn entry(
     outcome: &Outcome,
     clip: &AudioClip,
+    app: Option<String>,
+    pricing: &Pricing,
+) -> Option<Entry> {
+    entry_with_duration(outcome, clip.duration_ms(), app, pricing)
+}
+
+fn entry_with_duration(
+    outcome: &Outcome,
+    duration_ms: u64,
     app: Option<String>,
     pricing: &Pricing,
 ) -> Option<Entry> {
@@ -311,7 +374,7 @@ fn entry(
     };
     Some(Entry {
         at_ms: now_ms(),
-        duration_ms: clip.duration_ms(),
+        duration_ms,
         raw: raw.clone(),
         text: text.clone(),
         snippet: *snippet,
@@ -366,17 +429,7 @@ pub fn dictate(
         result.ms = started.elapsed().as_millis() as u64;
         return result;
     }
-    if privacy == Privacy::Normal
-        && !matches!(mode, Mode::Command(_))
-        && let Some(raw_context) = context_text.filter(|t| !t.trim().is_empty())
-        && context::is_context_allowed(&engine.dictation, &target, false)
-    {
-        let terms = context::extract_context_terms(raw_context, &engine.dictionary);
-        if !terms.is_empty() {
-            log::debug!("contexte actif : {} terme(s)", terms.len());
-            target.context_terms = terms;
-        }
-    }
+    target.context_terms = resolve_context_terms(engine, &target, &mode, privacy, context_text);
     let raw = match &mode {
         Mode::Dictate => engine.pipeline.run(&clip, &target),
         Mode::Translate => {
@@ -401,6 +454,283 @@ pub fn dictate(
     result.ms = started.elapsed().as_millis() as u64;
     log::info!("dictée traitée en {} ms ({})", result.ms, result.kind);
     result
+}
+
+/// Démarre une session de dictée mains libres en continu ; renvoie son
+/// identifiant. Le contexte autour du curseur n'est extrait qu'en
+/// `Privacy::Normal`, jamais sur mot de passe ni en navigation privée.
+pub fn live_start(
+    app: Option<String>,
+    mode: Mode,
+    privacy: Privacy,
+    context_text: Option<&str>,
+) -> Result<u64, String> {
+    if matches!(mode, Mode::Command(_)) {
+        return Err("la prévisualisation en continu n'est pas disponible en Command Mode".into());
+    }
+    let context_terms = {
+        let engine = lock(&ENGINE);
+        let engine = engine
+            .as_ref()
+            .ok_or("moteur non démarré : téléchargez un modèle")?;
+        let target = Target {
+            app: app.clone(),
+            ..Target::default()
+        };
+        resolve_context_terms(engine, &target, &mode, privacy, context_text)
+    };
+    let id = NEXT_LIVE_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    *lock(&LIVE) = Some(ActiveLive {
+        id,
+        session: LiveSession::new(),
+        app,
+        mode,
+        privacy,
+        context_terms,
+        asr_error: None,
+    });
+    Ok(id)
+}
+
+/// Ajoute des échantillons 16 kHz mono à la session mains libres en cours,
+/// transcrit les tranches prêtes et renvoie l'aperçu glissant (toujours vide
+/// en `Privacy::Password`).
+pub fn live_feed(samples: &[f32]) -> Result<LiveFeed, String> {
+    let (id, privacy, hints, chunks, preview, segments) = {
+        let mut guard = lock(&LIVE);
+        let Some(active) = guard.as_mut() else {
+            return Ok(LiveFeed::default());
+        };
+        if CANCELLED_LIVE_ID.load(Ordering::SeqCst) >= active.id {
+            *guard = None;
+            return Ok(LiveFeed::default());
+        }
+        let chunks = active.session.feed(samples);
+        let hints = if active.privacy == Privacy::Password {
+            Vec::new()
+        } else {
+            active.context_terms.clone()
+        };
+        let preview = if active.privacy == Privacy::Password {
+            String::new()
+        } else {
+            active.session.preview(DEFAULT_PREVIEW_CHARS)
+        };
+        (
+            active.id,
+            active.privacy,
+            hints,
+            chunks,
+            preview,
+            active.session.segment_count(),
+        )
+    };
+
+    if chunks.is_empty() {
+        return Ok(LiveFeed {
+            changed: false,
+            preview,
+            segments,
+        });
+    }
+
+    let mut changed = false;
+    for chunk in chunks {
+        if CANCELLED_LIVE_ID.load(Ordering::SeqCst) >= id {
+            let mut guard = lock(&LIVE);
+            if guard.as_ref().is_some_and(|a| a.id == id) {
+                *guard = None;
+            }
+            return Ok(LiveFeed::default());
+        }
+        let transcribed = {
+            let engine = lock(&ENGINE);
+            let engine = engine
+                .as_ref()
+                .ok_or("moteur non démarré : modèle libéré ou pas encore chargé")?;
+            engine.pipeline.transcribe_chunk(&chunk, &hints)
+        };
+        if CANCELLED_LIVE_ID.load(Ordering::SeqCst) >= id {
+            let mut guard = lock(&LIVE);
+            if guard.as_ref().is_some_and(|a| a.id == id) {
+                *guard = None;
+            }
+            return Ok(LiveFeed::default());
+        }
+        let mut guard = lock(&LIVE);
+        let Some(active) = guard.as_mut().filter(|a| a.id == id) else {
+            return Ok(LiveFeed::default());
+        };
+        match transcribed {
+            Ok(Some((text, ms))) => {
+                if active.session.push_text(&text, ms) && privacy != Privacy::Password {
+                    changed = true;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("transcription d'une tranche en direct : {e}");
+                if active.asr_error.is_none() {
+                    active.asr_error = Some(e.to_string());
+                }
+            }
+        }
+    }
+
+    let guard = lock(&LIVE);
+    let Some(active) = guard.as_ref().filter(|a| a.id == id) else {
+        return Ok(LiveFeed::default());
+    };
+    Ok(LiveFeed {
+        changed,
+        preview: if privacy == Privacy::Password {
+            String::new()
+        } else {
+            active.session.preview(DEFAULT_PREVIEW_CHARS)
+        },
+        segments: active.session.segment_count(),
+    })
+}
+
+/// Termine la session mains libres en cours avec le reliquat audio, transcrit
+/// la fin éventuelle, puis lance un unique nettoyage LLM (strictement ignoré
+/// en `Privacy::Password`) et enregistre dans l'historique uniquement en
+/// `Privacy::Normal`.
+pub fn live_finish(tail: Vec<f32>) -> Dictation {
+    let active = { lock(&LIVE).take() };
+    let Some(mut active) = active else {
+        return outcome(Ok(Outcome::Skipped));
+    };
+    if CANCELLED_LIVE_ID.load(Ordering::SeqCst) >= active.id {
+        return outcome(Ok(Outcome::Skipped));
+    }
+
+    let mut engine = lock(&ENGINE);
+    let Some(engine) = engine.as_mut() else {
+        return Dictation {
+            kind: "error",
+            error: Some("moteur non démarré : téléchargez un modèle".into()),
+            ..Dictation::default()
+        };
+    };
+
+    let started = Instant::now();
+    let prior_asr_ms = active.session.total_asr_ms();
+    let hints: &[String] = if active.privacy == Privacy::Password {
+        &[]
+    } else {
+        &active.context_terms
+    };
+
+    for chunk in active.session.feed(&tail) {
+        match engine.pipeline.transcribe_chunk(&chunk, hints) {
+            Ok(Some((text, ms))) => {
+                active.session.push_text(&text, ms);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("transcription d'une tranche finale en direct : {e}");
+                if active.asr_error.is_none() {
+                    active.asr_error = Some(e.to_string());
+                }
+            }
+        }
+    }
+    if let Some(last_chunk) = active.session.finish() {
+        match engine.pipeline.transcribe_chunk(&last_chunk, hints) {
+            Ok(Some((text, ms))) => {
+                active.session.push_text(&text, ms);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("transcription de la fin de dictée en direct : {e}");
+                if active.asr_error.is_none() {
+                    active.asr_error = Some(e.to_string());
+                }
+            }
+        }
+    }
+
+    let elapsed = |started: Instant| {
+        prior_asr_ms
+            .saturating_add(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
+    };
+
+    if active.session.is_empty() {
+        if let Some(err) = active.asr_error {
+            return Dictation {
+                kind: "error",
+                error: Some(err),
+                ms: elapsed(started),
+                ..Dictation::default()
+            };
+        }
+        let mut skipped = outcome(Ok(Outcome::Skipped));
+        skipped.ms = elapsed(started);
+        return skipped;
+    }
+
+    if active.privacy == Privacy::Password {
+        // Rien ne quitte le téléphone, rien n'est gardé.
+        let text = active.session.full_raw();
+        let mut result = if text.is_empty() {
+            outcome(Ok(Outcome::Skipped))
+        } else {
+            Dictation {
+                kind: "text",
+                raw: text.clone(),
+                text,
+                ..Dictation::default()
+            }
+        };
+        result.ms = elapsed(started);
+        return result;
+    }
+
+    let target = Target {
+        app: active.app.clone(),
+        context_terms: active.context_terms,
+        ..Target::default()
+    };
+    let raw_dictation = active.session.to_raw();
+    let translate_to = match active.mode {
+        Mode::Translate => Some(engine.translate_to.as_str()),
+        _ => None,
+    };
+    let raw = engine
+        .pipeline
+        .finalize_raw(&raw_dictation, &target, None, translate_to);
+    if active.privacy == Privacy::Normal
+        && let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
+        && let Some(entry) = entry_with_duration(
+            outcome,
+            raw_dictation.duration_ms,
+            active.app,
+            &engine.pricing,
+        )
+        && let Err(e) = history.append(&entry)
+    {
+        log::warn!("historique : {e}");
+    }
+    let mut result = outcome(raw);
+    result.ms = elapsed(started);
+    log::info!(
+        "dictée mains libres traitée en {} ms ({}, {} tranches)",
+        result.ms,
+        result.kind,
+        active.session.segment_count()
+    );
+    result
+}
+
+/// Annule immédiatement la session mains libres en cours sans bloquer sur
+/// une transcription ASR éventuelle.
+pub fn live_cancel() {
+    let latest = NEXT_LIVE_ID.load(Ordering::SeqCst);
+    CANCELLED_LIVE_ID.fetch_max(latest, Ordering::SeqCst);
+    if let Ok(mut live) = LIVE.try_lock() {
+        *live = None;
+    }
 }
 
 /// Dictées récentes (la plus récente d'abord).
@@ -1065,5 +1395,391 @@ mod tests {
         clear_history(&file).unwrap();
         assert!(history(&file, 5).unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    struct SequenceTranscriber {
+        replies: Mutex<std::collections::VecDeque<Result<String, Error>>>,
+        hints: Option<Arc<Mutex<Vec<Vec<String>>>>>,
+    }
+
+    impl Transcriber for SequenceTranscriber {
+        fn transcribe(&self, clip: &AudioClip) -> Result<String, Error> {
+            self.transcribe_with_hints(clip, &[])
+        }
+
+        fn transcribe_with_hints(
+            &self,
+            _clip: &AudioClip,
+            hints: &[String],
+        ) -> Result<String, Error> {
+            if let Some(slot) = &self.hints {
+                lock(slot).push(hints.to_vec());
+            }
+            lock(&self.replies)
+                .pop_front()
+                .unwrap_or_else(|| Ok(String::new()))
+        }
+    }
+
+    struct RecordingCleaner {
+        calls: Arc<AtomicUsize>,
+        last_raw: Arc<Mutex<String>>,
+        last_context: Arc<Mutex<Vec<String>>>,
+        usage: Option<Usage>,
+    }
+
+    impl PostProcessor for RecordingCleaner {
+        fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *lock(&self.last_raw) = raw.to_owned();
+            *lock(&self.last_context) = directives.context_terms.to_vec();
+            let text = match directives.translate_to {
+                Some(lang) => format!("[{lang}] {raw}"),
+                None => format!("Propre : {raw}"),
+            };
+            Ok(Cleaned {
+                text,
+                usage: self.usage,
+                fallback: None,
+            })
+        }
+    }
+
+    fn live_speech(seconds: f32) -> Vec<f32> {
+        (0..(seconds * 16_000.0) as usize)
+            .map(|i| if i % 2 == 0 { 0.25 } else { -0.25 })
+            .collect()
+    }
+
+    fn live_silence(seconds: f32) -> Vec<f32> {
+        vec![0.0; (seconds * 16_000.0) as usize]
+    }
+
+    fn speech_with_pause(seconds: f32) -> Vec<f32> {
+        let mut out = live_speech(seconds);
+        out.extend(live_silence(0.5));
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn install_sequence_engine(
+        replies: Vec<Result<String, Error>>,
+        asr_hints: Option<Arc<Mutex<Vec<Vec<String>>>>>,
+        cleaner: Option<Box<dyn PostProcessor>>,
+        history_file: Option<PathBuf>,
+        pricing: Pricing,
+        translate_to: &str,
+        dictation: DictationConfig,
+    ) {
+        let pipeline = Pipeline::new(
+            Box::new(SequenceTranscriber {
+                replies: Mutex::new(replies.into()),
+                hints: asr_hints,
+            }),
+            cleaner,
+            Box::new(Collect),
+        );
+        *lock(&ENGINE) = Some(Engine {
+            pipeline,
+            model: "test-model".into(),
+            history: history_file.map(|file| History::open(file, 50)),
+            pricing,
+            translate_to: translate_to.into(),
+            dictation,
+            dictionary: Vec::new(),
+        });
+    }
+
+    #[test]
+    fn live_session_streams_preview_runs_single_llm_pass_and_records_history() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("live-normal");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_raw = Arc::new(Mutex::new(String::new()));
+        let last_ctx = Arc::new(Mutex::new(Vec::new()));
+        let asr_hints = Arc::new(Mutex::new(Vec::new()));
+
+        let enabled_cfg = DictationConfig {
+            screen_context: true,
+            ..DictationConfig::default()
+        };
+        install_sequence_engine(
+            vec![
+                Ok("Première phrase".into()),
+                Ok("deuxième phrase".into()),
+                Ok("et fin.".into()),
+            ],
+            Some(Arc::clone(&asr_hints)),
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::clone(&last_raw),
+                last_context: Arc::clone(&last_ctx),
+                usage: Some(Usage {
+                    input_tokens: 1_000,
+                    cached_input_tokens: 0,
+                    output_tokens: 500,
+                }),
+            })),
+            Some(file.clone()),
+            Pricing {
+                input_per_million: 1.0,
+                output_per_million: 2.0,
+                currency: "€".into(),
+                ..Pricing::default()
+            },
+            "anglais",
+            enabled_cfg,
+        );
+
+        let id = live_start(
+            Some("com.whatsapp".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            Some("Bonjour Élodie, projet ContextManager (sk-1234567890abcdefghijklmno)."),
+        )
+        .unwrap();
+        assert!(id > 0);
+
+        // Sous la borne minimale (3,5 s) : aucune tranche découpée.
+        let early = live_feed(&live_speech(2.0)).unwrap();
+        assert!(!early.changed);
+        assert_eq!(early.preview, "");
+        assert_eq!(early.segments, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // Complète la première tranche (2 s + 2 s + pause 0,5 s).
+        let first = live_feed(&speech_with_pause(2.0)).unwrap();
+        assert!(first.changed);
+        assert_eq!(first.preview, "Première phrase");
+        assert_eq!(first.segments, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // Deuxième tranche (4 s + pause 0,5 s).
+        let second = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(second.changed);
+        assert_eq!(second.preview, "Première phrase deuxième phrase");
+        assert_eq!(second.segments, 2);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // Arrêt avec reliquat (1,5 s) : un seul appel LLM sur tout le texte.
+        let result = live_finish(live_speech(1.5));
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.raw, "Première phrase deuxième phrase et fin.");
+        assert_eq!(
+            result.text,
+            "Propre : Première phrase deuxième phrase et fin."
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(*lock(&last_raw), "Première phrase deuxième phrase et fin.");
+
+        // Contexte transmis aux tranches ASR et au LLM sans fuite du secret.
+        let hints = lock(&asr_hints).clone();
+        assert_eq!(hints.len(), 3);
+        for chunk_hints in &hints {
+            assert!(chunk_hints.iter().any(|t| t == "Élodie"), "{chunk_hints:?}");
+            assert!(
+                !chunk_hints.iter().any(|t| t.contains("sk-")),
+                "{chunk_hints:?}"
+            );
+        }
+        assert_eq!(*lock(&last_ctx), hints[0]);
+
+        // Une seule entrée d'historique avec la durée totale et le coût.
+        let entries = history(&file, 10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].app.as_deref(), Some("com.whatsapp"));
+        assert_eq!(entries[0].duration_ms, 10_500);
+        assert!((entries[0].cost.unwrap() - 0.002).abs() < 1e-9);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn live_session_translate_runs_single_translation_pass_on_finish() {
+        let _guard = Guard::acquire();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_raw = Arc::new(Mutex::new(String::new()));
+        let last_ctx = Arc::new(Mutex::new(Vec::new()));
+        install_sequence_engine(
+            vec![Ok("Bonjour tout le monde".into()), Ok("à demain.".into())],
+            None,
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw,
+                last_context: last_ctx,
+                usage: None,
+            })),
+            None,
+            Pricing::default(),
+            "espagnol",
+            DictationConfig::default(),
+        );
+
+        live_start(None, Mode::Translate, Privacy::Normal, None).unwrap();
+        let f = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(f.changed);
+        assert_eq!(f.preview, "Bonjour tout le monde");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let result = live_finish(live_speech(1.2));
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.text, "[espagnol] Bonjour tout le monde à demain.");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn live_session_privacy_password_hides_preview_skips_llm_context_and_history() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("live-password");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let asr_hints = Arc::new(Mutex::new(Vec::new()));
+        let enabled_cfg = DictationConfig {
+            screen_context: true,
+            ..DictationConfig::default()
+        };
+        install_sequence_engine(
+            vec![Ok("code".into()), Ok("secret 1234".into())],
+            Some(Arc::clone(&asr_hints)),
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::new(Mutex::new(String::new())),
+                last_context: Arc::new(Mutex::new(Vec::new())),
+                usage: None,
+            })),
+            Some(file.clone()),
+            Pricing::default(),
+            "anglais",
+            enabled_cfg,
+        );
+
+        live_start(
+            Some("com.bank".into()),
+            Mode::Dictate,
+            Privacy::Password,
+            Some("Élodie ContextManager"),
+        )
+        .unwrap();
+        // Jamais d'aperçu exposé en mot de passe.
+        let feed = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(!feed.changed);
+        assert_eq!(feed.preview, "");
+        assert_eq!(feed.segments, 1);
+
+        let result = live_finish(live_speech(1.5));
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.raw, "code secret 1234");
+        assert_eq!(result.text, "code secret 1234");
+        // Ni LLM, ni contexte ASR, ni historique.
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(lock(&asr_hints).iter().all(|h| h.is_empty()));
+        assert!(history(&file, 10).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn live_session_privacy_no_history_skips_context_and_history_but_runs_llm() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("live-no-history");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_ctx = Arc::new(Mutex::new(Vec::new()));
+        let asr_hints = Arc::new(Mutex::new(Vec::new()));
+        let enabled_cfg = DictationConfig {
+            screen_context: true,
+            ..DictationConfig::default()
+        };
+        install_sequence_engine(
+            vec![Ok("recherche privée".into()), Ok("sur le web".into())],
+            Some(Arc::clone(&asr_hints)),
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::new(Mutex::new(String::new())),
+                last_context: Arc::clone(&last_ctx),
+                usage: None,
+            })),
+            Some(file.clone()),
+            Pricing::default(),
+            "anglais",
+            enabled_cfg,
+        );
+
+        live_start(
+            Some("org.mozilla.firefox".into()),
+            Mode::Dictate,
+            Privacy::NoHistory,
+            Some("Élodie ContextManager"),
+        )
+        .unwrap();
+        let feed = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(feed.changed);
+        assert_eq!(feed.preview, "recherche privée");
+
+        let result = live_finish(live_speech(1.5));
+        assert_eq!(result.kind, "text");
+        assert_eq!(result.text, "Propre : recherche privée sur le web");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(lock(&asr_hints).iter().all(|h| h.is_empty()));
+        assert!(lock(&last_ctx).is_empty());
+        assert!(history(&file, 10).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn live_cancel_drops_session_and_prevents_finish_or_llm() {
+        let _guard = Guard::acquire();
+        let calls = Arc::new(AtomicUsize::new(0));
+        install_sequence_engine(
+            vec![Ok("texte annulé".into()), Ok("suite ignorée".into())],
+            None,
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::new(Mutex::new(String::new())),
+                last_context: Arc::new(Mutex::new(Vec::new())),
+                usage: None,
+            })),
+            None,
+            Pricing::default(),
+            "anglais",
+            DictationConfig::default(),
+        );
+
+        live_start(None, Mode::Dictate, Privacy::Normal, None).unwrap();
+        let first = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(first.changed);
+
+        live_cancel();
+        let after = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert_eq!(after, LiveFeed::default());
+        let finished = live_finish(live_speech(1.5));
+        assert_eq!(finished.kind, "skip");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn live_start_rejects_command_mode_and_unloaded_engine_and_reports_asr_failure() {
+        let _guard = Guard::acquire();
+        assert!(live_start(None, Mode::Dictate, Privacy::Normal, None).is_err());
+
+        install_sequence_engine(
+            vec![Err(Error::Asr("whisper hs".into()))],
+            None,
+            None,
+            None,
+            Pricing::default(),
+            "anglais",
+            DictationConfig::default(),
+        );
+        assert!(live_start(None, Mode::Command(None), Privacy::Normal, None).is_err());
+
+        live_start(None, Mode::Dictate, Privacy::Normal, None).unwrap();
+        let f = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(!f.changed);
+        let result = live_finish(Vec::new());
+        assert_eq!(result.kind, "error");
+        assert!(result.error.as_deref().unwrap().contains("whisper hs"));
     }
 }
