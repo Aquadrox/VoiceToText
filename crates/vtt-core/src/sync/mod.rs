@@ -20,6 +20,7 @@
 
 pub mod channel;
 pub mod crypto;
+pub mod direct_pairing;
 pub mod discovery;
 pub mod merge;
 pub mod pairing;
@@ -30,6 +31,10 @@ pub use channel::{EncryptedChannel, RemotePeerInfo};
 pub use crypto::{
     AuthConfirm, Hello, HelloAck, SessionCipher, SessionRole, SyncKey, auth_tag, decode_frame,
     derive_session_nonce, encode_frame, verify_tag,
+};
+pub use direct_pairing::{
+    DEFAULT_DIRECT_PAIRING_TTL_MS, DirectDecisionHandle, DirectPairInit, DirectPairingHandle,
+    PendingDirectPairing, format_pairing_code, start_direct_pairing_over_tcp,
 };
 pub use discovery::{DiscoveredPeer, MdnsPacket, MdnsService};
 pub use merge::{
@@ -78,6 +83,10 @@ pub enum SyncError {
     OfferExpired,
     #[error("aucun appairage n'est ouvert sur cet appareil")]
     PairingClosed,
+    #[error("appairage direct refusé ou annulé")]
+    PairingRejected,
+    #[error("un appairage direct est déjà en cours sur cet appareil")]
+    DirectPairingBusy,
     #[error("appareil non appairé : {0}")]
     UnknownPeer(DeviceId),
     #[error("version de protocole non prise en charge : {0}")]

@@ -446,6 +446,22 @@ fn handle_server_event(
                 is_error: false,
             }
         }
+        SyncEvent::DirectPairingRequested { pending } => SyncActivity {
+            message: format!(
+                "Demande d'appairage de « {} » (code {}).",
+                pending.remote_device_name,
+                pending.formatted_code()
+            ),
+            at_ms: now_ms(),
+            is_error: false,
+        },
+        SyncEvent::DirectPairingEnded { reason, .. } => SyncActivity {
+            message: reason
+                .map(|r| format!("Appairage direct interrompu : {r}"))
+                .unwrap_or_else(|| "Appairage direct annulé.".into()),
+            at_ms: now_ms(),
+            is_error: true,
+        },
         SyncEvent::ConnectionFailed { reason } => SyncActivity {
             message: format!("Connexion entrante refusée : {reason}"),
             at_ms: now_ms(),

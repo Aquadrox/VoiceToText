@@ -17,4 +17,5 @@ sha2 = "0.10"
 socket2 = { version = "0.6", features = ["all"] }
 thiserror.workspace = true
 toml.workspace = true
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1", features = ["derive"] }

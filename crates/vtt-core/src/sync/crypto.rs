@@ -245,6 +245,9 @@ pub struct Hello {
     pub device_name: String,
     pub pairing: bool,
     pub nonce: [u8; 24],
+    /// Présent uniquement pour un appairage direct par clic + code à 6 chiffres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_pairing: Option<super::direct_pairing::DirectPairInit>,
 }
 
 /// Réponse du serveur : son identité, son nonce et sa preuve de clé.
@@ -313,7 +316,7 @@ fn frame_aad(direction: u8, counter: u64) -> [u8; 10] {
 }
 
 /// HMAC-SHA256 minimal (RFC 2104) pour éviter une dépendance supplémentaire.
-fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
+pub(crate) fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     let mut ipad = [0x36u8; 64];
     let mut opad = [0x5cu8; 64];
     for i in 0..32 {
@@ -335,7 +338,7 @@ fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     out
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

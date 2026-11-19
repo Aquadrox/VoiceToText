@@ -63,6 +63,7 @@ impl<S: Read + Write> EncryptedChannel<S> {
             device_name: sanitize_device_name(&local.device_name),
             pairing,
             nonce: nonce_a,
+            direct_pairing: None,
         };
         send_plain(&mut stream, &hello)?;
 
@@ -111,6 +112,20 @@ impl<S: Read + Write> EncryptedChannel<S> {
         F: FnOnce(&Hello) -> Result<SyncKey>,
     {
         let hello: Hello = recv_plain(&mut stream)?;
+        Self::accept_with_hello(stream, hello, local, resolve_key)
+    }
+
+    /// Variante de [`Self::accept`] lorsque le [`Hello`] initial a déjà été lu
+    /// (permet à `SyncServer` d'aiguiller l'appairage direct avant le handshake).
+    pub(crate) fn accept_with_hello<F>(
+        mut stream: S,
+        hello: Hello,
+        local: &LocalIdentity,
+        resolve_key: F,
+    ) -> Result<Self>
+    where
+        F: FnOnce(&Hello) -> Result<SyncKey>,
+    {
         if hello.protocol != PROTOCOL_VERSION {
             return Err(SyncError::UnsupportedVersion(hello.protocol));
         }
@@ -162,14 +177,14 @@ impl<S: Read + Write> EncryptedChannel<S> {
     }
 }
 
-fn send_plain<W: Write, T: serde::Serialize>(writer: &mut W, value: &T) -> Result<()> {
+pub(crate) fn send_plain<W: Write, T: serde::Serialize>(writer: &mut W, value: &T) -> Result<()> {
     let bytes = serde_json::to_vec(value)?;
     encode_frame(writer, &bytes)?;
     writer.flush()?;
     Ok(())
 }
 
-fn recv_plain<R: Read, T: serde::de::DeserializeOwned>(reader: &mut R) -> Result<T> {
+pub(crate) fn recv_plain<R: Read, T: serde::de::DeserializeOwned>(reader: &mut R) -> Result<T> {
     let bytes = decode_frame(reader)?;
     Ok(serde_json::from_slice(&bytes)?)
 }
