@@ -203,7 +203,7 @@ jobs:
       # sur archive.ubuntu.com depuis les runners GitHub.
       - name: Outils de base (git, curl)
         run: |
-          sed -i -E 's|http://(archive|security)\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+          sed -i -E 's#http://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list
           echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git curl
