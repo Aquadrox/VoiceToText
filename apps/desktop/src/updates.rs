@@ -65,14 +65,7 @@ impl Updates {
         launches_file: PathBuf,
         existing_install: bool,
     ) -> UpdatesState {
-        let configured = app
-            .config()
-            .plugins
-            .0
-            .get("updater")
-            .and_then(|u| u.get("pubkey"))
-            .and_then(|k| k.as_str())
-            .is_some_and(|k| !k.trim().is_empty());
+        let configured = has_updater_pubkey(app.config().plugins.0.get("updater"));
         if !configured {
             log::info!("mises à jour : clé publique absente, vérification désactivée");
         }
@@ -128,20 +121,35 @@ fn write_launches(file: &Path, launches: &Launches) {
     }
 }
 
+/// Clé publique présente et non vide dans la section `updater` de tauri.conf.json.
+fn has_updater_pubkey(updater: Option<&serde_json::Value>) -> bool {
+    updater
+        .and_then(|u| u.get("pubkey"))
+        .and_then(|k| k.as_str())
+        .is_some_and(|k| !k.trim().is_empty())
+}
+
 /// Nouveautés publiées avec la mise à jour proposée (champ `changelog` du
 /// manifeste), depuis la version installée. Vide pour un manifeste plus
 /// ancien que ce champ.
 fn pending_notes(update: &Update) -> Vec<Release> {
-    let text = update
-        .raw_json
+    pending_notes_from_json(&update.raw_json, &update.current_version, &update.version)
+}
+
+fn pending_notes_from_json(
+    raw_json: &serde_json::Value,
+    current_version: &str,
+    next_version: &str,
+) -> Vec<Release> {
+    let text = raw_json
         .get("changelog")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
     changelog::releases(
         text,
         Platform::Desktop,
-        Some(&update.current_version),
-        Some(&update.version),
+        Some(current_version),
+        Some(next_version),
     )
 }
 
@@ -270,9 +278,7 @@ async fn install(app: &AppHandle, updates: &Updates) -> Result<(), String> {
         .download_and_install(
             |chunk, total| {
                 received += chunk as u64;
-                let percent = total
-                    .filter(|t| *t > 0)
-                    .map(|t| (received * 100 / t).min(100));
+                let percent = download_percent(received, total);
                 if percent != last_percent {
                     last_percent = percent;
                     let _ = app.emit(PROGRESS_EVENT, percent);
@@ -356,12 +362,13 @@ pub struct ChangelogView {
     news: Vec<Release>,
 }
 
-/// Réglages → Application (sous le bouton de mise à jour) et accueil après
-/// une mise à jour.
-#[tauri::command]
-pub fn changelog_view(app: AppHandle, updates: State<'_, UpdatesState>) -> ChangelogView {
-    let current = app.package_info().version.to_string();
-    let launches = updates.launches();
+fn download_percent(received: u64, total: Option<u64>) -> Option<u64> {
+    total
+        .filter(|t| *t > 0)
+        .map(|t| (received.saturating_mul(100) / t).min(100))
+}
+
+fn build_changelog_view(current: String, launches: &Launches) -> ChangelogView {
     ChangelogView {
         releases: changelog::releases(changelog::BUNDLED, Platform::Desktop, None, Some(&current)),
         updated_from: launches.unseen_since.clone(),
@@ -370,11 +377,141 @@ pub fn changelog_view(app: AppHandle, updates: State<'_, UpdatesState>) -> Chang
     }
 }
 
+fn dismiss_news_in(launches: &mut Launches, launches_file: &Path) -> bool {
+    if launches.unseen_since.take().is_some() {
+        write_launches(launches_file, launches);
+        true
+    } else {
+        false
+    }
+}
+
+/// Réglages → Application (sous le bouton de mise à jour) et accueil après
+/// une mise à jour.
+#[tauri::command]
+pub fn changelog_view(app: AppHandle, updates: State<'_, UpdatesState>) -> ChangelogView {
+    let current = app.package_info().version.to_string();
+    let launches = updates.launches();
+    build_changelog_view(current, &launches)
+}
+
 /// Bandeau « mis à jour » de l'accueil fermé : nouveautés vues.
 #[tauri::command]
 pub fn dismiss_update_news(updates: State<'_, UpdatesState>) {
     let mut launches = updates.launches();
-    if launches.unseen_since.take().is_some() {
-        write_launches(&updates.launches_file, &launches);
+    dismiss_news_in(&mut launches, &updates.launches_file);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use serde_json::json;
+
+    use super::*;
+
+    fn temp_file(name: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("vtt-updates-{name}-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("version.json")
+    }
+
+    #[test]
+    fn has_updater_pubkey_requires_non_blank_string() {
+        assert!(!has_updater_pubkey(None));
+        assert!(!has_updater_pubkey(Some(&json!({}))));
+        assert!(!has_updater_pubkey(Some(&json!({ "pubkey": "" }))));
+        assert!(!has_updater_pubkey(Some(&json!({ "pubkey": "   " }))));
+        assert!(!has_updater_pubkey(Some(&json!({ "pubkey": 42 }))));
+        assert!(has_updater_pubkey(Some(
+            &json!({ "pubkey": "dW50cnVzdGVk" })
+        )));
+    }
+
+    #[test]
+    fn launches_file_round_trips_and_tolerates_missing_or_corrupt() {
+        let file = temp_file("launches");
+        assert_eq!(read_launches(&file), Launches::default());
+
+        fs::write(&file, "{ pas du json").unwrap();
+        assert_eq!(read_launches(&file), Launches::default());
+
+        let mut launches = Launches::default();
+        assert!(!launches.launch("0.22.0", false));
+        assert!(launches.launch("0.23.0", false));
+        write_launches(&file, &launches);
+
+        let reloaded = read_launches(&file);
+        assert_eq!(reloaded, launches);
+        assert_eq!(reloaded.unseen_since.as_deref(), Some("0.22.0"));
+
+        let _ = fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn pending_notes_filters_desktop_releases_between_versions() {
+        let manifest = json!({
+            "changelog": "\
+## 0.24.0 — 2026-11-10
+- [Android] Uniquement téléphone.
+
+## 0.23.0 — 2026-11-09
+- [PC] Nouvelle icône.
+- Changement commun.
+
+## 0.22.0 — 2026-11-08
+- Déjà installé.
+"
+        });
+        let notes = pending_notes_from_json(&manifest, "0.22.0", "0.24.0");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].version, "0.23.0");
+        assert_eq!(
+            notes[0].items,
+            vec!["Nouvelle icône.", "Changement commun."]
+        );
+
+        assert!(pending_notes_from_json(&json!({}), "0.22.0", "0.24.0").is_empty());
+        assert!(
+            pending_notes_from_json(&json!({ "changelog": 123 }), "0.22.0", "0.24.0").is_empty()
+        );
+    }
+
+    #[test]
+    fn download_percent_handles_unknown_zero_and_cap() {
+        assert_eq!(download_percent(50, None), None);
+        assert_eq!(download_percent(50, Some(0)), None);
+        assert_eq!(download_percent(0, Some(200)), Some(0));
+        assert_eq!(download_percent(50, Some(200)), Some(25));
+        assert_eq!(download_percent(250, Some(200)), Some(100));
+    }
+
+    #[test]
+    fn changelog_view_and_dismiss_persist_seen_state() {
+        let file = temp_file("dismiss");
+        let mut launches = Launches::default();
+        launches.launch("0.22.0", false);
+        assert!(launches.launch("0.23.0", false));
+        write_launches(&file, &launches);
+
+        let view = build_changelog_view("0.23.0".into(), &launches);
+        assert_eq!(view.current, "0.23.0");
+        assert_eq!(view.updated_from.as_deref(), Some("0.22.0"));
+        assert!(!view.releases.is_empty());
+        assert!(!view.news.is_empty());
+
+        assert!(dismiss_news_in(&mut launches, &file));
+        assert!(!dismiss_news_in(&mut launches, &file));
+        assert_eq!(read_launches(&file).unseen_since, None);
+
+        let after = build_changelog_view("0.23.0".into(), &launches);
+        assert_eq!(after.updated_from, None);
+        assert!(after.news.is_empty());
+
+        let _ = fs::remove_dir_all(file.parent().unwrap());
     }
 }

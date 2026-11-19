@@ -6,11 +6,11 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tauri::State;
-use vtt_core::config::{self, PromptKind, PromptPreset};
+use vtt_core::config::{self, LlmConfig, PromptKind, PromptPreset};
 use vtt_core::usage::Usage;
-use vtt_core::{Directives, PostProcessor};
+use vtt_core::{Config, Directives, PostProcessor};
 use vtt_llm::{
-    DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_CONFERENCE_PROMPT,
+    ApiKeyProvider, DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_CONFERENCE_PROMPT,
     DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
 };
 
@@ -56,9 +56,7 @@ pub struct PromptsView {
     conference_active: String,
 }
 
-#[tauri::command]
-pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
-    let config = settings::read(&config);
+fn build_prompts_view(config: &Config) -> PromptsView {
     PromptsView {
         prompts: config.prompts.clone(),
         defaults: Defaults {
@@ -74,6 +72,36 @@ pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
     }
 }
 
+#[tauri::command]
+pub fn prompts_view(config: State<'_, SharedConfig>) -> PromptsView {
+    build_prompts_view(&settings::read(&config))
+}
+
+fn save_prompts_to_disk(
+    paths: &Paths,
+    prompts: &[PromptPreset],
+    cleanup_active: &str,
+    command_active: &str,
+    summary_active: &str,
+    conference_active: &str,
+) -> Result<Config, String> {
+    let (mut updated, error) = paths.load_config();
+    if let Some(error) = error {
+        return Err(format!(
+            "{error} : corrigez-le d'abord (menu « Modifier la configuration »)"
+        ));
+    }
+    updated.prompts = config::clean_prompts(prompts)?;
+    updated.llm.cleanup_prompt = cleanup_active.trim().to_owned();
+    updated.llm.command_prompt = command_active.trim().to_owned();
+    updated.meetings.summary_prompt = summary_active.trim().to_owned();
+    updated.meetings.conference_prompt = conference_active.trim().to_owned();
+    updated.check_prompt_refs(&updated.llm)?;
+    updated.check_summary_ref()?;
+    paths.write_config(&updated)?;
+    Ok(updated)
+}
+
 /// Enregistre les prompts et le choix des prompts actifs, puis les applique.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -87,20 +115,14 @@ pub fn save_prompts(
     summary_active: String,
     conference_active: String,
 ) -> Result<(), String> {
-    let (mut updated, error) = paths.load_config();
-    if let Some(error) = error {
-        return Err(format!(
-            "{error} : corrigez-le d'abord (menu « Modifier la configuration »)"
-        ));
-    }
-    updated.prompts = config::clean_prompts(&prompts)?;
-    updated.llm.cleanup_prompt = cleanup_active.trim().to_owned();
-    updated.llm.command_prompt = command_active.trim().to_owned();
-    updated.meetings.summary_prompt = summary_active.trim().to_owned();
-    updated.meetings.conference_prompt = conference_active.trim().to_owned();
-    updated.check_prompt_refs(&updated.llm)?;
-    updated.check_summary_ref()?;
-    paths.write_config(&updated)?;
+    let updated = save_prompts_to_disk(
+        &paths,
+        &prompts,
+        &cleanup_active,
+        &command_active,
+        &summary_active,
+        &conference_active,
+    )?;
     controller.apply(&updated);
     log::info!("{} prompt(s) enregistré(s)", updated.prompts.len());
     *config.write().unwrap_or_else(|e| e.into_inner()) = updated;
@@ -119,23 +141,8 @@ pub struct PromptTest {
     currency: String,
 }
 
-/// Essaie `text` (non enregistré) avec le fournisseur LLM actif, sur une
-/// dictée ou une commande d'exemple. Facturé et compté comme un test.
-#[tauri::command(async)]
-pub fn test_prompt(
-    config: State<'_, SharedConfig>,
-    ledger: State<'_, LedgerStore>,
-    kind: PromptKind,
-    text: String,
-) -> Result<PromptTest, String> {
-    if text.trim().is_empty() {
-        return Err("prompt vide".into());
-    }
-    let (llm, dictionary) = {
-        let config = settings::read(&config);
-        (config.llm.clone(), config.dictionary.clone())
-    };
-    let prompts = match kind {
+fn prompts_override(kind: PromptKind, text: String) -> Prompts {
+    match kind {
         PromptKind::Nettoyage => Prompts {
             cleanup: Some(text),
             ..Prompts::default()
@@ -152,13 +159,22 @@ pub fn test_prompt(
             conference: Some(text),
             ..Prompts::default()
         },
-    };
-    let cleaner = LlmCleaner::new(
-        &llm,
-        &dictionary,
-        &prompts,
-        settings::api_key_provider(&llm),
-    );
+    }
+}
+
+fn run_prompt_test(
+    llm: &LlmConfig,
+    dictionary: &[String],
+    api_key: ApiKeyProvider,
+    ledger: &LedgerStore,
+    kind: PromptKind,
+    text: String,
+) -> Result<PromptTest, String> {
+    if text.trim().is_empty() {
+        return Err("prompt vide".into());
+    }
+    let prompts = prompts_override(kind, text);
+    let cleaner = LlmCleaner::new(llm, dictionary, &prompts, api_key);
     let started = Instant::now();
     let (input, result) = match kind {
         PromptKind::Nettoyage => (
@@ -192,7 +208,7 @@ pub fn test_prompt(
     match result {
         Ok(cleaned) => {
             if let Some(usage) = &cleaned.usage {
-                costs::record(&ledger, None, usage, &llm.pricing);
+                costs::record(ledger, None, usage, &llm.pricing);
             }
             test.cost = cleaned.usage.map(|u| llm.pricing.cost(&u));
             test.usage = cleaned.usage;
@@ -201,4 +217,233 @@ pub fn test_prompt(
         Err(e) => test.error = Some(e.to_string()),
     }
     Ok(test)
+}
+
+/// Essaie `text` (non enregistré) avec le fournisseur LLM actif, sur une
+/// dictée ou une commande d'exemple. Facturé et compté comme un test.
+#[tauri::command(async)]
+pub fn test_prompt(
+    config: State<'_, SharedConfig>,
+    ledger: State<'_, LedgerStore>,
+    kind: PromptKind,
+    text: String,
+) -> Result<PromptTest, String> {
+    let (llm, dictionary) = {
+        let config = settings::read(&config);
+        (config.llm.clone(), config.dictionary.clone())
+    };
+    let api_key = settings::api_key_provider(&llm);
+    run_prompt_test(&llm, &dictionary, api_key, &ledger, kind, text)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    use vtt_core::usage::Ledger;
+
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("vtt-prompts-{name}-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn serve_once(status: u16, body: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&request);
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn build_prompts_view_exposes_defaults_and_active_refs() {
+        let mut config = Config::default();
+        config.llm.cleanup_prompt = "Concis".into();
+        config.meetings.summary_prompt = "Court".into();
+        let view = build_prompts_view(&config);
+        assert_eq!(view.defaults.cleanup, DEFAULT_CLEANUP_PROMPT);
+        assert_eq!(view.defaults.command, DEFAULT_COMMAND_PROMPT);
+        assert_eq!(view.defaults.summary, DEFAULT_SUMMARY_PROMPT);
+        assert_eq!(view.defaults.conference, DEFAULT_CONFERENCE_PROMPT);
+        assert_eq!(view.cleanup_active, "Concis");
+        assert_eq!(view.summary_active, "Court");
+        assert!(view.command_active.is_empty());
+        assert!(view.conference_active.is_empty());
+    }
+
+    #[test]
+    fn save_prompts_to_disk_persists_valid_and_rejects_broken_refs() {
+        let dir = temp_dir("save");
+        let paths = Paths::for_tests(&dir);
+        let presets = vec![
+            PromptPreset {
+                name: "Concis".into(),
+                kind: PromptKind::Nettoyage,
+                text: "Nettoie de façon concise.".into(),
+            },
+            PromptPreset {
+                name: "Synthèse".into(),
+                kind: PromptKind::CompteRendu,
+                text: "Fais un résumé court.".into(),
+            },
+        ];
+
+        let saved = save_prompts_to_disk(&paths, &presets, " Concis ", "", "Synthèse", "").unwrap();
+        assert_eq!(saved.prompts.len(), 2);
+        assert_eq!(saved.llm.cleanup_prompt, "Concis");
+        assert_eq!(saved.meetings.summary_prompt, "Synthèse");
+
+        let (reloaded, err) = paths.load_config();
+        assert!(err.is_none());
+        assert_eq!(reloaded.llm.cleanup_prompt, "Concis");
+        assert_eq!(reloaded.meetings.summary_prompt, "Synthèse");
+
+        // Référence vers un prompt inconnu refusée sans écraser config.toml.
+        assert!(save_prompts_to_disk(&paths, &presets, "Inconnu", "", "", "").is_err());
+        assert!(save_prompts_to_disk(&paths, &presets, "", "", "Inconnu", "").is_err());
+
+        // config.toml corrompu : refusé avant écriture.
+        fs::write(&paths.config_file, "invalide = = =").unwrap();
+        assert!(save_prompts_to_disk(&paths, &presets, "Concis", "", "", "").is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prompts_override_targets_only_requested_kind() {
+        let cleanup = prompts_override(PromptKind::Nettoyage, "A".into());
+        assert_eq!(cleanup.cleanup.as_deref(), Some("A"));
+        assert!(cleanup.command.is_none());
+        assert!(cleanup.summary.is_none());
+        assert!(cleanup.conference.is_none());
+
+        let conference = prompts_override(PromptKind::Conference, "B".into());
+        assert_eq!(conference.conference.as_deref(), Some("B"));
+        assert!(conference.cleanup.is_none());
+    }
+
+    #[test]
+    fn run_prompt_test_rejects_empty_text() {
+        let dir = temp_dir("empty");
+        let ledger = Arc::new(Mutex::new(Ledger::open(dir.join("usage.json"))));
+        let err = run_prompt_test(
+            &LlmConfig::default(),
+            &[],
+            Box::new(|| None),
+            &ledger,
+            PromptKind::Nettoyage,
+            "   ".into(),
+        )
+        .err()
+        .unwrap();
+        assert!(err.contains("vide"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_prompt_test_records_usage_and_cost_on_success() {
+        let dir = temp_dir("ok");
+        let ledger = Arc::new(Mutex::new(Ledger::open(dir.join("usage.json"))));
+        let (url, server) = serve_once(
+            200,
+            r#"{"choices":[{"message":{"content":"Bonjour, la réunion est mercredi à 14h."}}],"usage":{"prompt_tokens":100,"completion_tokens":20}}"#,
+        );
+        let llm = LlmConfig {
+            base_url: url,
+            ..LlmConfig::default()
+        };
+
+        let result = run_prompt_test(
+            &llm,
+            &[],
+            Box::new(|| None),
+            &ledger,
+            PromptKind::Nettoyage,
+            "Consigne de test".into(),
+        )
+        .unwrap();
+        let req = server.join().unwrap();
+        assert!(req.contains("Consigne de test"));
+        assert!(result.ok);
+        assert_eq!(
+            result.output.as_deref(),
+            Some("Bonjour, la réunion est mercredi à 14h.")
+        );
+        assert!(result.error.is_none());
+        assert!(result.cost.is_some());
+        assert_eq!(costs::summary(&ledger).today.requests, 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_prompt_test_reports_llm_error_without_recording_usage() {
+        let dir = temp_dir("err");
+        let ledger = Arc::new(Mutex::new(Ledger::open(dir.join("usage.json"))));
+        let (url, server) = serve_once(500, r#"{"error":{"message":"serveur HS"}}"#);
+        let llm = LlmConfig {
+            base_url: url,
+            ..LlmConfig::default()
+        };
+
+        let result = run_prompt_test(
+            &llm,
+            &[],
+            Box::new(|| None),
+            &ledger,
+            PromptKind::Commande,
+            "Consigne commande".into(),
+        )
+        .unwrap();
+        let _ = server.join().unwrap();
+        assert!(!result.ok);
+        assert!(result.output.is_none());
+        assert!(result.error.is_some());
+        assert_eq!(costs::summary(&ledger).today.requests, 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

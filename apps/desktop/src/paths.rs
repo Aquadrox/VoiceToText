@@ -121,3 +121,69 @@ fn first_config() -> Config {
     }
     config
 }
+
+#[cfg(test)]
+impl Paths {
+    /// Emplacements isolés dans un dossier temporaire pour les tests.
+    pub fn for_tests(dir: &std::path::Path) -> Self {
+        Self {
+            config_file: dir.join("config.toml"),
+            models_dir: dir.join("models"),
+            logs_dir: dir.join("logs"),
+            history_file: dir.join("history.jsonl"),
+            usage_file: dir.join("usage.json"),
+            version_file: dir.join("version.json"),
+            meetings_dir: dir.join("meetings"),
+            captures_dir: dir.join("captures"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("vtt-paths-{name}-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn load_config_creates_default_when_missing_and_round_trips() {
+        let dir = temp_dir("roundtrip");
+        let paths = Paths::for_tests(&dir);
+        let (mut config, err) = paths.load_config();
+        assert!(err.is_none());
+        assert!(paths.config_file.exists());
+
+        config.dictionary.push("Aquadrox".into());
+        paths.write_config(&config).unwrap();
+
+        let (reloaded, err) = paths.load_config();
+        assert!(err.is_none());
+        assert_eq!(reloaded.dictionary, vec!["Aquadrox"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_config_reports_error_on_invalid_toml_without_overwriting() {
+        let dir = temp_dir("invalid");
+        let paths = Paths::for_tests(&dir);
+        fs::write(&paths.config_file, "pas du toml = = =").unwrap();
+
+        let (config, err) = paths.load_config();
+        assert!(err.is_some());
+        assert_eq!(config, Config::default());
+        assert_eq!(
+            fs::read_to_string(&paths.config_file).unwrap(),
+            "pas du toml = = ="
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
