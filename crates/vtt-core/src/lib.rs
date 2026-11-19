@@ -18,6 +18,7 @@ pub mod meeting;
 pub mod pipeline;
 pub mod search;
 pub mod suggest;
+pub mod sync;
 pub mod text;
 pub mod usage;
 
