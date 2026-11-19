@@ -241,6 +241,7 @@ pub fn foreground_target() -> Target {
     Target {
         app: process_name(pid),
         title,
+        ..Target::default()
     }
 }
 

@@ -209,6 +209,14 @@ pub struct DictationConfig {
     /// Commandes vocales : « nouvelle ligne », « nouveau paragraphe »,
     /// « point à la ligne », « annule la dernière dictée ».
     pub voice_commands: bool,
+    /// Contexte du champ actif / d'écran (opt-in, désactivé par défaut) :
+    /// extrait localement noms propres et termes techniques autour du curseur
+    /// pour améliorer l'orthographe (jamais sur mot de passe ni navigation privée).
+    pub screen_context: bool,
+    /// Applications exclues de la lecture de contexte même quand l'option est
+    /// activée (noms d'exécutables ou de paquets, ex. `banque.exe`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screen_context_excluded_apps: Vec<String>,
 }
 
 impl Default for DictationConfig {
@@ -217,6 +225,8 @@ impl Default for DictationConfig {
             sounds: true,
             pause_media: true,
             voice_commands: true,
+            screen_context: false,
+            screen_context_excluded_apps: Vec::new(),
         }
     }
 }
@@ -1106,6 +1116,8 @@ impl Config {
         self.dictionary = clean_dictionary(&self.dictionary)?;
         self.snippets = clean_snippets(&self.snippets)?;
         self.styles = clean_styles(&self.styles)?;
+        self.dictation.screen_context_excluded_apps =
+            crate::context::clean_excluded_apps(&self.dictation.screen_context_excluded_apps);
         self.check_prompt_refs(&self.llm)?;
         for profile in &self.llm_profiles {
             self.check_prompt_refs(&profile.llm)

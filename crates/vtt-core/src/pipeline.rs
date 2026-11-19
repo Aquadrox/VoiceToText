@@ -40,6 +40,9 @@ pub struct Target {
     pub app: Option<String>,
     /// Titre de la fenêtre (jamais journalisé : il peut être personnel).
     pub title: Option<String>,
+    /// Termes extraits localement autour du curseur (opt-in, jamais journalisés
+    /// ni enregistrés dans l'historique).
+    pub context_terms: Vec<String>,
 }
 
 /// Consoles où un texte collé contenant un retour à la ligne est exécuté.
@@ -105,6 +108,13 @@ pub fn spread_words(text: &str, start_ms: u64, end_ms: u64) -> Vec<Word> {
 pub trait Transcriber: Send + Sync {
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error>;
 
+    /// Transcription avec termes d'appoint propres à cette dictée (extraits
+    /// autour du curseur, opt-in) : n'altère pas le dictionnaire permanent.
+    fn transcribe_with_hints(&self, clip: &AudioClip, hints: &[String]) -> Result<String, Error> {
+        let _ = hints;
+        self.transcribe(clip)
+    }
+
     /// Mots horodatés (capture commentée : savoir quand « ici » a été dit).
     /// Par défaut : le texte réparti sur la durée du clip.
     fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
@@ -146,6 +156,9 @@ pub struct Directives<'a> {
     pub style: Option<&'a str>,
     /// Mode traduction : langue dans laquelle traduire le texte final.
     pub translate_to: Option<&'a str>,
+    /// Termes extraits localement autour du curseur (orthographe de référence
+    /// uniquement, jamais une consigne).
+    pub context_terms: &'a [String],
 }
 
 pub trait PostProcessor: Send + Sync {
@@ -367,6 +380,14 @@ impl Pipeline {
     /// Transcription filtrée et durée de l'ASR ; `None` si le clip est trop
     /// court, silencieux ou ne contient qu'une hallucination.
     fn transcribe(&self, clip: &AudioClip) -> Result<Option<(String, u128)>, Error> {
+        self.transcribe_with_hints(clip, &[])
+    }
+
+    fn transcribe_with_hints(
+        &self,
+        clip: &AudioClip,
+        hints: &[String],
+    ) -> Result<Option<(String, u128)>, Error> {
         self.last_asr_ms.store(0, Ordering::Relaxed);
         if clip.duration_ms() < MIN_CLIP_MS {
             log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
@@ -378,7 +399,11 @@ impl Pipeline {
         }
 
         let started = Instant::now();
-        let transcribed = self.transcriber.transcribe(clip)?;
+        let transcribed = if hints.is_empty() {
+            self.transcriber.transcribe(clip)?
+        } else {
+            self.transcriber.transcribe_with_hints(clip, hints)?
+        };
         let asr_ms = started.elapsed().as_millis();
         self.last_asr_ms
             .store(u64::try_from(asr_ms).unwrap_or(u64::MAX), Ordering::Relaxed);
@@ -441,7 +466,7 @@ impl Pipeline {
         translate_to: Option<&str>,
     ) -> Result<Outcome, Error> {
         let sink = sink.unwrap_or(self.sink.as_ref());
-        let Some((raw, asr_ms)) = self.transcribe(clip)? else {
+        let Some((raw, asr_ms)) = self.transcribe_with_hints(clip, &target.context_terms)? else {
             return Ok(Outcome::Skipped);
         };
         if self.voice_commands && text::is_undo_command(&raw) {
@@ -503,6 +528,7 @@ impl Pipeline {
                 .map(|(_, s)| s.instructions.trim())
                 .filter(|i| !i.is_empty()),
             translate_to,
+            context_terms: &target.context_terms,
         };
         let started = Instant::now();
         let (text, post_process_error, usage, fallback) = match processor {
@@ -692,6 +718,7 @@ mod tests {
         Target {
             app: Some(app.into()),
             title: Some("Fenêtre".into()),
+            context_terms: Vec::new(),
         }
     }
 
@@ -1125,5 +1152,51 @@ mod tests {
         p.reconfigure(&[], &[], &styles(), Some(Box::new(Upper)));
         p.run(&clip_ms(1000), &target("slack.exe")).unwrap();
         assert_eq!(*sink.0.lock().unwrap(), ["SALUT [décontracté]"]);
+    }
+
+    #[test]
+    fn context_terms_reach_both_asr_and_post_processor() {
+        struct HintAsr(Arc<Mutex<Vec<String>>>);
+        impl Transcriber for HintAsr {
+            fn transcribe(&self, _: &AudioClip) -> Result<String, Error> {
+                Ok("bonjour".into())
+            }
+            fn transcribe_with_hints(
+                &self,
+                _: &AudioClip,
+                hints: &[String],
+            ) -> Result<String, Error> {
+                *self.0.lock().unwrap() = hints.to_vec();
+                Ok("bonjour".into())
+            }
+        }
+        struct HintLlm(Arc<Mutex<Vec<String>>>);
+        impl PostProcessor for HintLlm {
+            fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+                *self.0.lock().unwrap() = directives.context_terms.to_vec();
+                Ok(Cleaned {
+                    text: raw.to_owned(),
+                    usage: None,
+                    fallback: None,
+                })
+            }
+        }
+
+        let asr_seen = Arc::new(Mutex::new(Vec::new()));
+        let llm_seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Recorder::default();
+        let p = Pipeline::new(
+            Box::new(HintAsr(Arc::clone(&asr_seen))),
+            Some(Box::new(HintLlm(Arc::clone(&llm_seen)))),
+            Box::new(sink),
+        );
+        let t = Target {
+            app: Some("code.exe".into()),
+            title: Some("sync.rs".into()),
+            context_terms: vec!["SyncServer".into(), "ChaCha20".into()],
+        };
+        p.run(&clip_ms(1000), &t).unwrap();
+        assert_eq!(*asr_seen.lock().unwrap(), ["SyncServer", "ChaCha20"]);
+        assert_eq!(*llm_seen.lock().unwrap(), ["SyncServer", "ChaCha20"]);
     }
 }
