@@ -508,8 +508,83 @@ Accélérer la CI sans baisser la garde :
 - ✅ Délai maximal par job (30 à 60 min au lieu des 6 h par défaut de GitHub) : un téléchargement ou une compilation bloqués ne monopolisent plus la CI ; artefacts de test gardés 14 jours (ceux d'une release sont publiés avec elle)
 - ✅ AppImage compilée dans un conteneur `ubuntu:22.04` sur `ubuntu-latest` : même glibc (2.35, compatibilité avec les systèmes un peu anciens) sans dépendre de l'image `ubuntu-22.04` de GitHub, en fin de vie (dépréciation depuis septembre 2026, coupures programmées, retrait le 17/04/2027). git installé avant checkout (historique pour changes.sh), clang pour bindgen, Node par setup-node, outils AppImage extraits au lieu d'être montés (pas de FUSE). SDK Vulkan officiel de LunarG téléchargé à version figée (1.4.363.1, en-têtes, bibliothèques et glslc seulement) au lieu de l'action tierce : Ubuntu 22.04 n'a pas de glslc (vérifié en conteneur)
 
-## Plus tard
+## Prochaines étapes — Tout de suite ⬜
+
+Avancement par petits incréments validés un par un (une fonction / brique par PR) :
+
+### 1. Élargir la couverture de tests ⬜
+
+Réduire l'asymétrie entre le cœur Rust (déjà bien testé) et les couches applicatives (`apps/desktop`, `crates/vtt-android`, `vtt-platform`, UI) avant d'ajouter de nouvelles briques :
+
+- ⬜ Cartographier les zones peu ou pas couvertes (gestion des réunions, contrôleur desktop, pont JNI Android, `vtt-platform`)
+- ⬜ Ajouter des tests unitaires et d'intégration ciblés sur les flux critiques (`apps/desktop`, `crates/vtt-android`, `vtt-core` cas limites)
+- ⬜ Mettre en place une base de tests automatisés permanents côté Android (unitaires JVM / Robolectric) et UI desktop (vérifications automatisées en CI)
+
+### 2. Synchronisation locale Wi-Fi (pair-à-pair, chiffrée) ⬜
+
+Synchroniser réglages (dictionnaire, snippets, styles, prompts, profils — jamais les clés API) et réunions (`meeting.json`) entre PC, Steam Deck et Android sur le réseau local, sans cloud ni compte :
+
+- ⬜ Protocole commun dans `vtt-core` : appairage par QR code (clé de session éphémère), chiffrement de bout en bout (ChaCha20-Poly1305), résolution de conflits simple et déterministe (horodatage / fusion dictionnaire et snippets)
+- ⬜ Découverte sur le réseau local par mDNS (avec saisie manuelle IP:port en secours)
+- ⬜ Synchronisation de la configuration et du vocabulaire (PC ↔ Android et PC ↔ PC)
+- ⬜ Synchronisation des réunions (`meeting.json`, transcription, compte rendu, rapport ; audio en option)
+- ⬜ Interfaces PC (page dédiée ou section Réglages : afficher / scanner QR code, appareils appairés, état de synchro) et Android
+
+### 3. Contexte du champ actif / d'écran (opt-in) ⬜
+
+Améliorer l'orthographe des noms propres, termes techniques et symboles de code visibles autour du curseur, sans jamais quitter les garde-fous de confidentialité :
+
+- ⬜ Option dédiée désactivée par défaut (réglable globalement et par application), strictement bloquée sur les champs de mot de passe et la navigation privée ; texte jamais journalisé ni enregistré dans l'historique
+- ⬜ Lecture du texte autour du curseur sur Windows (UI Automation) et Android (service d'accessibilité / `InputConnection`), repli propre sur Linux
+- ⬜ Extraction locale des termes utiles (noms propres, identifiants, jargon) dans `vtt-core`, bornée en taille et désamorcée contre l'injection de prompt, puis transmise à l'ASR et au LLM
+
+### 4. Prévisualisation en continu (dictée longue) ⬜
+
+Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres :
+
+- ⬜ Découpage incrémental de l'audio pendant la dictée longue dans `vtt-core` (réutilisation de la logique de découpe aux pauses des réunions)
+- ⬜ Affichage du texte transcrit au fil de l'eau dans la pastille desktop (et sur Android) pendant la dictée mains libres
+- ⬜ Nettoyage LLM final cohérent à l'arrêt de la dictée et insertion unique dans l'application active
+
+## Prochaines étapes — Puis ⬜
+
+### Consolidation technique (en parallèle) ⬜
+
+- ⬜ Découper `apps/desktop/src/meetings.rs` et `crates/vtt-android/src/meetings.rs` en sous-modules thématiques (capture, transcription, export, stockage, commandes) et remonter la logique d'orchestration commune dans `vtt-core`
+- ⬜ Découper `crates/vtt-core/src/config.rs` et `apps/desktop/ui/app.css` en modules plus lisibles si nécessaire
+- ⬜ Pérenniser des tests de non-régression UI en CI : tests Playwright légers sur `apps/desktop/ui` (clair/sombre, réglages, réunions) et tests unitaires / Robolectric committés sur Android
+
+## Prochaines étapes — Ensuite ⬜
+
+### Carnet de voix local (empreintes récurrentes) ⬜
+
+- ⬜ Base locale chiffrée d'empreintes vocales (WeSpeaker, opt-in explicite par personne : « Mémoriser la voix de … », suppression en un clic)
+- ⬜ Reconnaissance automatique des intervenants connus dès la fin d'une nouvelle réunion (PC et Android), combinée avec la détection de présentation existante
+
+### Recherche sémantique locale + RAG amélioré ⬜
+
+- ⬜ Index d'embeddings local en ONNX (modèle multilingue léger téléchargé à la demande, réutilisant ONNX Runtime déjà présent)
+- ⬜ Recherche hybride (mots-clés + sémantique) sur toutes les réunions et sélection de passages enrichie pour « Poser une question » au LLM
+
+### Restauration complète du presse-papier ⬜
+
+- ⬜ Sauvegarder et restaurer l'ensemble des formats du presse-papier (images, HTML, fichiers, texte riche) lors du collage d'une dictée sur Windows et Linux, au lieu du texte brut uniquement
+
+### Capture commentée : floutage rapide d'une zone sensible ⬜
+
+- ⬜ Outil rapide de floutage / masquage d'une zone sur l'écran ou sur la planche avant collage ou envoi au LLM vision (masquer clés, mails, données personnelles)
+
+## Backlog (plus tard)
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
-- Anglais, nettoyage local. Pas de macOS (pas de Mac pour tester).
 - Android : ne garder que la bulle (plus pratique que changer de clavier). À faire une fois la bulle éprouvée ; à régler avant : installation bloquée par Play Protect hors Play Store (service d'accessibilité), navigation privée invisible pour la bulle (le clavier la voit).
+- Pas de macOS (pas de Mac pour tester).
+- Multilingue (sortir de l'ancrage uniquement francophone) : commandes vocales, filtres d'hallucinations et épellation adaptés à la langue.
+- Bascule rapide de langue / détection automatique (alternance FR ↔ EN sans passer par les réglages).
+- Nettoyage LLM local intégré (petit modèle GGUF embarqué / téléchargeable en un clic via `llama.cpp`, sans installer Ollama).
+- ASR cloud en option (Groq Whisper, Mistral Voxtral, OpenAI) via le trait `Transcriber` existant, désactivé par défaut.
+- Délégation de transcription Android → PC sur le réseau local (enregistrer sur le téléphone, transcrire/diariser sur le GPU du PC).
+- Correction manuelle de la transcription d'une réunion (avec proposition d'ajout au dictionnaire) et export sous-titres (`.srt` / `.vtt`).
+- Snippets dynamiques (variables `{date}`, `{heure}`, `{presse-papier}`, `{selection}` et gabarits LLM).
+- Capture commentée : export structuré (Markdown + images séparées, ou bundle prêt pour GitHub / Jira / Linear).
+- Décalage de parité PC / Android et validations terrain en attente : non prioritaires, traités au fil de l'eau selon le besoin.
