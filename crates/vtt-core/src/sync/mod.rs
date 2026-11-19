@@ -9,23 +9,42 @@
 //!   appairés ([`PeerStore`]) ;
 //! - [`merge`] : fusion déterministe de la configuration portable (dictionnaire,
 //!   snippets, styles, prompts, profils LLM — **jamais les clés API**) et
-//!   différentiel des réunions ([`MeetingDigest`], [`diff_meetings`]).
+//!   différentiel des réunions ([`MeetingDigest`], [`diff_meetings`]) ;
+//! - [`session`] : stockage local ([`SyncStorage`], [`DiskSyncStorage`]) et
+//!   orchestration des sessions d'appairage et de synchronisation (config +
+//!   réunions `meeting.json`) ;
+//! - [`transport`] : serveur et client TCP local ([`SyncServer`],
+//!   [`pair_over_tcp`], [`sync_with_peer`]) ;
+//! - [`discovery`] : découverte mDNS (`_voicetotext._tcp.local.`) sans démon
+//!   système, avec secours direct IP:port.
 
 pub mod channel;
 pub mod crypto;
+pub mod discovery;
 pub mod merge;
 pub mod pairing;
+pub mod session;
+pub mod transport;
 
 pub use channel::{EncryptedChannel, RemotePeerInfo};
 pub use crypto::{
     AuthConfirm, Hello, HelloAck, SessionCipher, SessionRole, SyncKey, auth_tag, decode_frame,
     derive_session_nonce, encode_frame, verify_tag,
 };
+pub use discovery::{DiscoveredPeer, MdnsPacket, MdnsService};
 pub use merge::{
     MeetingDiff, MeetingDigest, MergeReport, SyncMessage, SyncableConfig, diff_meetings,
     meeting_digest, merge_config, sanitize_meeting_for_sync,
 };
 pub use pairing::{DeviceId, LocalIdentity, PairingOffer, Peer, PeerStore};
+pub use session::{
+    DiskSyncStorage, SyncOptions, SyncStorage, SyncSummary, pair_as_initiator, pair_as_responder,
+    sync_as_initiator, sync_as_responder, valid_meeting_id,
+};
+pub use transport::{
+    DEFAULT_CONNECT_TIMEOUT, DEFAULT_IO_TIMEOUT, SyncEvent, SyncServer, detect_local_addrs, now_ms,
+    pair_over_tcp, sync_with_peer,
+};
 
 use thiserror::Error;
 
@@ -57,6 +76,10 @@ pub enum SyncError {
     InvalidOffer(String),
     #[error("offre d'appairage expirée")]
     OfferExpired,
+    #[error("aucun appairage n'est ouvert sur cet appareil")]
+    PairingClosed,
+    #[error("appareil non appairé : {0}")]
+    UnknownPeer(DeviceId),
     #[error("version de protocole non prise en charge : {0}")]
     UnsupportedVersion(u8),
     #[error("authentification refusée : l'appareil ne partage pas la même clé")]
@@ -71,6 +94,12 @@ pub enum SyncError {
     FrameTooLarge { size: usize },
     #[error("configuration synchronisée invalide : {0}")]
     InvalidConfig(String),
+    #[error("message de synchronisation inattendu : {0}")]
+    Protocol(String),
+    #[error("erreur renvoyée par l'appareil distant : {0}")]
+    Remote(String),
+    #[error("impossible de joindre l'appareil distant : {0}")]
+    Connect(String),
     #[error("erreur d'entrée/sortie : {0}")]
     Io(#[from] std::io::Error),
     #[error("erreur JSON : {0}")]
