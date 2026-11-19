@@ -539,13 +539,14 @@ Améliorer l'orthographe des noms propres, termes techniques et symboles de code
 - ✅ Saut 3C (PR #105) — Android (`vtt-android` + clavier / bulle) : lecture bornée autour du curseur via `InputConnection` (clavier) et `AccessibilityNodeInfo` (bulle), strictement bloquée sur `Privacy::Password`, `Privacy::NoHistory` (navigation privée / bulle sans historique) et gestionnaires de mots de passe, prise en charge des préfixes/segments de paquets Android dans les exclusions, réglages Android et tests Rust + Kotlin JVM
 - ⬜ À vérifier sur le terrain : qualité de l'extraction de noms propres/jargon sur PC (Windows UIA) et Android (clavier et bulle), blocage effectif sur mots de passe et navigation privée
 
-### 4. Synchronisation Wi-Fi : appairage direct par clic + code de confirmation ⬜
+### 4. Synchronisation Wi-Fi : appairage direct par clic + code de confirmation ✅
 
 Rendre l'appairage PC ↔ téléphone plus rapide et pratique sans avoir à scanner de QR code (#104) :
 
-- ⬜ Saut 4A — Protocole cryptographique + transport dans `vtt-core::sync` : échange de clés éphémères X25519 avec engagement anti-MITM, dérivation d'un code de vérification court à 6 chiffres (SAS) lié aux deux appareils, requêtes TCP d'appairage direct avec expiration courte et validation mutuelle
-- ⬜ Saut 4B — Interface PC (`apps/desktop`) : acceptation d'appairage direct lorsque la page **Réglages → Synchronisation** est ouverte, clic sur un appareil détecté, modale de confirmation avec le code à 6 chiffres (initiateur ou destinataire) et tests Rust + UI JS
-- ⬜ Saut 4C — Interface Android (`vtt-android` + `SyncSettings.kt`) : serveur local temporaire pendant que la page Synchronisation est ouverte, clic sur un PC détecté → dialogue de confirmation du code à 6 chiffres (dans les deux sens PC ↔ téléphone), tests Rust + Kotlin JVM et clôture `#104`
+- ✅ Saut 4A (PR #106) — Protocole cryptographique + transport dans `vtt-core::sync` : échange de clés éphémères X25519 avec engagement anti-MITM, dérivation d'un code de vérification court à 6 chiffres (SAS) lié aux deux appareils, requêtes TCP d'appairage direct avec expiration courte et validation mutuelle
+- ✅ Saut 4B (PR #107) — Interface PC (`apps/desktop`) : acceptation d'appairage direct lorsque la page **Réglages → Synchronisation** est ouverte, clic sur un appareil détecté, carte de confirmation avec le code à 6 chiffres (initiateur ou destinataire) et tests Rust + UI JS
+- ✅ Saut 4C — Interface Android (`vtt-android` + `SyncSettings.kt` + `NsdDiscovery.kt`) : serveur local temporaire + annonce DNS-SD pendant que la page Synchronisation est ouverte, clic sur un PC détecté → carte de confirmation du code à 6 chiffres (dans les deux sens PC ↔ téléphone), tests Rust + Kotlin JVM et version **v0.38.0**
+- ⬜ À vérifier sur le terrain : appairage direct par code à 6 chiffres PC → téléphone et téléphone → PC sur le Wi-Fi réel
 
 ### 5. Prévisualisation en continu (dictée longue) ⬜
 

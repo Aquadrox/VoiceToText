@@ -86,4 +86,56 @@ class SyncLogicTest {
         assertTrue(SyncLogic.sectionSummary(1).startsWith("1 appareil"))
         assertTrue(SyncLogic.sectionSummary(3).startsWith("3 appareils"))
     }
+
+    @Test
+    fun formatsPairingCodeAndFiltersSelfFromDiscovery() {
+        assertEquals("482 917", SyncLogic.formatPairingCode("482917"))
+        assertEquals("000 123", SyncLogic.formatPairingCode(" 000123 "))
+        assertEquals("abc", SyncLogic.formatPairingCode("abc"))
+
+        val selfId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        val pcId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        val devices = listOf(
+            DiscoveredDevice(selfId, "Mon téléphone", "192.168.1.25:41739"),
+            DiscoveredDevice(pcId, "PC Bureau", "192.168.1.10:41739"),
+        )
+        val filtered = SyncLogic.filterSelf(devices, selfId.uppercase())
+        assertEquals(1, filtered.size)
+        assertEquals(pcId, filtered[0].deviceId)
+    }
+
+    @Test
+    fun parsesDirectPairingStateAndEvents() {
+        val json = JSONObject()
+            .put("listening_port", 41739)
+            .put(
+                "pending",
+                JSONObject()
+                    .put("session_id", "sess-42")
+                    .put("remote_device_id", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                    .put("remote_device_name", "PC Bureau")
+                    .put("code", "482917")
+                    .put("formatted_code", "482 917")
+                    .put("expires_at_ms", 99_999L)
+                    .put("incoming", true)
+                    .put("local_approved", false),
+            )
+            .put(
+                "last_event",
+                JSONObject()
+                    .put("seq", 3L)
+                    .put("kind", "paired")
+                    .put("message", "Appareil « PC Bureau » appairé.")
+                    .put("config_changed", false),
+            )
+
+        val state = SyncLogic.parseDirectState(json)
+        assertEquals(41739, state.listeningPort)
+        assertEquals("sess-42", state.pending?.sessionId)
+        assertEquals("482 917", state.pending?.formattedCode)
+        assertTrue(state.pending?.incoming == true)
+        assertFalse(state.pending?.localApproved == true)
+        assertEquals(3L, state.lastEvent?.seq)
+        assertEquals("paired", state.lastEvent?.kind)
+    }
 }

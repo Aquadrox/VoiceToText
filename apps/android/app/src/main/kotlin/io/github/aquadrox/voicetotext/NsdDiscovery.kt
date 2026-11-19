@@ -29,6 +29,56 @@ class NsdDiscovery(
     private val infoCallbacks = LinkedHashMap<String, Any>()
     private var resolving = false
     private var discoveryListener: NsdManager.DiscoveryListener? = null
+    private var registrationListener: NsdManager.RegistrationListener? = null
+    @Volatile
+    private var selfDeviceId: String? = null
+
+    /**
+     * Annonce temporairement cet appareil sur `_voicetotext._tcp.` pour qu'un PC
+     * puisse le détecter et lancer un appairage direct par clic + code à 6 chiffres.
+     */
+    fun advertise(deviceId: String, deviceName: String, port: Int) {
+        val manager = nsd ?: return
+        if (port !in 1..65535 || deviceId.isBlank()) return
+        selfDeviceId = deviceId
+        stopAdvertising()
+
+        val info = NsdServiceInfo().apply {
+            serviceName = "vtt-${deviceId.take(8)}"
+            serviceType = SyncLogic.SERVICE_TYPE
+            setPort(port)
+            setAttribute("id", deviceId)
+            setAttribute("name", deviceName.trim().ifEmpty { "Android" })
+            setAttribute("v", "1")
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {}
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                registrationListener = null
+            }
+
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                registrationListener = null
+            }
+        }
+        registrationListener = listener
+        runCatching {
+            manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
+        }.onFailure {
+            registrationListener = null
+        }
+        synchronized(discoveredByService) {
+            publishLocked()
+        }
+    }
+
+    fun stopAdvertising() {
+        val manager = nsd ?: return
+        val listener = registrationListener ?: return
+        registrationListener = null
+        runCatching { manager.unregisterService(listener) }
+    }
 
     fun start() {
         val manager = nsd ?: run {
@@ -87,6 +137,7 @@ class NsdDiscovery(
     }
 
     fun stop() {
+        stopAdvertising()
         val manager = nsd ?: return
         discoveryListener?.let { listener ->
             discoveryListener = null
@@ -195,9 +246,10 @@ class NsdDiscovery(
     }
 
     private fun publishLocked() {
-        val snapshot = discoveredByService.values
-            .distinctBy { it.deviceId }
-            .sortedBy { it.deviceName.lowercase() }
+        val snapshot = SyncLogic.filterSelf(
+            discoveredByService.values.distinctBy { it.deviceId },
+            selfDeviceId,
+        ).sortedBy { it.deviceName.lowercase() }
         main.post { onChanged(snapshot) }
     }
 }
