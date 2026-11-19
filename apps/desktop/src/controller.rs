@@ -12,11 +12,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use vtt_core::config::{AsrConfig, HotkeyConfig, Pricing, Snippet, Style};
+use vtt_core::config::{AsrConfig, DictationConfig, HotkeyConfig, Pricing, Snippet, Style};
+use vtt_core::context;
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink, Word};
 use vtt_platform::audio::Recorder;
-use vtt_platform::{ClipboardPaster, MediaPauser, now_ms};
+use vtt_platform::{ClipboardPaster, FocusedField, MediaPauser, now_ms};
 
 use crate::costs::{self, LedgerStore};
 use crate::dictation_report;
@@ -354,6 +355,8 @@ fn run(
         recorder,
         sounds: config.dictation.sounds,
         media: config.dictation.pause_media.then(MediaPauser::spawn),
+        dictation: config.dictation.clone(),
+        dictionary: config.dictionary.clone(),
         confirmed: false,
         recording,
         reporter,
@@ -361,6 +364,7 @@ fn run(
         trigger: ptt.trigger(),
         key_name: config.hotkey.key.clone(),
         target: Target::default(),
+        pending_context: Arc::new(Mutex::new(Vec::new())),
         command: false,
         translation: channels.translation,
         translate_to: None,
@@ -491,6 +495,10 @@ struct Controls<'a> {
     sounds: bool,
     /// Pause de la musique pendant la dictée (`dictation.pause_media`).
     media: Option<MediaPauser>,
+    /// Réglages de dictée (contexte d'écran opt-in + exclusions).
+    dictation: DictationConfig,
+    /// Dictionnaire perso courant (pour éviter de renvoyer des doublons).
+    dictionary: Vec<String>,
     /// Appui assez long pour être une vraie dictée : son de début joué,
     /// musique en pause.
     confirmed: bool,
@@ -502,11 +510,31 @@ struct Controls<'a> {
     /// Fenêtre de destination, relevée au début de la dictée (le focus peut
     /// changer pendant la transcription).
     target: Target,
+    /// Termes de contexte lus en arrière-plan pour la dictée en cours (jamais
+    /// bloquants, jamais journalisés).
+    pending_context: Arc<Mutex<Vec<String>>>,
     /// La dictée en cours est une commande.
     command: bool,
     translation: TranslationState,
     /// Langue d'arrivée de la dictée en cours (mode traduction).
     translate_to: Option<String>,
+}
+
+/// Extrait les termes utiles d'un champ actif en appliquant tous les
+/// garde-fous (opt-in, mot de passe, navigation privée, exclusions).
+fn extract_context_for_field(
+    dictation: &DictationConfig,
+    target: &Target,
+    field: &FocusedField,
+    dictionary: &[String],
+) -> Vec<String> {
+    if !context::is_context_allowed(dictation, target, field.is_password) {
+        return Vec::new();
+    }
+    let Some(raw) = field.text.as_deref() else {
+        return Vec::new();
+    };
+    context::extract_context_terms(raw, dictionary)
 }
 
 impl Controls<'_> {
@@ -519,6 +547,29 @@ impl Controls<'_> {
                     let _ = self.clips.send(Work::Preload);
                     self.confirmed = false;
                     self.target = vtt_platform::foreground_target();
+                    let slot = Arc::new(Mutex::new(Vec::new()));
+                    self.pending_context = Arc::clone(&slot);
+                    if !command && context::is_context_allowed(&self.dictation, &self.target, false)
+                    {
+                        let dictation = self.dictation.clone();
+                        let target = self.target.clone();
+                        let dictionary = self.dictionary.clone();
+                        let _ = thread::Builder::new()
+                            .name("context".into())
+                            .spawn(move || {
+                                let field = vtt_platform::focused_field_context();
+                                let terms = extract_context_for_field(
+                                    &dictation,
+                                    &target,
+                                    &field,
+                                    &dictionary,
+                                );
+                                if !terms.is_empty() {
+                                    log::debug!("contexte : {} terme(s) extrait(s)", terms.len());
+                                    *lock(&slot) = terms;
+                                }
+                            });
+                    }
                     self.command = command;
                     self.translate_to = self.translation.current();
                     self.recording.store(true, Ordering::SeqCst);
@@ -544,6 +595,7 @@ impl Controls<'_> {
             Some(Action::Cancel) => {
                 self.recorder.stop();
                 self.recording.store(false, Ordering::SeqCst);
+                self.pending_context = Arc::new(Mutex::new(Vec::new()));
                 self.finish(Sound::Cancel);
                 self.reporter.set(Status::Idle);
             }
@@ -552,10 +604,18 @@ impl Controls<'_> {
                 self.recording.store(false, Ordering::SeqCst);
                 self.finish(Sound::Stop);
                 self.reporter.set(Status::Processing);
+                let mut target = std::mem::take(&mut self.target);
+                let command = std::mem::take(&mut self.command);
+                if !command
+                    && let Ok(mut ready) = self.pending_context.try_lock()
+                    && !ready.is_empty()
+                {
+                    target.context_terms = std::mem::take(&mut *ready);
+                }
                 let _ = self.clips.send(Work::Dictation(Job {
                     clip,
-                    target: std::mem::take(&mut self.target),
-                    command: std::mem::take(&mut self.command),
+                    target,
+                    command,
                     translate_to: self.translate_to.take(),
                 }));
             }
@@ -563,12 +623,14 @@ impl Controls<'_> {
         }
     }
 
-    /// Réglages modifiés : raccourci, micro, sons, pause de la musique.
+    /// Réglages modifiés : raccourci, micro, sons, pause de la musique, contexte.
     fn reconfigure(&mut self, config: &Config, trigger: u32, key_name: &str) {
         self.trigger = trigger;
         self.key_name = key_name.to_owned();
         self.recorder.set_device(device(config));
         self.sounds = config.dictation.sounds;
+        self.dictation = config.dictation.clone();
+        self.dictionary = config.dictionary.clone();
         if config.dictation.pause_media != self.media.is_some() {
             self.media = config.dictation.pause_media.then(MediaPauser::spawn);
         }
@@ -1356,5 +1418,47 @@ mod tests {
         assert_eq!(History::open(history_file, 20).recent(10).unwrap().len(), 3);
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn extract_context_for_field_enforces_opt_in_password_and_exclusions() {
+        let target = Target {
+            app: Some("code.exe".into()),
+            title: Some("sync.rs — Visual Studio Code".into()),
+            ..Target::default()
+        };
+        let field = FocusedField {
+            text: Some("struct SyncServer utilise ChaCha20 et vtt-core".into()),
+            is_password: false,
+        };
+
+        // Désactivé par défaut : aucun terme extrait.
+        let disabled = DictationConfig::default();
+        assert!(extract_context_for_field(&disabled, &target, &field, &[]).is_empty());
+
+        // Activé : extrait les symboles techniques (hors dictionnaire déjà connu).
+        let enabled = DictationConfig {
+            screen_context: true,
+            screen_context_excluded_apps: vec!["banque.exe".into()],
+            ..DictationConfig::default()
+        };
+        let terms = extract_context_for_field(&enabled, &target, &field, &["ChaCha20".into()]);
+        assert!(terms.contains(&"SyncServer".to_owned()), "{terms:?}");
+        assert!(terms.contains(&"vtt-core".to_owned()), "{terms:?}");
+        assert!(!terms.iter().any(|t| t == "ChaCha20"));
+
+        // Champ mot de passe : toujours vide même si du texte était présent.
+        let pwd = FocusedField {
+            text: Some("SyncServer".into()),
+            is_password: true,
+        };
+        assert!(extract_context_for_field(&enabled, &target, &pwd, &[]).is_empty());
+
+        // Application exclue : vide.
+        let excluded = Target {
+            app: Some("Banque.exe".into()),
+            ..Target::default()
+        };
+        assert!(extract_context_for_field(&enabled, &excluded, &field, &[]).is_empty());
     }
 }

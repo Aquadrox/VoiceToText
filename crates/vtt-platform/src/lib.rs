@@ -9,6 +9,10 @@ mod autostart_windows;
 #[cfg(windows)]
 pub use autostart_windows::{autostart_enabled, set_autostart};
 #[cfg(windows)]
+mod context_windows;
+#[cfg(windows)]
+pub use context_windows::focused_field_context;
+#[cfg(windows)]
 mod media_windows;
 #[cfg(windows)]
 pub use media_windows::MediaPauser;
@@ -40,10 +44,10 @@ pub use autostart_linux::{autostart_enabled, set_autostart};
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
-    ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, foreground_rect,
-    foreground_target, fullscreen_app_running, is_steam_deck, key_code, key_is_down, modifier_of,
-    modifiers_down, pressed_keys, session_report, shortcut_key, spawn_keyboard_hook,
-    suppress_menu_activation,
+    ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, focused_field_context,
+    foreground_rect, foreground_target, fullscreen_app_running, is_steam_deck, key_code,
+    key_is_down, modifier_of, modifiers_down, pressed_keys, session_report, shortcut_key,
+    spawn_keyboard_hook, suppress_menu_activation,
 };
 #[cfg(target_os = "linux")]
 mod gamemode_linux;
@@ -104,12 +108,21 @@ mod unsupported;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub use unsupported::{
     ClickRecorder, ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys,
-    copy_selection, copy_text, delete_secret, exclude_from_capture, foreground_rect,
-    foreground_target, fullscreen_app_running, key_code, key_is_down, list_secrets, load_secret,
-    microphone_apps, modifier_of, modifiers_down, paste_image, play_sound, pressed_keys, protect,
-    screenshot, set_autostart, shortcut_key, spawn_keyboard_hook, store_secret,
-    suppress_menu_activation, unprotect,
+    copy_selection, copy_text, delete_secret, exclude_from_capture, focused_field_context,
+    foreground_rect, foreground_target, fullscreen_app_running, key_code, key_is_down,
+    list_secrets, load_secret, microphone_apps, modifier_of, modifiers_down, paste_image,
+    play_sound, pressed_keys, protect, screenshot, set_autostart, shortcut_key,
+    spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
 };
+
+/// Extrait du champ ayant le focus clavier (opt-in, jamais journalisé).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FocusedField {
+    /// Texte borné autour du curseur (`None` si indisponible ou protégé).
+    pub text: Option<String>,
+    /// `true` si le champ est un champ de mot de passe (lecture refusée).
+    pub is_password: bool,
+}
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
