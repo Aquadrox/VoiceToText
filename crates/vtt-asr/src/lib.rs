@@ -175,6 +175,16 @@ fn vocabulary_prompt(dictionary: &[String]) -> Option<String> {
     (!words.is_empty()).then(|| words.join(", "))
 }
 
+fn combine_prompts(base: Option<String>, hints: &[String]) -> Option<String> {
+    let extra = vocabulary_prompt(hints);
+    match (base, extra) {
+        (Some(b), Some(e)) => Some(format!("{b}, {e}")),
+        (Some(b), None) => Some(b),
+        (None, Some(e)) => Some(e),
+        (None, None) => None,
+    }
+}
+
 impl Transcriber for WhisperTranscriber {
     fn set_vocabulary(&self, words: &[String]) {
         *self
@@ -195,15 +205,19 @@ impl Transcriber for WhisperTranscriber {
     }
 
     fn transcribe(&self, clip: &AudioClip) -> Result<String, Error> {
+        self.transcribe_with_hints(clip, &[])
+    }
+
+    fn transcribe_with_hints(&self, clip: &AudioClip, hints: &[String]) -> Result<String, Error> {
         let mut text = String::new();
-        self.run(clip, false, |segment, _, _| text.push_str(segment))?;
+        self.run(clip, false, hints, |segment, _, _| text.push_str(segment))?;
         Ok(text.trim().to_owned())
     }
 
     /// Un segment par mot (`max_len` 1, coupure aux mots), horodaté.
     fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
         let mut words = Vec::new();
-        self.run(clip, true, |segment, start_ms, end_ms| {
+        self.run(clip, true, &[], |segment, start_ms, end_ms| {
             let text = segment.trim();
             if !text.is_empty() {
                 words.push(Word {
@@ -224,13 +238,15 @@ impl WhisperTranscriber {
         &self,
         clip: &AudioClip,
         words: bool,
+        hints: &[String],
         mut on_segment: impl FnMut(&str, u64, u64),
     ) -> Result<(), Error> {
-        let prompt = self
+        let base_prompt = self
             .initial_prompt
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let prompt = combine_prompts(base_prompt, hints);
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some(&self.language));
         params.set_translate(false);
@@ -294,5 +310,25 @@ mod tests {
         assert_eq!(audio_ctx(10 * SAMPLE_RATE as usize), Some(600));
         // 28 s et plus : contexte complet.
         assert_eq!(audio_ctx(28 * SAMPLE_RATE as usize), None);
+    }
+
+    #[test]
+    fn combine_prompts_appends_ephemeral_hints_after_dictionary() {
+        assert_eq!(combine_prompts(None, &[]), None);
+        assert_eq!(
+            combine_prompts(Some("Aquadrox".into()), &[]),
+            Some("Aquadrox".into())
+        );
+        assert_eq!(
+            combine_prompts(None, &["SyncServer".into(), "mDNS".into()]),
+            Some("SyncServer, mDNS".into())
+        );
+        assert_eq!(
+            combine_prompts(
+                Some("Aquadrox".into()),
+                &["SyncServer".into(), "  ".into(), "ChaCha20".into()],
+            ),
+            Some("Aquadrox, SyncServer, ChaCha20".into())
+        );
     }
 }

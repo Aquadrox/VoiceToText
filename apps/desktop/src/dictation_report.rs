@@ -149,6 +149,7 @@ mod tests {
         Target {
             app: Some("notepad.exe".into()),
             title: Some("Titre personnel".into()),
+            ..Target::default()
         }
     }
 

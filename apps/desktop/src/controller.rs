@@ -1242,7 +1242,7 @@ mod tests {
         // Dans un terminal, run_command refuse immédiatement sans simuler Ctrl+C.
         let terminal = Target {
             app: Some("wt.exe".into()),
-            title: None,
+            ..Target::default()
         };
         assert!(process(&pipeline, &command_job, &terminal, None, "").is_err());
 
@@ -1279,7 +1279,7 @@ mod tests {
             },
             target: Target {
                 app: Some("slack.exe".into()),
-                title: None,
+                ..Target::default()
             },
             command: false,
             translate_to: None,

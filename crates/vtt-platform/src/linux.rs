@@ -675,6 +675,7 @@ pub fn foreground_target() -> Target {
         return Target {
             app: Some(window.class).filter(|c| !c.is_empty()),
             title: Some(window.title).filter(|t| !t.is_empty()),
+            ..Target::default()
         };
     }
     let Some((conn, screen)) = display() else {
@@ -695,7 +696,11 @@ pub fn foreground_target() -> Target {
                 .and_then(|reply| reply.value32()?.next())
                 .and_then(process_name)
         });
-    Target { app, title }
+    Target {
+        app,
+        title,
+        ..Target::default()
+    }
 }
 
 /// Classe d'une fenêtre : `WM_CLASS` contient « instance\0classe\0 ».

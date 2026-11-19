@@ -10,6 +10,7 @@ pub mod audio;
 pub mod calls;
 pub mod changelog;
 pub mod config;
+pub mod context;
 pub mod diarize;
 pub mod fbank;
 pub mod history;

@@ -170,6 +170,7 @@ mod tests {
         let target = Target {
             app: Some("slack.exe".into()),
             title: Some("Conversation confidentielle".into()),
+            ..Target::default()
         };
         let pricing = Pricing {
             input_per_million: 1.0,

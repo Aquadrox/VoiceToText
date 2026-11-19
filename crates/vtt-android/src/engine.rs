@@ -330,7 +330,7 @@ pub fn dictate(samples: Vec<f32>, app: Option<String>, mode: Mode, privacy: Priv
     };
     let target = Target {
         app: app.clone(),
-        title: None,
+        ..Target::default()
     };
     let clip = AudioClip { samples };
     let started = Instant::now();
