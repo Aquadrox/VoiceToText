@@ -91,21 +91,44 @@ const SILENCE_RMS: f32 = 0.01;
 /// Reste plus court à la fin : ignoré.
 const MIN_TAIL_MS: u64 = 300;
 
-/// Découpe un flux continu en blocs de 6 à 15 s, aux pauses.
-#[derive(Debug, Default)]
+/// Découpe un flux continu en blocs aux pauses (6 à 15 s par défaut pour les
+/// réunions, ou bornes personnalisées via [`Chunker::with_bounds`]).
+#[derive(Debug)]
 pub struct Chunker {
     buffer: Vec<f32>,
     /// Position (en échantillons) du début de `buffer` depuis le début.
     start: u64,
+    min_chunk_ms: u64,
+    max_chunk_ms: u64,
+}
+
+impl Default for Chunker {
+    fn default() -> Self {
+        Self::with_bounds(MIN_CHUNK_MS, MAX_CHUNK_MS)
+    }
 }
 
 impl Chunker {
+    /// Découpe en blocs compris entre `min_chunk_ms` et `max_chunk_ms` (bornés
+    /// pour garder des tranches exploitables : au moins 500 ms, et `max` au
+    /// moins 500 ms au-dessus de `min`).
+    pub fn with_bounds(min_chunk_ms: u64, max_chunk_ms: u64) -> Self {
+        let min_chunk_ms = min_chunk_ms.max(500);
+        let max_chunk_ms = max_chunk_ms.max(min_chunk_ms + 500);
+        Self {
+            buffer: Vec::new(),
+            start: 0,
+            min_chunk_ms,
+            max_chunk_ms,
+        }
+    }
+
     /// Reprise après coup (transcription d'un enregistrement interrompu) :
     /// le premier bloc commence à `start_ms`.
     pub fn starting_at(start_ms: u64) -> Self {
         Self {
-            buffer: Vec::new(),
             start: ms_to_samples(start_ms) as u64,
+            ..Self::default()
         }
     }
 
@@ -144,8 +167,8 @@ impl Chunker {
     /// Où couper le tampon, s'il contient un bloc complet.
     fn cut_point(&self) -> Option<usize> {
         let frame = ms_to_samples(FRAME_MS);
-        let min = ms_to_samples(MIN_CHUNK_MS);
-        let max = ms_to_samples(MAX_CHUNK_MS);
+        let min = ms_to_samples(self.min_chunk_ms);
+        let max = ms_to_samples(self.max_chunk_ms);
         if self.buffer.len() < min {
             return None;
         }
@@ -168,9 +191,11 @@ impl Chunker {
         if self.buffer.len() < max {
             return None;
         }
-        // Pas de pause : la trame la plus calme des 3 dernières secondes.
-        let from = max - ms_to_samples(3_000);
-        let quietest = (from..max - frame)
+        // Pas de pause : la trame la plus calme dans la fenêtre finale
+        // (au plus 3 s, sans remonter avant `min`).
+        let search_back = ms_to_samples(3_000).min(max - min);
+        let from = max - search_back;
+        let quietest = (from..max.saturating_sub(frame))
             .step_by(frame)
             .min_by(|&a, &b| {
                 audio::rms(&self.buffer[a..a + frame])
@@ -720,6 +745,24 @@ mod tests {
             .flat_map(|p| chunker.feed(p))
             .collect();
         assert_eq!(pieces, whole);
+    }
+
+    #[test]
+    fn custom_bounds_cut_earlier_without_affecting_default() {
+        let mut chunker = Chunker::with_bounds(2_000, 5_000);
+        let mut audio = speech(2.5);
+        audio.extend(silence(0.4));
+        audio.extend(speech(1.0));
+        let chunks = chunker.feed(&audio);
+        assert_eq!(chunks.len(), 1);
+        let end = chunks[0].end_ms();
+        assert!(
+            (2_500..=3_000).contains(&end),
+            "coupé dans la pause : {end} ms"
+        );
+        // Bornes inversées ou trop petites : sécurisées sans panique.
+        let mut clamped = Chunker::with_bounds(100, 200);
+        assert!(!clamped.feed(&speech(2.0)).is_empty());
     }
 
     #[test]

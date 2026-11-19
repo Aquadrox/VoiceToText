@@ -15,6 +15,7 @@ pub mod diarize;
 pub mod fbank;
 pub mod history;
 pub mod hotkey;
+pub mod live;
 pub mod meeting;
 pub mod pipeline;
 pub mod search;
@@ -25,6 +26,6 @@ pub mod usage;
 
 pub use config::Config;
 pub use pipeline::{
-    AudioClip, Cleaned, Directives, Error, Outcome, Pipeline, PostProcessor, SAMPLE_RATE, Target,
-    TextSink, Transcriber, WithFallback, Word, spread_words,
+    AudioClip, Cleaned, Directives, Error, Outcome, Pipeline, PostProcessor, RawDictation,
+    SAMPLE_RATE, Target, TextSink, Transcriber, WithFallback, Word, spread_words,
 };
