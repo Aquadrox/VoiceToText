@@ -257,6 +257,17 @@ class MainActivity : Activity() {
         summaries[Section.HISTORY]?.summary(
             if (view.getBoolean("history")) "Dictées gardées sur le téléphone" else "Désactivé : rien n'est gardé",
         )
+        val syncPeers = runCatching {
+            JSONObject(
+                Native.syncView(
+                    store.configPath,
+                    store.syncPeersFile,
+                    store.meetingsDir,
+                    SyncSettings.defaultPhoneName(),
+                ),
+            ).optJSONObject("ok")?.optJSONArray("peers")?.length() ?: 0
+        }.getOrDefault(0)
+        summaries[Section.SYNC]?.summary(SyncLogic.sectionSummary(syncPeers))
         summaries[Section.HELP]?.summary("Comment dicter · importer les réglages du PC")
         refreshStatus()
         refreshUpdate()

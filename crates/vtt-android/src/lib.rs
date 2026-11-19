@@ -12,6 +12,7 @@ pub mod meetings;
 pub mod models;
 pub mod providers;
 pub mod settings;
+pub mod sync;
 
 use std::path::PathBuf;
 
@@ -829,6 +830,175 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicesProgress
     models::VOICES_PROGRESS
         .load(std::sync::atomic::Ordering::Relaxed)
         .into()
+}
+
+// --- Synchronisation locale Wi-Fi ---
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncView<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let json = protect(|| {
+        reply(sync::view(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncRenameDevice<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    name: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let name = text(&mut env, &name);
+    let json = protect(|| {
+        reply(sync::rename_device(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &name,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncPairUri<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    uri: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let uri = text(&mut env, &uri);
+    let json = protect(|| {
+        reply(sync::pair_uri(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &uri,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncNow<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    device_id: JString<'a>,
+    addr_override: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let device_id = text(&mut env, &device_id);
+    let addr_override = text(&mut env, &addr_override);
+    let json = protect(|| {
+        reply(sync::sync_now(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &device_id,
+            &addr_override,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncSetPeerPrefs<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    device_id: JString<'a>,
+    sync_settings: jboolean,
+    sync_meetings: jboolean,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let device_id = text(&mut env, &device_id);
+    let json = protect(|| {
+        reply(sync::set_peer_prefs(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &device_id,
+            sync_settings != 0,
+            sync_meetings != 0,
+        ))
+    });
+    java(&mut env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_syncRemovePeer<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    config_path: JString<'a>,
+    peers_path: JString<'a>,
+    meetings_dir: JString<'a>,
+    default_name: JString<'a>,
+    device_id: JString<'a>,
+) -> jstring {
+    let config_path = PathBuf::from(text(&mut env, &config_path));
+    let peers_path = PathBuf::from(text(&mut env, &peers_path));
+    let meetings_dir = PathBuf::from(text(&mut env, &meetings_dir));
+    let default_name = text(&mut env, &default_name);
+    let device_id = text(&mut env, &device_id);
+    let json = protect(|| {
+        reply(sync::remove_peer(
+            &config_path,
+            &peers_path,
+            &meetings_dir,
+            &default_name,
+            &device_id,
+        ))
+    });
+    java(&mut env, &json)
 }
 
 #[cfg(test)]

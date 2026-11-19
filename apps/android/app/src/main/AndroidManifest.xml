@@ -103,6 +103,19 @@
             android:exported="false"
             android:label="Historique" />
         <activity
+            android:name=".SyncSettings"
+            android:exported="true"
+            android:label="Synchronisation Wi-Fi"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vttsync" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".UpdatesSettings"
             android:exported="false"
             android:label="Mises à jour"

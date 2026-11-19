@@ -28,6 +28,7 @@ enum class Section(val title: String, val icon: Int, val page: Class<out Activit
     VOCABULARY("Dictionnaire et snippets", R.drawable.ic_book_a, VocabularyActivity::class.java),
     BUBBLE("Bulle de dictée", R.drawable.ic_message_circle, BubbleSettings::class.java),
     HISTORY("Historique", R.drawable.ic_history, HistorySettings::class.java),
+    SYNC("Synchronisation Wi-Fi", R.drawable.ic_wifi, SyncSettings::class.java),
     UPDATES("Mises à jour", R.drawable.ic_refresh_cw, UpdatesSettings::class.java),
     HELP("Aide et réglages du PC", R.drawable.ic_circle_help, HelpSettings::class.java),
 
@@ -74,6 +75,9 @@ object SettingsIndex {
         Entry(Section.HISTORY, "history", "Garder les dictées", "historique confidentialité vie privée effacer", bubble = null),
         Entry(Section.HISTORY, "bubble_history", "Garder les dictées de la bulle", "historique navigation privée confidentialité", bubble = true),
         Entry(Section.HISTORY, "history_view", "Voir l'historique", "anciennes dictées copier retrouver"),
+        Entry(Section.SYNC, "sync_pair", "Appairer un PC ou Steam Deck (QR code)", "synchroniser wifi réseau local qr code lien pc steam deck appairage chiffré"),
+        Entry(Section.SYNC, "sync_peers", "Appareils appairés", "synchronisation wifi dictionnaire réunions révoquer oublier ip port"),
+        Entry(Section.SYNC, "sync_nsd", "Appareils détectés sur le Wi-Fi", "mdns nsd découverte réseau local"),
         Entry(Section.UPDATES, "updates_auto", "Vérifier les mises à jour automatiquement", "nouvelle version"),
         Entry(Section.UPDATES, "updates_check", "Vérifier maintenant", "mise à jour installer nouvelle version"),
         Entry(Section.UPDATES, "updates_notes", "Nouveautés de chaque version", "notes de version changelog historique des versions"),
