@@ -536,16 +536,16 @@ Améliorer l'orthographe des noms propres, termes techniques et symboles de code
 
 - ✅ Saut 3A (PR #102) — Cœur `vtt-core::context`, `vtt-asr` et `vtt-llm` : option `dictation.screen_context` désactivée par défaut + `screen_context_excluded_apps`, blocage strict des mots de passe, gestionnaires de mots de passe et fenêtres de navigation privée, extraction locale bornée filtrant les secrets et désamorcée contre l'injection, transfert éphémère vers Whisper et vers le message utilisateur LLM sans casser le cache prompt
 - ✅ Saut 3B (PR #103) — Bureau (`vtt-platform` + `apps/desktop`) : lecture du texte autour du curseur sur Windows via UI Automation (vérification stricte `CurrentIsPassword()` avant toute lecture), repli propre Linux, capture asynchrone non bloquante dans le contrôleur, réglages opt-in et applications exclues dans **Réglages → Dictée et traduction**
-- ✅ Saut 3C — Android (`vtt-android` + clavier / bulle) : lecture bornée autour du curseur via `InputConnection` (clavier) et `AccessibilityNodeInfo` (bulle), strictement bloquée sur `Privacy::Password`, `Privacy::NoHistory` (navigation privée / bulle sans historique) et gestionnaires de mots de passe, prise en charge des préfixes/segments de paquets Android dans les exclusions, réglages Android et tests Rust + Kotlin JVM
+- ✅ Saut 3C (PR #105) — Android (`vtt-android` + clavier / bulle) : lecture bornée autour du curseur via `InputConnection` (clavier) et `AccessibilityNodeInfo` (bulle), strictement bloquée sur `Privacy::Password`, `Privacy::NoHistory` (navigation privée / bulle sans historique) et gestionnaires de mots de passe, prise en charge des préfixes/segments de paquets Android dans les exclusions, réglages Android et tests Rust + Kotlin JVM
 - ⬜ À vérifier sur le terrain : qualité de l'extraction de noms propres/jargon sur PC (Windows UIA) et Android (clavier et bulle), blocage effectif sur mots de passe et navigation privée
 
 ### 4. Synchronisation Wi-Fi : appairage direct par clic + code de confirmation ⬜
 
 Rendre l'appairage PC ↔ téléphone plus rapide et pratique sans avoir à scanner de QR code (#104) :
 
-- ⬜ Cliquer directement sur un appareil détecté sur le réseau local (mDNS / NSD) depuis le PC ou depuis le téléphone
-- ⬜ Échange de clés éphémères (X25519 + engagement anti-MITM) affichant un code court identique à 6 chiffres sur les deux écrans
-- ⬜ Validation mutuelle par clic sur **OK / Appairer** des deux côtés si le code correspond, puis enregistrement du pair et de sa clé chiffrée
+- ⬜ Saut 4A — Protocole cryptographique + transport dans `vtt-core::sync` : échange de clés éphémères X25519 avec engagement anti-MITM, dérivation d'un code de vérification court à 6 chiffres (SAS) lié aux deux appareils, requêtes TCP d'appairage direct avec expiration courte et validation mutuelle
+- ⬜ Saut 4B — Interface PC (`apps/desktop`) : acceptation d'appairage direct lorsque la page **Réglages → Synchronisation** est ouverte, clic sur un appareil détecté, modale de confirmation avec le code à 6 chiffres (initiateur ou destinataire) et tests Rust + UI JS
+- ⬜ Saut 4C — Interface Android (`vtt-android` + `SyncSettings.kt`) : serveur local temporaire pendant que la page Synchronisation est ouverte, clic sur un PC détecté → dialogue de confirmation du code à 6 chiffres (dans les deux sens PC ↔ téléphone), tests Rust + Kotlin JVM et clôture `#104`
 
 ### 5. Prévisualisation en continu (dictée longue) ⬜
 
