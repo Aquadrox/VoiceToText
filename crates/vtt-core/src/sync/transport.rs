@@ -14,7 +14,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use socket2::{Domain, Protocol, Socket, Type};
 
-use super::channel::EncryptedChannel;
+use super::channel::{EncryptedChannel, recv_plain};
+use super::crypto::Hello;
+use super::direct_pairing::{
+    DirectDecisionHandle, PendingDirectPairing, accept_direct_pairing, send_direct_rejection,
+};
 use super::pairing::{DeviceId, PairingOffer, Peer};
 use super::session::{
     SyncOptions, SyncStorage, SyncSummary, pair_as_initiator, pair_as_responder, sync_as_initiator,
@@ -34,10 +38,17 @@ const MAX_CONCURRENT_SESSIONS: usize = 4;
 /// Événement émis par [`SyncServer`] vers l'interface (PC ou Android).
 #[derive(Debug, Clone)]
 pub enum SyncEvent {
-    /// Un nouvel appareil vient d'être appairé via le QR code actif.
+    /// Un nouvel appareil vient d'être appairé (QR code ou appairage direct).
     Paired { peer: Peer },
     /// Une synchronisation avec un appareil appairé vient de réussir.
     Synced { summary: SyncSummary },
+    /// Une demande d'appairage direct attend la confirmation du code à 6 chiffres.
+    DirectPairingRequested { pending: PendingDirectPairing },
+    /// Une demande d'appairage direct s'est terminée sans appairage (refus, expiration, erreur).
+    DirectPairingEnded {
+        session_id: String,
+        reason: Option<String>,
+    },
     /// Une connexion entrante a été refusée ou interrompue.
     ConnectionFailed { reason: String },
 }
@@ -104,11 +115,63 @@ pub fn detect_primary_ipv4() -> Option<Ipv4Addr> {
         })
 }
 
-/// Serveur TCP local écoutant les appairages QR et les synchronisations chiffrées.
+struct ActiveDirectSlot {
+    pending: PendingDirectPairing,
+    decision: DirectDecisionHandle,
+}
+
+#[derive(Clone)]
+struct DirectPairingState {
+    enabled: Arc<AtomicBool>,
+    active: Arc<Mutex<Option<ActiveDirectSlot>>>,
+    ttl_ms: Option<u64>,
+}
+
+impl DirectPairingState {
+    fn new() -> Self {
+        Self {
+            enabled: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(Mutex::new(None)),
+            ttl_ms: None,
+        }
+    }
+
+    fn clear_if_expired(&self) {
+        let mut guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|slot| now_ms() >= slot.pending.expires_at_ms)
+            && let Some(old) = guard.take()
+        {
+            old.decision.reject();
+        }
+    }
+
+    fn clear_session(&self, session_id: &str) {
+        let mut guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|slot| slot.pending.session_id == session_id)
+        {
+            *guard = None;
+        }
+    }
+
+    fn reject_active(&self) {
+        let mut guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(old) = guard.take() {
+            old.decision.reject();
+        }
+    }
+}
+
+/// Serveur TCP local écoutant les appairages (QR ou direct par code) et les
+/// synchronisations chiffrées.
 pub struct SyncServer {
     local_addr: SocketAddr,
     storage: Arc<dyn SyncStorage>,
     active_offer: Arc<Mutex<Option<PairingOffer>>>,
+    direct: DirectPairingState,
     stop_flag: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -129,11 +192,13 @@ impl SyncServer {
         let local_addr = listener.local_addr()?;
 
         let active_offer = Arc::new(Mutex::new(None));
+        let direct = DirectPairingState::new();
         let stop_flag = Arc::new(AtomicBool::new(false));
         let active_workers = Arc::new(AtomicUsize::new(0));
 
         let srv_storage = Arc::clone(&storage);
         let srv_offer = Arc::clone(&active_offer);
+        let srv_direct = direct.clone();
         let srv_stop = Arc::clone(&stop_flag);
         let srv_workers = Arc::clone(&active_workers);
 
@@ -144,6 +209,7 @@ impl SyncServer {
                     listener,
                     srv_storage,
                     srv_offer,
+                    srv_direct,
                     srv_stop,
                     srv_workers,
                     on_event,
@@ -154,6 +220,7 @@ impl SyncServer {
             local_addr,
             storage,
             active_offer,
+            direct,
             stop_flag,
             handle: Some(handle),
         })
@@ -165,6 +232,43 @@ impl SyncServer {
 
     pub const fn port(&self) -> u16 {
         self.local_addr.port()
+    }
+
+    /// Active ou coupe l'acceptation des demandes d'appairage direct par clic +
+    /// code à 6 chiffres (désactivée par défaut : activer uniquement lorsque la
+    /// page Synchronisation est ouverte).
+    pub fn set_direct_pairing_enabled(&self, enabled: bool) {
+        self.direct.enabled.store(enabled, Ordering::SeqCst);
+        if !enabled {
+            self.direct.reject_active();
+        }
+    }
+
+    pub fn is_direct_pairing_enabled(&self) -> bool {
+        self.direct.enabled.load(Ordering::SeqCst)
+    }
+
+    /// Retourne la demande d'appairage direct entrante actuellement en attente
+    /// de validation utilisateur, s'il y en a une non expirée.
+    pub fn pending_direct_pairing(&self) -> Option<PendingDirectPairing> {
+        self.direct.clear_if_expired();
+        let guard = self.direct.active.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(|slot| slot.pending.clone())
+    }
+
+    /// Approuve (`approve = true`) ou refuse (`approve = false`) la demande
+    /// d'appairage direct identifiée par `session_id`.
+    pub fn respond_direct_pairing(&self, session_id: &str, approve: bool) -> Result<()> {
+        self.direct.clear_if_expired();
+        let guard = self.direct.active.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = guard.as_ref() else {
+            return Err(SyncError::PairingClosed);
+        };
+        if slot.pending.session_id != session_id {
+            return Err(SyncError::PairingClosed);
+        }
+        slot.decision.decide(approve);
+        Ok(())
     }
 
     /// Ouvre une offre d'appairage QR éphémère (à usage unique) avec la liste
@@ -218,6 +322,8 @@ impl SyncServer {
     }
 
     fn shutdown(&mut self) {
+        self.direct.enabled.store(false, Ordering::SeqCst);
+        self.direct.reject_active();
         self.stop_flag.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
@@ -255,6 +361,7 @@ fn accept_loop(
     listener: TcpListener,
     storage: Arc<dyn SyncStorage>,
     active_offer: Arc<Mutex<Option<PairingOffer>>>,
+    direct: DirectPairingState,
     stop_flag: Arc<AtomicBool>,
     active_workers: Arc<AtomicUsize>,
     on_event: Option<EventCallback>,
@@ -271,13 +378,21 @@ fn accept_loop(
                 let guard = WorkerGuard(Arc::clone(&active_workers));
                 let w_storage = Arc::clone(&storage);
                 let w_offer = Arc::clone(&active_offer);
+                let w_direct = direct.clone();
                 let w_event = on_event.clone();
                 let spawn_res =
                     thread::Builder::new()
                         .name("vtt-sync-worker".into())
                         .spawn(move || {
                             let _guard = guard;
-                            handle_incoming(stream, remote_addr, w_storage, w_offer, w_event);
+                            handle_incoming(
+                                stream,
+                                remote_addr,
+                                w_storage,
+                                w_offer,
+                                w_direct,
+                                w_event,
+                            );
                         });
                 if let Err(e) = spawn_res {
                     log::warn!("sync: impossible de créer le thread de session : {e}");
@@ -296,7 +411,7 @@ fn accept_loop(
     }
 }
 
-fn configure_stream(stream: &TcpStream, io_timeout: Duration) {
+pub(crate) fn configure_stream(stream: &TcpStream, io_timeout: Duration) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(io_timeout));
@@ -310,21 +425,41 @@ fn emit(on_event: &Option<EventCallback>, event: SyncEvent) {
 }
 
 fn handle_incoming(
-    stream: TcpStream,
+    mut stream: TcpStream,
     remote_addr: SocketAddr,
     storage: Arc<dyn SyncStorage>,
     active_offer: Arc<Mutex<Option<PairingOffer>>>,
+    direct: DirectPairingState,
     on_event: Option<EventCallback>,
 ) {
     configure_stream(&stream, DEFAULT_IO_TIMEOUT);
     let peer_addr_str = Some(remote_addr.to_string());
+
+    let hello: Hello = match recv_plain(&mut stream) {
+        Ok(h) => h,
+        Err(e) => {
+            log::warn!("sync: lecture Hello {remote_addr} échouée : {e}");
+            emit(
+                &on_event,
+                SyncEvent::ConnectionFailed {
+                    reason: e.to_string(),
+                },
+            );
+            return;
+        }
+    };
+
+    if let Some(init) = hello.direct_pairing.clone() {
+        handle_incoming_direct(stream, remote_addr, hello, init, storage, direct, on_event);
+        return;
+    }
 
     let outcome = (|| -> Result<SyncEvent> {
         let local = storage.identity()?;
         let mut used_offer_key_b64: Option<String> = None;
         let mut matched_peer: Option<Peer> = None;
 
-        let mut channel = EncryptedChannel::accept(stream, &local, |hello| {
+        let mut channel = EncryptedChannel::accept_with_hello(stream, hello, &local, |hello| {
             if hello.pairing {
                 let mut guard = active_offer.lock().unwrap_or_else(|e| e.into_inner());
                 let Some(offer) = guard.as_ref() else {
@@ -384,6 +519,127 @@ fn handle_incoming(
                     reason: e.to_string(),
                 },
             );
+        }
+    }
+}
+
+fn handle_incoming_direct(
+    mut stream: TcpStream,
+    remote_addr: SocketAddr,
+    hello: Hello,
+    init: super::direct_pairing::DirectPairInit,
+    storage: Arc<dyn SyncStorage>,
+    direct: DirectPairingState,
+    on_event: Option<EventCallback>,
+) {
+    if !direct.enabled.load(Ordering::SeqCst) {
+        let err = SyncError::PairingClosed;
+        send_direct_rejection(&mut stream, &err);
+        emit(
+            &on_event,
+            SyncEvent::ConnectionFailed {
+                reason: err.to_string(),
+            },
+        );
+        return;
+    }
+
+    direct.clear_if_expired();
+    if direct
+        .active
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+    {
+        let err = SyncError::DirectPairingBusy;
+        send_direct_rejection(&mut stream, &err);
+        emit(
+            &on_event,
+            SyncEvent::ConnectionFailed {
+                reason: err.to_string(),
+            },
+        );
+        return;
+    }
+
+    let local = match storage.identity() {
+        Ok(id) => id,
+        Err(e) => {
+            send_direct_rejection(&mut stream, &e);
+            emit(
+                &on_event,
+                SyncEvent::ConnectionFailed {
+                    reason: e.to_string(),
+                },
+            );
+            return;
+        }
+    };
+
+    let registered_session_id = Arc::new(Mutex::new(None::<String>));
+    let reg_clone = Arc::clone(&registered_session_id);
+    let direct_for_cb = direct.clone();
+    let event_for_cb = on_event.clone();
+
+    let result = accept_direct_pairing(
+        stream,
+        remote_addr,
+        hello,
+        init,
+        &local,
+        storage.as_ref(),
+        direct.ttl_ms,
+        move |pending| {
+            if !direct_for_cb.enabled.load(Ordering::SeqCst) {
+                return Err(SyncError::PairingClosed);
+            }
+            let mut guard = direct_for_cb
+                .active
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if guard.is_some() {
+                return Err(SyncError::DirectPairingBusy);
+            }
+            let decision = DirectDecisionHandle::new();
+            *reg_clone.lock().unwrap_or_else(|e| e.into_inner()) = Some(pending.session_id.clone());
+            *guard = Some(ActiveDirectSlot {
+                pending: pending.clone(),
+                decision: decision.clone(),
+            });
+            drop(guard);
+            emit(&event_for_cb, SyncEvent::DirectPairingRequested { pending });
+            Ok(decision)
+        },
+    );
+
+    let session_id = registered_session_id
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(ref sid) = session_id {
+        direct.clear_session(sid);
+    }
+
+    match result {
+        Ok((_sid, peer)) => emit(&on_event, SyncEvent::Paired { peer }),
+        Err(e) => {
+            log::warn!("sync: appairage direct entrant {remote_addr} échoué : {e}");
+            if let Some(sid) = session_id {
+                emit(
+                    &on_event,
+                    SyncEvent::DirectPairingEnded {
+                        session_id: sid,
+                        reason: Some(e.to_string()),
+                    },
+                );
+            } else {
+                emit(
+                    &on_event,
+                    SyncEvent::ConnectionFailed {
+                        reason: e.to_string(),
+                    },
+                );
+            }
         }
     }
 }
@@ -450,7 +706,7 @@ pub fn sync_with_peer(
     )
 }
 
-fn connect_first(addrs: &[String], timeout: Duration) -> Result<(TcpStream, String)> {
+pub(crate) fn connect_first(addrs: &[String], timeout: Duration) -> Result<(TcpStream, String)> {
     let mut last_err = String::from("aucune adresse valide");
     for raw in addrs {
         let Ok(sock_addr) = raw.parse::<SocketAddr>() else {
@@ -693,6 +949,218 @@ mod tests {
         // La nouvelle adresse valide a été mémorisée.
         let refreshed = phone_storage.get_peer(&peer.device_id).unwrap().unwrap();
         assert_eq!(refreshed.last_addr.as_deref(), Some(manual_addr.as_str()));
+
+        server.stop();
+        let _ = fs::remove_dir_all(&root_pc);
+        let _ = fs::remove_dir_all(&root_phone);
+    }
+
+    #[test]
+    fn direct_pairing_mutual_approval_then_encrypted_sync() {
+        use crate::sync::direct_pairing::start_direct_pairing_over_tcp;
+
+        let (root_pc, pc_disk) = temp_disk_storage("direct_pc", "PC Bureau");
+        let (root_phone, phone_disk) = temp_disk_storage("direct_phone", "Xiaomi 17T Pro");
+        let pc_storage: Arc<dyn SyncStorage> = pc_disk;
+        let phone_storage: Arc<dyn SyncStorage> = phone_disk;
+
+        let pc_cfg = Config {
+            dictionary: vec!["Aquadrox".into()],
+            ..Config::default()
+        };
+        pc_storage.save_config(&pc_cfg).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let cb: EventCallback = Arc::new(move |ev| {
+            let _ = tx.send(ev);
+        });
+
+        let server = SyncServer::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::clone(&pc_storage),
+            Some(cb),
+        )
+        .unwrap();
+        let server_addr = server.local_addr().to_string();
+        let pc_id = pc_storage.identity().unwrap().device_id;
+
+        // 1. Par défaut, l'appairage direct est fermé (page Synchronisation non ouverte).
+        assert!(!server.is_direct_pairing_enabled());
+        let closed = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            Some(&pc_id),
+            Some(41739),
+            Duration::from_secs(3),
+            Some(10_000),
+        );
+        assert!(matches!(closed, Err(SyncError::PairingClosed)));
+
+        // 2. La page Synchronisation s'ouvre sur le PC -> l'appairage direct est accepté.
+        server.set_direct_pairing_enabled(true);
+        let handle = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            Some(&pc_id),
+            Some(41739),
+            Duration::from_secs(3),
+            Some(10_000),
+        )
+        .unwrap();
+
+        let server_pending = loop {
+            match rx.recv_timeout(Duration::from_secs(3)).unwrap() {
+                SyncEvent::DirectPairingRequested { pending } => break pending,
+                SyncEvent::ConnectionFailed { .. } => continue,
+                other => panic!("événement inattendu : {other:?}"),
+            }
+        };
+
+        // Les deux écrans affichent strictement le même code à 6 chiffres.
+        assert_eq!(handle.pending().code, server_pending.code);
+        assert_eq!(handle.pending().code.len(), 6);
+        assert!(server_pending.incoming);
+        assert!(!handle.pending().incoming);
+        assert_eq!(
+            server.pending_direct_pairing().as_ref(),
+            Some(&server_pending)
+        );
+
+        // Une deuxième tentative simultanée est refusée proprement (busy).
+        let busy = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            Some(&pc_id),
+            None,
+            Duration::from_secs(3),
+            Some(5_000),
+        );
+        assert!(matches!(busy, Err(SyncError::DirectPairingBusy)));
+
+        // 3. Les deux utilisateurs valident le code (téléphone puis PC).
+        let phone_decision = handle.decision_handle();
+        let wait_thread = thread::spawn(move || handle.wait());
+        phone_decision.approve();
+        server
+            .respond_direct_pairing(&server_pending.session_id, true)
+            .unwrap();
+
+        let paired_pc = wait_thread.join().unwrap().unwrap();
+        let paired_phone = loop {
+            match rx.recv_timeout(Duration::from_secs(3)).unwrap() {
+                SyncEvent::Paired { peer } => break peer,
+                SyncEvent::ConnectionFailed { .. } => continue,
+                other => panic!("attendu Paired, reçu {other:?}"),
+            }
+        };
+
+        assert_eq!(paired_pc.device_id, pc_id);
+        assert_eq!(paired_pc.key, paired_phone.key);
+        assert_eq!(paired_phone.last_addr.as_deref(), Some("127.0.0.1:41739"));
+        assert!(server.pending_direct_pairing().is_none());
+
+        // 4. Une synchronisation chiffrée fonctionne aussitôt avec cette clé permanente.
+        let summary = sync_with_peer(
+            phone_storage.as_ref(),
+            &paired_pc.device_id,
+            None,
+            SyncOptions::default(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(summary.config_changed);
+        let (phone_cfg, _) = phone_storage.load_config().unwrap();
+        assert_eq!(phone_cfg.dictionary, vec!["Aquadrox"]);
+
+        server.stop();
+        let _ = fs::remove_dir_all(&root_pc);
+        let _ = fs::remove_dir_all(&root_phone);
+    }
+
+    #[test]
+    fn direct_pairing_rejection_and_expiration_abort_both_sides_without_saving() {
+        use crate::sync::direct_pairing::start_direct_pairing_over_tcp;
+
+        let (root_pc, pc_disk) = temp_disk_storage("direct_rej_pc", "PC");
+        let (root_phone, phone_disk) = temp_disk_storage("direct_rej_phone", "Phone");
+        let pc_storage: Arc<dyn SyncStorage> = pc_disk.clone();
+        let phone_storage: Arc<dyn SyncStorage> = phone_disk.clone();
+
+        let (tx, rx) = mpsc::channel();
+        let cb: EventCallback = Arc::new(move |ev| {
+            let _ = tx.send(ev);
+        });
+
+        let server = SyncServer::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::clone(&pc_storage),
+            Some(cb),
+        )
+        .unwrap();
+        server.set_direct_pairing_enabled(true);
+        let server_addr = server.local_addr().to_string();
+
+        // Cas A : refus côté serveur -> l'initiateur est interrompu immédiatement.
+        let handle = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            None,
+            None,
+            Duration::from_secs(3),
+            Some(10_000),
+        )
+        .unwrap();
+        let pending = match rx.recv_timeout(Duration::from_secs(3)).unwrap() {
+            SyncEvent::DirectPairingRequested { pending } => pending,
+            other => panic!("attendu DirectPairingRequested, reçu {other:?}"),
+        };
+        server
+            .respond_direct_pairing(&pending.session_id, false)
+            .unwrap();
+        assert!(matches!(handle.wait(), Err(SyncError::PairingRejected)));
+        let ended = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(matches!(ended, SyncEvent::DirectPairingEnded { .. }));
+
+        // Cas B : refus côté initiateur -> le serveur libère aussitôt son slot.
+        let handle2 = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            None,
+            None,
+            Duration::from_secs(3),
+            Some(10_000),
+        )
+        .unwrap();
+        let _pending2 = match rx.recv_timeout(Duration::from_secs(3)).unwrap() {
+            SyncEvent::DirectPairingRequested { pending } => pending,
+            other => panic!("attendu DirectPairingRequested, reçu {other:?}"),
+        };
+        handle2.decision_handle().reject();
+        assert!(matches!(handle2.wait(), Err(SyncError::PairingRejected)));
+        let ended2 = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(matches!(ended2, SyncEvent::DirectPairingEnded { .. }));
+
+        // Cas C : expiration courte -> échec OfferExpired.
+        let handle3 = start_direct_pairing_over_tcp(
+            Arc::clone(&phone_storage),
+            std::slice::from_ref(&server_addr),
+            None,
+            None,
+            Duration::from_secs(3),
+            Some(250),
+        )
+        .unwrap();
+        let _pending3 = match rx.recv_timeout(Duration::from_secs(3)).unwrap() {
+            SyncEvent::DirectPairingRequested { pending } => pending,
+            other => panic!("attendu DirectPairingRequested, reçu {other:?}"),
+        };
+        assert!(matches!(handle3.wait(), Err(SyncError::OfferExpired)));
+        let ended3 = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(matches!(ended3, SyncEvent::DirectPairingEnded { .. }));
+
+        // Aucun appareil ne doit avoir été enregistré.
+        assert!(pc_disk.peers().unwrap().is_empty());
+        assert!(phone_disk.peers().unwrap().is_empty());
 
         server.stop();
         let _ = fs::remove_dir_all(&root_pc);
