@@ -4,15 +4,18 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use qrcode::{Color, EcLevel, QrCode};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use vtt_core::sync::{
-    DEFAULT_CONNECT_TIMEOUT, DEFAULT_PORT, DeviceId, DiscoveredPeer, DiskSyncStorage, MdnsService,
-    PairingOffer, Peer, SyncEvent, SyncOptions, SyncServer, SyncStorage, SyncSummary,
-    detect_local_addrs, now_ms, pair_over_tcp, sync_with_peer,
+    DEFAULT_CONNECT_TIMEOUT, DEFAULT_PORT, DeviceId, DirectDecisionHandle, DiscoveredPeer,
+    DiskSyncStorage, MdnsService, PairingOffer, Peer, PendingDirectPairing, SyncEvent, SyncOptions,
+    SyncServer, SyncStorage, SyncSummary, detect_local_addrs, now_ms, pair_over_tcp,
+    start_direct_pairing_over_tcp, sync_with_peer,
 };
 
 use crate::app_settings;
@@ -36,6 +39,18 @@ pub struct PairingOfferView {
     pub fingerprint: String,
     pub addrs: Vec<String>,
     pub qr: QrMatrix,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PendingDirectPairingView {
+    pub session_id: String,
+    pub remote_device_id: String,
+    pub remote_device_name: String,
+    pub code: String,
+    pub formatted_code: String,
+    pub expires_at_ms: u64,
+    pub incoming: bool,
+    pub local_approved: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,7 +91,9 @@ pub struct SyncView {
     pub server_error: Option<String>,
     pub device_id: String,
     pub device_name: String,
+    pub direct_pairing_enabled: bool,
     pub active_offer: Option<PairingOfferView>,
+    pub pending_direct: Option<PendingDirectPairingView>,
     pub discovered: Vec<DiscoveredPeerView>,
     pub peers: Vec<PeerView>,
     pub last_activity: Option<SyncActivity>,
@@ -100,12 +117,21 @@ struct SyncRuntime {
     mdns_error: Option<String>,
 }
 
+struct OutgoingDirectSlot {
+    pending: PendingDirectPairing,
+    decision: DirectDecisionHandle,
+    local_approved: bool,
+}
+
 pub struct SyncService {
     app: AppHandle,
     paths: Paths,
     storage: Arc<DiskSyncStorage>,
     runtime: Mutex<SyncRuntime>,
     last_activity: Arc<Mutex<Option<SyncActivity>>>,
+    direct_pairing_wanted: Arc<AtomicBool>,
+    outgoing_direct: Arc<Mutex<Option<OutgoingDirectSlot>>>,
+    incoming_approved_session: Arc<Mutex<Option<String>>>,
 }
 
 pub type SyncState = Arc<SyncService>;
@@ -137,6 +163,9 @@ impl SyncService {
                 mdns_error: None,
             }),
             last_activity: Arc::new(Mutex::new(None)),
+            direct_pairing_wanted: Arc::new(AtomicBool::new(false)),
+            outgoing_direct: Arc::new(Mutex::new(None)),
+            incoming_approved_session: Arc::new(Mutex::new(None)),
         });
 
         if has_peers && let Err(e) = service.start_listening() {
@@ -147,15 +176,19 @@ impl SyncService {
 
     pub fn start_listening(&self) -> Result<(), String> {
         let mut rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
-        if rt.server.is_some() {
+        if let Some(server) = rt.server.as_ref() {
+            if self.direct_pairing_wanted.load(Ordering::SeqCst) {
+                server.set_direct_pairing_enabled(true);
+            }
             return Ok(());
         }
 
         let app = self.app.clone();
         let paths = self.paths.clone();
         let last_activity = Arc::clone(&self.last_activity);
+        let incoming_approved = Arc::clone(&self.incoming_approved_session);
         let on_event: Arc<dyn Fn(SyncEvent) + Send + Sync> = Arc::new(move |event: SyncEvent| {
-            handle_server_event(&app, &paths, &last_activity, event);
+            handle_server_event(&app, &paths, &last_activity, &incoming_approved, event);
         });
         let storage: Arc<dyn SyncStorage> = self.storage.clone();
 
@@ -182,6 +215,9 @@ impl SyncService {
             }
         };
 
+        if self.direct_pairing_wanted.load(Ordering::SeqCst) {
+            server.set_direct_pairing_enabled(true);
+        }
         let port = server.port();
         rt.server_error = None;
         rt.server = Some(server);
@@ -206,6 +242,11 @@ impl SyncService {
     }
 
     pub fn stop_listening(&self) {
+        self.reject_outgoing_direct();
+        *self
+            .incoming_approved_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         let mut rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(mdns) = rt.mdns.take() {
             mdns.stop();
@@ -216,6 +257,33 @@ impl SyncService {
         }
         rt.server_error = None;
         rt.mdns_error = None;
+    }
+
+    fn reject_outgoing_direct(&self) {
+        let mut guard = self
+            .outgoing_direct
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(slot) = guard.take() {
+            slot.decision.reject();
+        }
+    }
+
+    fn active_outgoing_direct(&self) -> Option<PendingDirectPairingView> {
+        let mut guard = self
+            .outgoing_direct
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|slot| now_ms() >= slot.pending.expires_at_ms)
+            && let Some(old) = guard.take()
+        {
+            old.decision.reject();
+        }
+        guard
+            .as_ref()
+            .map(|slot| pending_to_view(&slot.pending, slot.local_approved))
     }
 
     fn restart_mdns_if_running(&self) {
@@ -245,25 +313,57 @@ impl SyncService {
         let identity = self.storage.identity().map_err(|e| e.to_string())?;
         let peers = self.storage.peers().map_err(|e| e.to_string())?;
 
-        let (listening, port, active_offer, discovered_raw, mdns_active, mdns_error, server_error) = {
+        let (
+            listening,
+            port,
+            direct_pairing_enabled,
+            active_offer,
+            incoming_direct,
+            discovered_raw,
+            mdns_active,
+            mdns_error,
+            server_error,
+        ) = {
             let rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
             let port = rt.server.as_ref().map(SyncServer::port);
+            let direct_enabled = rt
+                .server
+                .as_ref()
+                .is_some_and(SyncServer::is_direct_pairing_enabled);
             let active_offer = rt
                 .server
                 .as_ref()
                 .and_then(SyncServer::active_pairing)
                 .and_then(|o| offer_to_view(&o).ok());
+            let incoming_direct = rt
+                .server
+                .as_ref()
+                .and_then(SyncServer::pending_direct_pairing);
             let discovered_raw = rt.mdns.as_ref().map(MdnsService::peers).unwrap_or_default();
             (
                 rt.server.is_some(),
                 port,
+                direct_enabled,
                 active_offer,
+                incoming_direct,
                 discovered_raw,
                 rt.mdns.is_some(),
                 rt.mdns_error.clone(),
                 rt.server_error.clone(),
             )
         };
+
+        let pending_direct = self.active_outgoing_direct().or_else(|| {
+            incoming_direct.map(|pending| {
+                let approved = self
+                    .incoming_approved_session
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_deref()
+                    == Some(pending.session_id.as_str());
+                pending_to_view(&pending, approved)
+            })
+        });
 
         let local_addrs = port.map(detect_local_addrs).unwrap_or_default();
         let (peer_views, discovered_views) = build_peer_views(&peers, &discovered_raw);
@@ -282,11 +382,188 @@ impl SyncService {
             server_error,
             device_id: identity.device_id.as_str().to_owned(),
             device_name: identity.device_name,
+            direct_pairing_enabled,
             active_offer,
+            pending_direct,
             discovered: discovered_views,
             peers: peer_views,
             last_activity,
         })
+    }
+
+    /// Active ou désactive l'acceptation des demandes d'appairage direct par
+    /// code à 6 chiffres (activée uniquement tant que la page Synchronisation
+    /// est ouverte).
+    pub fn set_direct_pairing_enabled(&self, enabled: bool) -> Result<SyncView, String> {
+        self.direct_pairing_wanted.store(enabled, Ordering::SeqCst);
+        {
+            let rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(server) = rt.server.as_ref() {
+                server.set_direct_pairing_enabled(enabled);
+            }
+        }
+        if !enabled {
+            self.reject_outgoing_direct();
+            *self
+                .incoming_approved_session
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        self.view()
+    }
+
+    /// Lance un appairage direct vers un appareil détecté : retourne aussitôt
+    /// le code à 6 chiffres à vérifier visuellement sur les deux écrans.
+    pub fn start_direct_pairing(
+        self: &Arc<Self>,
+        device_id: Option<&str>,
+        addr: &str,
+    ) -> Result<PendingDirectPairingView, String> {
+        let trimmed_addr = addr.trim();
+        if trimmed_addr.is_empty() {
+            return Err("adresse de l'appareil cible vide".into());
+        }
+        let expected_remote = match device_id.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(id) => Some(DeviceId::parse(id).map_err(|e| e.to_string())?),
+            None => None,
+        };
+
+        if self.active_outgoing_direct().is_some() {
+            return Err("un appairage direct est déjà en cours".into());
+        }
+        let local_listen_port = {
+            let rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+            if rt
+                .server
+                .as_ref()
+                .and_then(SyncServer::pending_direct_pairing)
+                .is_some()
+            {
+                return Err("une demande d'appairage attend déjà votre confirmation".into());
+            }
+            rt.server.as_ref().map(SyncServer::port)
+        };
+
+        let storage: Arc<dyn SyncStorage> = self.storage.clone();
+        let handle = start_direct_pairing_over_tcp(
+            storage,
+            &[trimmed_addr.to_owned()],
+            expected_remote.as_ref(),
+            local_listen_port,
+            DEFAULT_CONNECT_TIMEOUT,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let pending = handle.pending().clone();
+        let wait_session_id = pending.session_id.clone();
+        let decision = handle.decision_handle();
+        {
+            let mut guard = self
+                .outgoing_direct
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = Some(OutgoingDirectSlot {
+                pending: pending.clone(),
+                decision,
+                local_approved: false,
+            });
+        }
+
+        let service = Arc::clone(self);
+        if let Err(e) = thread::Builder::new()
+            .name("vtt-sync-direct-wait".into())
+            .spawn(move || {
+                let res = handle.wait();
+                {
+                    let mut guard = service
+                        .outgoing_direct
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if guard
+                        .as_ref()
+                        .is_some_and(|slot| slot.pending.session_id == wait_session_id)
+                    {
+                        *guard = None;
+                    }
+                }
+                match res {
+                    Ok(peer) => {
+                        let _ = service.start_listening();
+                        service.record_activity(
+                            format!("Appareil « {} » appairé.", peer.device_name),
+                            false,
+                        );
+                    }
+                    Err(e) => {
+                        service.record_activity(format!("Appairage direct annulé : {e}"), true);
+                    }
+                }
+                let _ = service.app.emit(SYNC_CHANGED_EVENT, ());
+            })
+        {
+            self.reject_outgoing_direct();
+            return Err(format!(
+                "impossible de démarrer l'attente d'appairage : {e}"
+            ));
+        }
+
+        let _ = self.app.emit(SYNC_CHANGED_EVENT, ());
+        Ok(pending_to_view(&pending, false))
+    }
+
+    /// Approuve ou refuse une demande d'appairage direct (entrante ou sortante).
+    pub fn respond_direct_pairing(
+        &self,
+        session_id: &str,
+        approve: bool,
+    ) -> Result<SyncView, String> {
+        let mut handled_outgoing = false;
+        {
+            let mut guard = self
+                .outgoing_direct
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(slot) = guard.as_mut()
+                && slot.pending.session_id == session_id
+            {
+                slot.decision.decide(approve);
+                if approve {
+                    slot.local_approved = true;
+                } else {
+                    *guard = None;
+                }
+                handled_outgoing = true;
+            }
+        }
+        if handled_outgoing {
+            let _ = self.app.emit(SYNC_CHANGED_EVENT, ());
+            return self.view();
+        }
+
+        {
+            let rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+            let server = rt
+                .server
+                .as_ref()
+                .ok_or_else(|| "serveur de synchronisation arrêté".to_owned())?;
+            server
+                .respond_direct_pairing(session_id, approve)
+                .map_err(|e| e.to_string())?;
+        }
+        {
+            let mut approved_guard = self
+                .incoming_approved_session
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if approve {
+                *approved_guard = Some(session_id.to_owned());
+            } else if approved_guard.as_deref() == Some(session_id) {
+                *approved_guard = None;
+            }
+        }
+        let _ = self.app.emit(SYNC_CHANGED_EVENT, ());
+        self.view()
     }
 
     pub fn open_pairing(&self) -> Result<PairingOfferView, String> {
@@ -428,14 +705,18 @@ fn handle_server_event(
     app: &AppHandle,
     paths: &Paths,
     last_activity: &Mutex<Option<SyncActivity>>,
+    incoming_approved: &Mutex<Option<String>>,
     event: SyncEvent,
 ) {
     let activity = match event {
-        SyncEvent::Paired { peer } => SyncActivity {
-            message: format!("Appareil « {} » appairé.", peer.device_name),
-            at_ms: peer.paired_at_ms,
-            is_error: false,
-        },
+        SyncEvent::Paired { peer } => {
+            *incoming_approved.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            SyncActivity {
+                message: format!("Appareil « {} » appairé.", peer.device_name),
+                at_ms: peer.paired_at_ms,
+                is_error: false,
+            }
+        }
         SyncEvent::Synced { summary } => {
             if summary.config_changed {
                 apply_synced_config(app, paths);
@@ -455,13 +736,19 @@ fn handle_server_event(
             at_ms: now_ms(),
             is_error: false,
         },
-        SyncEvent::DirectPairingEnded { reason, .. } => SyncActivity {
-            message: reason
-                .map(|r| format!("Appairage direct interrompu : {r}"))
-                .unwrap_or_else(|| "Appairage direct annulé.".into()),
-            at_ms: now_ms(),
-            is_error: true,
-        },
+        SyncEvent::DirectPairingEnded { session_id, reason } => {
+            let mut guard = incoming_approved.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.as_deref() == Some(session_id.as_str()) {
+                *guard = None;
+            }
+            SyncActivity {
+                message: reason
+                    .map(|r| format!("Appairage direct interrompu : {r}"))
+                    .unwrap_or_else(|| "Appairage direct annulé.".into()),
+                at_ms: now_ms(),
+                is_error: true,
+            }
+        }
         SyncEvent::ConnectionFailed { reason } => SyncActivity {
             message: format!("Connexion entrante refusée : {reason}"),
             at_ms: now_ms(),
@@ -620,6 +907,22 @@ pub fn format_summary_message(summary: &SyncSummary) -> String {
     }
 }
 
+fn pending_to_view(
+    pending: &PendingDirectPairing,
+    local_approved: bool,
+) -> PendingDirectPairingView {
+    PendingDirectPairingView {
+        session_id: pending.session_id.clone(),
+        remote_device_id: pending.remote_device_id.as_str().to_owned(),
+        remote_device_name: pending.remote_device_name.clone(),
+        code: pending.code.clone(),
+        formatted_code: pending.formatted_code(),
+        expires_at_ms: pending.expires_at_ms,
+        incoming: pending.incoming,
+        local_approved,
+    }
+}
+
 // --- Commandes Tauri ---
 
 #[tauri::command]
@@ -635,6 +938,33 @@ pub fn sync_set_listening(sync: State<'_, SyncState>, enabled: bool) -> Result<S
         sync.stop_listening();
     }
     sync.view()
+}
+
+#[tauri::command]
+pub fn sync_set_direct_pairing_enabled(
+    sync: State<'_, SyncState>,
+    enabled: bool,
+) -> Result<SyncView, String> {
+    sync.set_direct_pairing_enabled(enabled)
+}
+
+#[tauri::command(async)]
+pub fn sync_start_direct_pairing(
+    sync: State<'_, SyncState>,
+    device_id: Option<String>,
+    addr: String,
+) -> Result<PendingDirectPairingView, String> {
+    sync.inner()
+        .start_direct_pairing(device_id.as_deref(), &addr)
+}
+
+#[tauri::command]
+pub fn sync_respond_direct_pairing(
+    sync: State<'_, SyncState>,
+    session_id: String,
+    approve: bool,
+) -> Result<SyncView, String> {
+    sync.respond_direct_pairing(&session_id, approve)
 }
 
 #[tauri::command]
@@ -692,6 +1022,25 @@ mod tests {
     use vtt_core::sync::{LocalIdentity, PROTOCOL_VERSION, SyncKey};
 
     use super::*;
+
+    #[test]
+    fn pending_to_view_formats_six_digit_code_and_tracks_approval() {
+        let id = DeviceId::generate().unwrap();
+        let pending = PendingDirectPairing {
+            session_id: "sess-1".into(),
+            remote_device_id: id.clone(),
+            remote_device_name: "Xiaomi 17T Pro".into(),
+            code: "482917".into(),
+            expires_at_ms: 9_999,
+            incoming: true,
+        };
+        let view = pending_to_view(&pending, true);
+        assert_eq!(view.session_id, "sess-1");
+        assert_eq!(view.remote_device_id, id.as_str());
+        assert_eq!(view.formatted_code, "482 917");
+        assert!(view.incoming);
+        assert!(view.local_approved);
+    }
 
     #[test]
     fn qr_matrix_encodes_pairing_uri_into_valid_square() {
