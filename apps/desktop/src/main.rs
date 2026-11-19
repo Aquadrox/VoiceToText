@@ -24,6 +24,7 @@ mod settings;
 mod shortcuts;
 mod speakers;
 mod status;
+mod sync;
 mod translation;
 mod tray;
 mod updates;
@@ -150,6 +151,16 @@ fn main() {
             updates::install_update,
             updates::changelog_view,
             updates::dismiss_update_news,
+            sync::sync_view,
+            sync::sync_set_listening,
+            sync::sync_rename_device,
+            sync::sync_open_pairing,
+            sync::sync_cancel_pairing,
+            sync::sync_refresh_discovery,
+            sync::sync_pair_uri,
+            sync::sync_now,
+            sync::sync_set_peer_prefs,
+            sync::sync_remove_peer,
         ])
         .setup(move |app| {
             let last_raw = LastRaw::default();
@@ -230,9 +241,12 @@ fn main() {
             );
             app.manage(Arc::clone(&updates));
             updates::spawn_checks(app.handle().clone(), updates);
+            let sync_paths = paths.clone();
             let controller = Controller::new(reporter, recorders, worker, paths, translation);
             controller.start(config);
             app.manage(controller);
+            let sync = sync::SyncService::new(app.handle().clone(), sync_paths);
+            app.manage(sync);
             // Réunions interrompues par un arrêt : transcription reprise.
             meetings.recover();
             meetings.spawn_detection();

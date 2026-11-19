@@ -23,6 +23,7 @@
       <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></symbol>
       <symbol id="i-app-window" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M10 4v4" /><path d="M2 8h20" /><path d="M6 4v4" /></symbol>
+      <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></symbol>
       <symbol id="i-panel-left-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" /><path d="m16 15-3-3 3-3" /></symbol>
       <symbol id="i-panel-left-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" /><path d="m14 9 3 3-3 3" /></symbol>
     </svg>
@@ -350,6 +351,7 @@
               <a href="#reglages/cles" data-panel-link="cles"><svg class="icon" aria-hidden="true"><use href="#i-key-round" /></svg>Clés API et coût<span class="dot" title="Modifications non appliquées"></span></a>
               <a href="#reglages/reunions" data-panel-link="reunions"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg>Réunions<span class="dot" title="Modifications non appliquées"></span></a>
               <a href="#reglages/capture" data-panel-link="capture"><svg class="icon" aria-hidden="true"><use href="#i-camera" /></svg>Capture commentée<span class="dot" title="Modifications non appliquées"></span></a>
+              <a href="#reglages/synchronisation" data-panel-link="synchronisation"><svg class="icon" aria-hidden="true"><use href="#i-wifi" /></svg>Synchronisation</a>
               <a href="#reglages/application" data-panel-link="application"><svg class="icon" aria-hidden="true"><use href="#i-app-window" /></svg>Application<span class="dot" title="Modifications non appliquées"></span></a>
             </nav>
 
@@ -873,6 +875,92 @@
                 <div class="panel-result result" hidden></div>
               </form>
 
+              <!-- Synchronisation locale Wi-Fi -->
+              <section class="panel" data-panel="synchronisation" data-kind="sync" hidden>
+                <header class="panel-head">
+                  <div>
+                    <h2>Synchronisation locale Wi-Fi</h2>
+                    <p class="muted small">
+                      Échangez dictionnaire, snippets, styles, prompts, profils LLM et réunions
+                      entre vos appareils sur le même réseau, chiffré de bout en bout et sans cloud.
+                      Les clés API ne quittent jamais cet appareil.
+                    </p>
+                  </div>
+                </header>
+
+                <div id="sync-result" class="result" hidden></div>
+
+                <div class="group" data-untracked>
+                  <h3>Cet appareil</h3>
+                  <div class="sync-status-row">
+                    <span id="sync-status-badge" class="sync-badge">Écoute arrêtée</span>
+                    <button id="sync-toggle-listen" type="button" class="primary">Activer l'écoute locale</button>
+                    <button id="sync-refresh" type="button">Actualiser</button>
+                  </div>
+                  <p id="sync-status-detail" class="hint"></p>
+                  <div class="row sync-rename-row">
+                    <label>
+                      Nom affiché sur le réseau
+                      <input id="sync-device-name" type="text" maxlength="64" spellcheck="false" />
+                    </label>
+                    <button id="sync-rename-btn" type="button">Renommer</button>
+                  </div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Appairer un nouvel appareil</h3>
+                  <p class="hint">
+                    Affichez un QR code éphémère (valide 5 minutes, à usage unique) à scanner depuis
+                    Android ou collez le lien d'appairage d'un autre PC / Steam Deck.
+                  </p>
+                  <div class="row">
+                    <button id="sync-open-qr" type="button" class="primary">Afficher un QR code d'appairage</button>
+                    <button id="sync-cancel-qr" type="button" hidden>Fermer le QR code</button>
+                  </div>
+
+                  <div id="sync-qr-box" class="sync-qr-box" hidden>
+                    <div id="sync-qr-svg" class="sync-qr-svg" aria-label="QR code d'appairage"></div>
+                    <div class="sync-qr-info">
+                      <p class="sync-qr-title"><strong>Scannez depuis votre téléphone</strong></p>
+                      <p class="hint">Empreinte de vérification : <code id="sync-qr-fingerprint" class="sync-fp"></code></p>
+                      <p id="sync-qr-addrs" class="hint"></p>
+                      <p id="sync-qr-expiry" class="hint"></p>
+                      <div class="row">
+                        <button id="sync-copy-uri" type="button">Copier le lien d'appairage</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="sync-pair-manual">
+                    <label>
+                      Ou coller un lien d'appairage reçu d'un autre appareil
+                      <input id="sync-pair-uri" type="text" placeholder="vttsync://v1?id=..." spellcheck="false" autocomplete="off" />
+                    </label>
+                    <div class="row">
+                      <button id="sync-pair-btn" type="button">Appairer avec ce lien</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Appareils appairés</h3>
+                  <p id="sync-peers-empty" class="hint">
+                    Aucun appareil appairé pour l'instant. Utilisez le QR code ci-dessus pour lier
+                    votre téléphone, votre PC ou votre Steam Deck.
+                  </p>
+                  <div id="sync-peers-list" class="cards"></div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Détectés sur le réseau local (mDNS)</h3>
+                  <p id="sync-mdns-note" class="hint"></p>
+                  <p id="sync-discovered-empty" class="hint">
+                    Aucun autre appareil VoiceToText détecté pour le moment.
+                  </p>
+                  <ul id="sync-discovered-list" class="sync-discovered-list"></ul>
+                </div>
+              </section>
+
               <!-- Application -->
               <form class="panel" data-panel="application" data-kind="general" hidden>
                 <header class="panel-head">
@@ -1069,6 +1157,7 @@
     <script src="vocabulary.js"></script>
     <script src="prompts.js"></script>
     <script src="general.js"></script>
+    <script src="sync.js"></script>
     <script src="settings.js"></script>
     <script src="test-zone.js"></script>
     <script src="app.js"></script>

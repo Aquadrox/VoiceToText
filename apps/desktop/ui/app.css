@@ -1762,6 +1762,144 @@ label.choice input[type="radio"] {
   overflow-wrap: anywhere;
 }
 
+/* --- Synchronisation locale Wi-Fi --- */
+
+.sync-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sync-badge.active {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.sync-rename-row {
+  align-items: flex-end;
+  margin-top: 8px;
+}
+
+.sync-rename-row label {
+  flex: 1;
+  min-width: 180px;
+}
+
+.sync-qr-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.sync-qr-svg {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+  line-height: 0;
+}
+
+.sync-qr-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.sync-qr-title {
+  margin: 0 0 4px;
+}
+
+.sync-fp {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--card);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+}
+
+.sync-pair-manual {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sync-peer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.sync-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.sync-pill.online {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+}
+
+.sync-pill.offline {
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.sync-peer-meta {
+  margin: 4px 0 8px;
+}
+
+.sync-prefs-row {
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.sync-fallback {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.sync-fallback summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.sync-fallback .row {
+  margin-top: 6px;
+}
+
+.sync-discovered-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.sync-discovered-item {
+  margin-bottom: 4px;
+}
+
 @media (max-width: 760px) {
   .settings-layout {
     grid-template-columns: 1fr;

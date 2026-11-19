@@ -222,6 +222,10 @@ export class FakeElement {
   append(...nodes) {
     for (const node of nodes) {
       if (node == null) continue;
+      if (typeof node === "string") {
+        this._textContent += node;
+        continue;
+      }
       if (node.parentElement) node.remove();
       node.parentElement = this;
       this.children.push(node);
