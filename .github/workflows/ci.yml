@@ -119,6 +119,27 @@ jobs:
           # Cache alimenté par `main` seulement (avec la compilation release),
           # réutilisé par les PR.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Quand GitHub met à jour MSVC sur windows-latest (ex. 14.51 → 14.52),
+      # un CMakeCache.txt restauré du cache (whisper-rs-sys) garde l'ancien
+      # chemin absolu de cl.exe dans CMAKE_ASM_COMPILER et fait échouer CMake.
+      # On supprime uniquement ce dossier de build CMake si le compilateur a disparu.
+      - name: Nettoyage cache CMake obsolète
+        if: steps.changes.outputs.code == 'true'
+        shell: pwsh
+        run: |
+          if (Test-Path D:\t) {
+            Get-ChildItem -Path D:\t -Filter CMakeCache.txt -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              $stale = Select-String -Path $_.FullName -Pattern '^CMAKE_(?:ASM|C|CXX)_COMPILER:[^=]+=(.+)$' |
+                Where-Object {
+                  $p = $_.Matches[0].Groups[1].Value.Trim()
+                  $p -match '^[A-Za-z]:[/\\]' -and -not (Test-Path $p)
+                }
+              if ($stale) {
+                Write-Host "Cache CMake obsolète (compilateur absent) : suppression de $($_.DirectoryName)"
+                Remove-Item -Recurse -Force $_.DirectoryName
+              }
+            }
+          }
       - if: steps.changes.outputs.code == 'true'
         run: cargo clippy -p vtt-core -p vtt-platform --all-targets -- -D warnings
       - if: steps.changes.outputs.code == 'true'
