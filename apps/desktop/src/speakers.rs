@@ -13,7 +13,6 @@
 //! Méthode : pyannote.audio (Hervé Bredin, CNRS) ; idée reprise de
 //! pytranscribe (Xavier Beheydt) ; voir `vtt_core::diarize`.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -25,11 +24,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use vtt_asr::Diarizer;
 use vtt_core::diarize::{Analysis, Options};
+use vtt_core::meeting;
 
 use crate::model;
 
-/// Fichier de l'analyse des voix d'une réunion (chiffré).
-const ANALYSIS_FILE: &str = "voix.bin";
 /// Morceaux en attente d'analyse au-delà desquels un envoi en masse (fichier,
 /// audio relu) attend : la mémoire reste faible.
 const MAX_QUEUED: usize = 4;
@@ -353,26 +351,20 @@ impl FeedSender {
 /// Enregistre l'analyse, chiffrée (une empreinte vocale identifie une
 /// personne : jamais en clair sur le disque).
 pub fn save_analysis(dir: &Path, analysis: &Analysis) -> Result<(), String> {
-    let data = vtt_platform::protect(&analysis.to_bytes())?;
-    let tmp = dir.join("voix.bin.tmp");
-    fs::write(&tmp, data)
-        .and_then(|()| fs::rename(&tmp, dir.join(ANALYSIS_FILE)))
-        .map_err(|e| format!("{}: {e}", dir.display()))
+    meeting::save_analysis(dir, analysis, vtt_platform::protect)
 }
 
 /// Analyse enregistrée d'une réunion.
 pub fn load_analysis(dir: &Path) -> Result<Analysis, String> {
-    let path = dir.join(ANALYSIS_FILE);
-    let data = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Analysis::from_bytes(&vtt_platform::unprotect(&data)?)
+    meeting::load_analysis(dir, vtt_platform::unprotect)
 }
 
 pub fn analysis_kept(dir: &Path) -> bool {
-    dir.join(ANALYSIS_FILE).is_file()
+    meeting::has_analysis(dir)
 }
 
 pub fn delete_analysis(dir: &Path) {
-    let _ = fs::remove_file(dir.join(ANALYSIS_FILE));
+    meeting::delete_analysis(dir);
 }
 
 #[cfg(test)]
@@ -397,7 +389,7 @@ mod tests {
     fn meeting_like_analysis() {
         let models = PathBuf::from(std::env::var("VTT_MODELS").unwrap());
         let wav = std::env::var("VTT_TEST_WAV").unwrap();
-        let bytes = fs::read(wav).unwrap();
+        let bytes = std::fs::read(wav).unwrap();
         let samples: Vec<f32> = bytes[44..]
             .as_chunks::<2>()
             .0
