@@ -214,12 +214,20 @@ const SPEAKER_COLORS = 6;
 /** Nombre d'intervenants proposé au plus (et au moins jusqu'à ceux trouvés). */
 const MAX_SPEAKER_CHOICE = 8;
 
+/** Libellé du bouton de mémorisation d'une voix d'intervenant. */
+function enrollButtonLabel(name, recognized) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return "Mémoriser la voix";
+  return recognized ? `Enrichir la voix de ${trimmed}` : `Mémoriser la voix de ${trimmed}`;
+}
+
 /** Intervenants distingués : nom à donner, temps de parole, première phrase. */
 function renderSpeakers(detail) {
   const { record, speakers } = detail;
   $("meeting-speakers-block").hidden = speakers.length === 0;
   if (speakers.length === 0) return;
   const list = $("meeting-speakers");
+  const canEnroll = Boolean(detail.voices_kept && !detail.busy && !record.identifying);
   // Nom en cours de saisie : la liste n'est pas reconstruite sous les doigts.
   if (!list.contains(document.activeElement) || list.dataset.id !== record.id) {
     list.dataset.id = record.id;
@@ -245,7 +253,14 @@ function renderSpeakers(detail) {
         about.className = "about";
         about.textContent = `${clock(speaker.talk_ms)} de parole · « ${speaker.first} »`;
         item.append(label, input, about);
-        if (speaker.found) {
+        if (speaker.recognized) {
+          input.classList.add("recognized");
+          input.title = `Voix reconnue dans votre carnet local (${speaker.recognized.confidence} %) : modifiez ou effacez si besoin`;
+          const rec = document.createElement("span");
+          rec.className = "recognized";
+          rec.textContent = `Voix reconnue dans le carnet (${speaker.recognized.confidence} %)`;
+          item.append(rec);
+        } else if (speaker.found) {
           // Nom trouvé quand l'intervenant s'est présenté : d'où il vient.
           input.classList.add("found");
           input.title = "Nom trouvé dans sa présentation : modifiez-le ou effacez-le si besoin";
@@ -253,6 +268,28 @@ function renderSpeakers(detail) {
           found.className = "found";
           found.textContent = `Présentation à ${clock(speaker.found_ms)} : « ${speaker.found} »`;
           item.append(found);
+        }
+        if (canEnroll) {
+          const actions = document.createElement("div");
+          actions.className = "speaker-actions";
+          const enroll = document.createElement("button");
+          enroll.type = "button";
+          enroll.className = "speaker-enroll";
+          const syncEnroll = () => {
+            const hasName = Boolean(input.value.trim());
+            enroll.textContent = enrollButtonLabel(input.value, Boolean(speaker.recognized));
+            enroll.disabled = !hasName;
+            enroll.title = hasName
+              ? "Mémorise cette empreinte vocale dans votre carnet local chiffré"
+              : "Donnez d'abord un nom à cet intervenant pour mémoriser sa voix";
+          };
+          syncEnroll();
+          input.addEventListener("input", syncEnroll);
+          enroll.addEventListener("click", () =>
+            enrollSpeakerVoice(record.id, speaker.index, input.value, enroll),
+          );
+          actions.append(enroll);
+          item.append(actions);
         }
         return item;
       }),
@@ -278,6 +315,24 @@ async function renameSpeaker(id, index, name) {
     await showMeetingDetail();
   } catch (e) {
     showMeetingResult(String(e), true);
+  }
+}
+
+async function enrollSpeakerVoice(id, index, name, button) {
+  button.disabled = true;
+  try {
+    const entry = await invoke("enroll_speaker_voice", { id, index, name });
+    showMeetingResult(
+      entry.meetings > 1
+        ? `Voix de ${entry.name} enrichie dans le carnet local (${entry.meetings} réunions).`
+        : `Voix de ${entry.name} mémorisée dans le carnet local (chiffré).`,
+    );
+    await showMeetingDetail();
+    await showVoicebook();
+  } catch (e) {
+    showMeetingResult(String(e), true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -636,6 +691,7 @@ $("meeting-delete").addEventListener("click", () => {
 
 /** Section Réunions des réglages : remplie depuis la liste des réunions. */
 async function loadMeetingSettings() {
+  showVoicebook();
   if (meetingSettingsFilled) return;
   try {
     meetingsView = await invoke("meetings_view");
@@ -706,6 +762,114 @@ $("meeting-diarize-download").addEventListener("click", async () => {
 });
 $("meeting-diarize").addEventListener("change", () => showVoices());
 window.__TAURI__.event.listen("voices", (event) => showVoices(event.payload));
+
+/** Résultat d'une action sur le carnet de voix local (Réglages → Réunions). */
+function showVoicebookResult(text, isError = false) {
+  const box = $("voicebook-result");
+  if (!box) return;
+  box.textContent = text;
+  box.classList.toggle("err", isError);
+  box.hidden = !text;
+}
+
+function formatVoiceMeta(entry) {
+  const meetings = `${entry.meetings} réunion${entry.meetings > 1 ? "s" : ""}`;
+  const samples = `${entry.samples} extrait${entry.samples > 1 ? "s" : ""}`;
+  return `${meetings} · ${samples}`;
+}
+
+/** Liste des voix mémorisées dans Réglages → Réunions. */
+async function showVoicebook(entries) {
+  const list = $("voicebook-list");
+  if (!list) return;
+  try {
+    entries ??= await invoke("voicebook_view");
+  } catch (e) {
+    showVoicebookResult(String(e), true);
+    return;
+  }
+  $("voicebook-empty").hidden = entries.length > 0;
+  $("voicebook-clear").hidden = entries.length === 0;
+  if (list.contains(document.activeElement)) return;
+  list.replaceChildren(
+    ...entries.map((entry) => {
+      const item = document.createElement("li");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "voicebook-name";
+      input.value = entry.name;
+      input.maxLength = 60;
+      input.spellcheck = false;
+      input.setAttribute("aria-label", `Nom de la voix ${entry.name}`);
+      input.addEventListener("change", () => renameVoicebookEntry(entry.id, input.value));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          input.blur();
+        }
+      });
+      const meta = document.createElement("span");
+      meta.className = "voicebook-meta";
+      meta.textContent = formatVoiceMeta(entry);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "danger voicebook-remove";
+      remove.textContent = "Oublier";
+      remove.title = `Supprimer immédiatement la voix de ${entry.name}`;
+      remove.addEventListener("click", () => removeVoicebookEntry(entry.id, entry.name, remove));
+      item.append(input, meta, remove);
+      return item;
+    }),
+  );
+}
+
+async function renameVoicebookEntry(id, name) {
+  try {
+    await invoke("rename_voicebook_entry", { id, name });
+    showVoicebookResult("Nom mis à jour dans le carnet.");
+  } catch (e) {
+    showVoicebookResult(String(e), true);
+  } finally {
+    await showVoicebook();
+  }
+}
+
+async function removeVoicebookEntry(id, name, button) {
+  button.disabled = true;
+  try {
+    await invoke("remove_voicebook_entry", { id });
+    showVoicebookResult(`Voix de ${name} oubliée.`);
+  } catch (e) {
+    showVoicebookResult(String(e), true);
+  } finally {
+    await showVoicebook();
+  }
+}
+
+let voicebookClearArmed = null;
+$("voicebook-clear")?.addEventListener("click", async () => {
+  const button = $("voicebook-clear");
+  if (!voicebookClearArmed) {
+    button.textContent = "Confirmer l'oubli";
+    voicebookClearArmed = setTimeout(() => {
+      voicebookClearArmed = null;
+      button.textContent = "Tout oublier";
+    }, 4000);
+    return;
+  }
+  clearTimeout(voicebookClearArmed);
+  voicebookClearArmed = null;
+  button.textContent = "Tout oublier";
+  try {
+    await invoke("clear_voicebook");
+    showVoicebookResult("Carnet de voix effacé.");
+  } catch (e) {
+    showVoicebookResult(String(e), true);
+  } finally {
+    await showVoicebook();
+  }
+});
+window.__TAURI__.event.listen("voicebook", () => showVoicebook());
 
 // Transcription au fil de l'eau : la page suit les blocs transcrits.
 let meetingsRefresh = null;

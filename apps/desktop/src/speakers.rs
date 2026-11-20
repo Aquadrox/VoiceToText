@@ -367,6 +367,132 @@ pub fn delete_analysis(dir: &Path) {
     meeting::delete_analysis(dir);
 }
 
+/// Enregistre le carnet de voix chiffré (ou supprime le fichier s'il est vide).
+pub fn save_or_delete_voicebook(
+    path: &Path,
+    book: &vtt_core::voicebook::VoiceBook,
+    protect: impl Fn(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<(), String> {
+    if book.is_empty() {
+        vtt_core::voicebook::VoiceBook::delete_file(path);
+        return Ok(());
+    }
+    book.save(path, protect)
+}
+
+/// Mémorise dans `book` l'empreinte d'un intervenant extrait d'une analyse vocale.
+pub fn enroll_speaker_in_book(
+    book: &mut vtt_core::voicebook::VoiceBook,
+    analysis: &Analysis,
+    speaker_count: Option<usize>,
+    speaker_index: usize,
+    name: &str,
+    now_ms: u64,
+) -> Result<vtt_core::voicebook::VoiceEntryView, String> {
+    let profiles = analysis.speaker_profiles(&Options {
+        speakers: speaker_count,
+        ..Options::default()
+    });
+    let profile = profiles
+        .into_iter()
+        .find(|p| p.speaker == speaker_index)
+        .ok_or_else(|| "intervenant introuvable dans l'analyse vocale".to_owned())?;
+    let samples = u32::try_from(profile.samples).unwrap_or(u32::MAX);
+    let entry = book.enroll(name, &profile.embedding, samples, now_ms)?;
+    Ok(vtt_core::voicebook::VoiceEntryView::from(&entry))
+}
+
+/// Accès synchronisé au carnet de voix local chiffré (`voicebook.bin`).
+pub struct VoiceBookStore {
+    path: PathBuf,
+    lock: Mutex<()>,
+}
+
+impl VoiceBookStore {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            lock: Mutex::new(()),
+        }
+    }
+
+    fn load_locked(&self) -> Result<vtt_core::voicebook::VoiceBook, String> {
+        vtt_core::voicebook::VoiceBook::load(&self.path, vtt_platform::unprotect)
+    }
+
+    fn save_locked(&self, book: &vtt_core::voicebook::VoiceBook) -> Result<(), String> {
+        save_or_delete_voicebook(&self.path, book, vtt_platform::protect)
+    }
+
+    /// Charge le carnet pour la reconnaissance automatique : en cas d'erreur
+    /// de lecture/déchiffrement, journalise et renvoie un carnet vide sans
+    /// bloquer la fin de réunion.
+    pub fn load_or_empty(&self) -> vtt_core::voicebook::VoiceBook {
+        let _guard = lock(&self.lock);
+        match self.load_locked() {
+            Ok(book) => book,
+            Err(e) => {
+                log::warn!("carnet de voix illisible : {e}");
+                vtt_core::voicebook::VoiceBook::default()
+            }
+        }
+    }
+
+    /// Liste des voix mémorisées (sans vecteurs biométriques).
+    pub fn views(&self) -> Result<Vec<vtt_core::voicebook::VoiceEntryView>, String> {
+        let _guard = lock(&self.lock);
+        Ok(self.load_locked()?.views())
+    }
+
+    /// Mémorise (ou enrichit) la voix d'un intervenant depuis l'analyse vocale.
+    pub fn enroll_from_analysis(
+        &self,
+        analysis: &Analysis,
+        speaker_count: Option<usize>,
+        speaker_index: usize,
+        name: &str,
+        now_ms: u64,
+    ) -> Result<vtt_core::voicebook::VoiceEntryView, String> {
+        let _guard = lock(&self.lock);
+        let mut book = self.load_locked()?;
+        let view = enroll_speaker_in_book(
+            &mut book,
+            analysis,
+            speaker_count,
+            speaker_index,
+            name,
+            now_ms,
+        )?;
+        self.save_locked(&book)?;
+        Ok(view)
+    }
+
+    /// Renomme une voix mémorisée dans le carnet.
+    pub fn rename(&self, id: &str, name: &str, now_ms: u64) -> Result<(), String> {
+        let _guard = lock(&self.lock);
+        let mut book = self.load_locked()?;
+        book.rename(id, name, now_ms)?;
+        self.save_locked(&book)
+    }
+
+    /// Supprime une voix mémorisée en un clic.
+    pub fn remove(&self, id: &str) -> Result<bool, String> {
+        let _guard = lock(&self.lock);
+        let mut book = self.load_locked()?;
+        let removed = book.remove(id);
+        if removed {
+            self.save_locked(&book)?;
+        }
+        Ok(removed)
+    }
+
+    /// Supprime tout le carnet de voix local.
+    pub fn clear(&self) {
+        let _guard = lock(&self.lock);
+        vtt_core::voicebook::VoiceBook::delete_file(&self.path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +503,78 @@ mod tests {
         assert!(!voices.installed());
         assert!(voices.feed().is_none());
         assert!(voices.view().missing_mb > 0);
+    }
+
+    struct FakeModels;
+
+    impl vtt_core::diarize::Models for FakeModels {
+        fn segment(
+            &mut self,
+            window: &[f32],
+        ) -> Result<Vec<[f32; vtt_core::diarize::CLASSES]>, vtt_core::Error> {
+            use vtt_core::diarize::{CLASSES, FRAME_SIZE, FRAME_STEP, WINDOW};
+            let frames = (WINDOW - FRAME_SIZE) / FRAME_STEP + 1;
+            let mut local: Vec<i32> = Vec::new();
+            Ok((0..frames)
+                .map(|f| {
+                    let mid = f * FRAME_STEP + FRAME_SIZE / 2;
+                    let v = (window[mid] * 10.0).round() as i32;
+                    let mut row = [0.0; CLASSES];
+                    let class = if v <= 0 {
+                        0
+                    } else {
+                        let slot = local.iter().position(|&x| x == v).unwrap_or_else(|| {
+                            local.push(v);
+                            local.len() - 1
+                        });
+                        1 + slot.min(2)
+                    };
+                    row[class] = 1.0;
+                    row
+                })
+                .collect())
+        }
+
+        fn embed(&mut self, samples: &[f32]) -> Result<Vec<f32>, vtt_core::Error> {
+            let v = (samples[samples.len() / 2] * 10.0).round() as i32;
+            let mut e = vec![0.05f32; 3];
+            if (1..=3).contains(&v) {
+                e[(v - 1) as usize] = 1.0;
+            }
+            Ok(e)
+        }
+    }
+
+    #[test]
+    fn enrolls_speaker_from_analysis_and_cleans_up_empty_voicebook_file() {
+        const SECOND: usize = vtt_core::SAMPLE_RATE as usize;
+        let mut audio = vec![0.1f32; 8 * SECOND];
+        audio.extend(std::iter::repeat_n(0.2f32, 8 * SECOND));
+        let mut analysis = Analysis::new(Options::default().step);
+        analysis.add(0, &audio, &mut FakeModels).unwrap();
+        analysis.finish(&mut FakeModels).unwrap();
+
+        let mut book = vtt_core::voicebook::VoiceBook::default();
+        let marie = enroll_speaker_in_book(&mut book, &analysis, None, 0, "Marie", 1_000).unwrap();
+        assert_eq!(marie.name, "Marie");
+        assert_eq!(marie.meetings, 1);
+        assert!(marie.samples > 0);
+        // Intervenant inexistant refusé.
+        assert!(enroll_speaker_in_book(&mut book, &analysis, None, 5, "Inconnu", 1_001).is_err());
+
+        // Persistance chiffrée puis suppression automatique quand le carnet est vidé.
+        let dir = std::env::temp_dir().join(format!("vtt-desktop-vb-{}", std::process::id()));
+        let path = dir.join(vtt_core::voicebook::VOICEBOOK_FILE);
+        let xor = |data: &[u8]| Ok(data.iter().map(|b| b ^ 0x42).collect());
+        save_or_delete_voicebook(&path, &book, xor).unwrap();
+        assert!(path.is_file());
+        let loaded = vtt_core::voicebook::VoiceBook::load(&path, xor).unwrap();
+        assert_eq!(loaded.views(), vec![marie.clone()]);
+
+        book.remove(&marie.id);
+        save_or_delete_voicebook(&path, &book, xor).unwrap();
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Analyse réelle, comme pendant une réunion : blocs de 6 à 15 s envoyés

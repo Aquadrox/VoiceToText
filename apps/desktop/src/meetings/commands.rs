@@ -11,10 +11,11 @@ use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig, TRANSLAT
 use vtt_core::meeting::{
     self, DEFAULT_EXCERPT_CHARS, MeetingKind, MeetingRecord, MeetingStatus, Output, Track,
 };
+use vtt_core::voicebook::{VoiceEntryView, VoiceRecognition};
 
 use super::export::{build_ask_context, clip_sample_range, file_name, markdown, select_copy_text};
 use super::storage::voice_source;
-use super::{MeetingState, MeetingsState, lock};
+use super::{MeetingState, MeetingsState, lock, now_ms};
 use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
 use crate::settings::{self, SharedConfig};
@@ -130,6 +131,8 @@ pub struct SpeakerView {
     /// `name` vient de sa présentation : la phrase, et quand.
     found: Option<String>,
     found_ms: Option<u64>,
+    /// `name` vient du carnet de voix local (opt-in) : entrée et confiance.
+    recognized: Option<VoiceRecognition>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +170,7 @@ pub fn meeting_detail(
             first: s.first,
             found: s.found,
             found_ms: s.found_ms,
+            recognized: s.recognized,
         })
         .collect();
     let turns = replies
@@ -458,9 +462,10 @@ pub fn set_speaker_count(
         log::warn!("analyse des voix de {id} : {e}");
         "analyse des voix non conservée : relancez « Distinguer les intervenants »".to_owned()
     })?;
+    let book = meetings.voicebook.load_or_empty();
     meetings.update(&id, |r| {
         r.speaker_count = count;
-        r.set_speakers(&analysis);
+        r.set_speakers_with_voicebook(&analysis, Some(&book));
     })
 }
 
@@ -495,6 +500,96 @@ pub fn voices_view(voices: State<'_, VoicesState>) -> speakers::VoicesView {
 #[tauri::command]
 pub fn download_voices(voices: State<'_, VoicesState>) {
     voices.download();
+}
+
+/// Détermine le nom à mémoriser dans le carnet pour un intervenant : celui
+/// saisi/transmis s'il n'est pas vide, sinon le nom déjà connu sur la fiche.
+pub(super) fn resolve_enroll_name(
+    record: &MeetingRecord,
+    index: usize,
+    provided: Option<&str>,
+) -> Result<String, String> {
+    if let Some(name) = provided.map(str::trim).filter(|n| !n.is_empty()) {
+        return Ok(name.to_owned());
+    }
+    record
+        .names()
+        .get(index)
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "donnez d'abord un nom à cet intervenant".to_owned())
+}
+
+/// Voix mémorisées dans le carnet local (sans vecteurs biométriques).
+#[tauri::command]
+pub fn voicebook_view(meetings: State<'_, MeetingsState>) -> Result<Vec<VoiceEntryView>, String> {
+    meetings.voicebook.views()
+}
+
+/// Mémorise explicitement la voix d'un intervenant d'une réunion dans le
+/// carnet local chiffré (opt-in).
+#[tauri::command]
+pub fn enroll_speaker_voice(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    index: usize,
+    name: Option<String>,
+) -> Result<VoiceEntryView, String> {
+    let (record, dir) = meetings.load(&id)?;
+    let target_name = resolve_enroll_name(&record, index, name.as_deref())?;
+    let analysis = speakers::load_analysis(&dir).map_err(|e| {
+        log::warn!("analyse des voix de {id} : {e}");
+        "empreintes vocales non conservées pour cette réunion".to_owned()
+    })?;
+    let entry = meetings.voicebook.enroll_from_analysis(
+        &analysis,
+        record.speaker_count,
+        index,
+        &target_name,
+        now_ms(),
+    )?;
+    meetings.update(&id, |r| {
+        let _ = r.rename_speaker(index, &entry.name);
+    })?;
+    log::info!(
+        "carnet de voix : voix de « {} » mémorisée depuis la réunion {id}",
+        entry.name
+    );
+    let _ = meetings.app.emit("voicebook", ());
+    Ok(entry)
+}
+
+/// Renomme une voix du carnet local.
+#[tauri::command]
+pub fn rename_voicebook_entry(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    meetings.voicebook.rename(&id, &name, now_ms())?;
+    let _ = meetings.app.emit("voicebook", ());
+    Ok(())
+}
+
+/// Oublie une voix du carnet local en un clic.
+#[tauri::command]
+pub fn remove_voicebook_entry(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+) -> Result<(), String> {
+    if meetings.voicebook.remove(&id)? {
+        let _ = meetings.app.emit("voicebook", ());
+    }
+    Ok(())
+}
+
+/// Efface toutes les voix du carnet local.
+#[tauri::command]
+pub fn clear_voicebook(meetings: State<'_, MeetingsState>) {
+    meetings.voicebook.clear();
+    log::info!("carnet de voix effacé");
+    let _ = meetings.app.emit("voicebook", ());
 }
 
 #[tauri::command]

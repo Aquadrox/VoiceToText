@@ -137,7 +137,11 @@ impl Session {
             }
             match voices {
                 Some(Ok(analysis)) => {
-                    record.set_speakers(&analysis);
+                    let book = self
+                        .app
+                        .try_state::<MeetingsState>()
+                        .map(|m| m.voicebook.load_or_empty());
+                    record.set_speakers_with_voicebook(&analysis, book.as_ref());
                     if record.keeps_voices()
                         && let Err(e) = speakers::save_analysis(&self.dir, &analysis)
                     {

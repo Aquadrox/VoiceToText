@@ -279,6 +279,15 @@ export class FakeElement {
     return null;
   }
 
+  contains(other) {
+    let cur = other;
+    while (cur) {
+      if (cur === this) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
   querySelectorAll(selector) {
     const found = [];
     const walk = (node) => {

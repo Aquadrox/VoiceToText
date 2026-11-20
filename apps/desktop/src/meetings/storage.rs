@@ -291,7 +291,10 @@ impl Meetings {
             return Err("aucune piste où distinguer des intervenants".into());
         }
         if let Ok(analysis) = speakers::load_analysis(&dir) {
-            return self.update(id, |r| r.set_speakers(&analysis));
+            let book = self.voicebook.load_or_empty();
+            return self.update(id, |r| {
+                r.set_speakers_with_voicebook(&analysis, Some(&book))
+            });
         }
         let source = voice_source(&record, &dir)
             .ok_or("audio non conservé : impossible de distinguer les intervenants après coup")?;
@@ -329,9 +332,10 @@ impl Meetings {
                 if let Err(e) = saved {
                     log::warn!("analyse des voix non enregistrée : {e}");
                 }
+                let book = result.is_ok().then(|| meetings.voicebook.load_or_empty());
                 let updated = meetings.update(&id, |r| {
                     match &result {
-                        Ok(analysis) => r.set_speakers(analysis),
+                        Ok(analysis) => r.set_speakers_with_voicebook(analysis, book.as_ref()),
                         Err(e) => r.notes.push(format!("Intervenants non distingués : {e}")),
                     }
                     r.identifying = false;

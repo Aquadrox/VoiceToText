@@ -31,7 +31,7 @@ use vtt_core::{AudioClip, Pipeline};
 use crate::controller::{Work, WorkerHandle};
 use crate::paths::Paths;
 use crate::settings::{self, SharedConfig};
-use crate::speakers::{VoiceFeed, VoicesState};
+use crate::speakers::{VoiceBookStore, VoiceFeed, VoicesState};
 
 pub(crate) use commands::*;
 
@@ -109,6 +109,7 @@ pub(super) struct Active {
 pub struct Meetings {
     pub(super) app: AppHandle,
     pub(super) dir: PathBuf,
+    pub(super) voicebook: VoiceBookStore,
     pub(super) queue: MeetingQueue,
     pub(super) worker: WorkerHandle,
     pub(super) tray_item: MenuItem<Wry>,
@@ -143,6 +144,7 @@ impl Meetings {
         Arc::new(Self {
             app,
             dir: paths.meetings_dir.clone(),
+            voicebook: VoiceBookStore::new(paths.voicebook_file.clone()),
             queue,
             worker,
             tray_item,
