@@ -557,13 +557,13 @@ Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres (#93) :
 - ✅ Saut 5C (PR #111) — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres (`LiveLogic`, `Recorder::drainLive`, `Dictation`, `VoiceKeyboard`), tests Rust + Kotlin JVM et montée de version **v0.39.0**
 - ⬜ À vérifier sur le terrain : prévisualisation en continu sur une longue dictée mains libres côté PC (pastille flottante + « Réessayer ») et côté Android (clavier mains libres, champ mot de passe sans aperçu ni LLM, navigation privée sans historique)
 
-### 6. Consolidation technique : réunions `meetings.rs` (#92) 🚧
+### 6. Consolidation technique : réunions `meetings.rs` (#92) ✅
 
 Factoriser la logique commune des réunions et découper les deux gros modules `meetings.rs` (PC et Android) avant le Carnet de voix et la recherche sémantique :
 
 - ✅ Saut 6A (PR #112) — Cœur `vtt-core::meeting::store` : résolution sécurisée des dossiers (`is_valid_id`, `meeting_dir`, `load_meeting`), conservation (`is_expired`), vues d'intervenants (`SpeakerSummary`, `speaker_summaries`, `validate_speaker_count`, `speaker_count`, `excerpt`), persistance atomique de `voix.bin` (`save_analysis` / `load_analysis` / `has_analysis` / `delete_analysis`), export texte/Markdown/HTML unifié (`export_meeting_text`, `safe_file_name`) et helpers temporels (`samples_to_ms` / `ms_to_samples`)
-- ✅ Saut 6B — Bureau (`apps/desktop/src/meetings/` + `speakers.rs`) : découpage de `apps/desktop/src/meetings.rs` (2 332 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `export`, `commands`, `tests`) et branchement sur `vtt-core::meeting::store` sans changement de comportement
-- ⬜ Saut 6C — Android (`crates/vtt-android/src/meetings/`) : découper `crates/vtt-android/src/meetings.rs` (1 721 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `process`, `views`, `tests`) et brancher sur `vtt-core::meeting::store` (clôture `#92`)
+- ✅ Saut 6B (PR #113) — Bureau (`apps/desktop/src/meetings/` + `speakers.rs`) : découpage de `apps/desktop/src/meetings.rs` (2 332 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `export`, `commands`, `tests`) et branchement sur `vtt-core::meeting::store` sans changement de comportement
+- ✅ Saut 6C — Android (`crates/vtt-android/src/meetings/`) : découpage de `crates/vtt-android/src/meetings.rs` (1 721 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `process`, `views`, `tests`) et branchement sur `vtt-core::meeting::store` (clôture `#92`)
 
 ### 7. Carnet de voix local (empreintes récurrentes, opt-in) (#90) ⬜
 
