@@ -27,6 +27,8 @@ pub struct Paths {
     pub captures_dir: PathBuf,
     /// Identité locale et appareils appairés pour la synchronisation Wi-Fi.
     pub sync_peers_file: PathBuf,
+    /// Carnet de voix local (empreintes vocales mémorisées à la demande, chiffré).
+    pub voicebook_file: PathBuf,
 }
 
 impl Paths {
@@ -47,6 +49,7 @@ impl Paths {
             meetings_dir: data_dir.join("meetings"),
             captures_dir: data_dir.join("captures"),
             sync_peers_file: config_dir.join("sync_peers.json"),
+            voicebook_file: data_dir.join(vtt_core::voicebook::VOICEBOOK_FILE),
         }
     }
 
@@ -139,6 +142,7 @@ impl Paths {
             meetings_dir: dir.join("meetings"),
             captures_dir: dir.join("captures"),
             sync_peers_file: dir.join("sync_peers.json"),
+            voicebook_file: dir.join(vtt_core::voicebook::VOICEBOOK_FILE),
         }
     }
 }

@@ -216,9 +216,10 @@
               <div id="meeting-speakers-block" hidden>
                 <h2>Intervenants</h2>
                 <p class="muted small">
-                  Voix distinguées sur ce PC. Qui se présente (« je m'appelle Marie ») est nommé
-                  d'office. Donnez ou corrigez un nom : il remplace « Intervenant N » dans la
-                  transcription, l'export et le prochain compte rendu.
+                  Voix distinguées sur ce PC. Qui se présente (« je m'appelle Marie ») ou figure
+                  dans votre carnet de voix est nommé d'office. Donnez ou corrigez un nom : il
+                  remplace « Intervenant N » dans la transcription, l'export et le prochain compte
+                  rendu.
                 </p>
                 <ul id="meeting-speakers" class="speakers"></ul>
                 <div class="row wrap">
@@ -769,6 +770,21 @@
                   <div class="row" data-untracked>
                     <button id="meeting-diarize-download" type="button" hidden>Télécharger les modèles</button>
                   </div>
+                </div>
+
+                <div class="group" data-untracked>
+                  <h3>Carnet de voix local</h3>
+                  <p class="hint">
+                    Empreintes vocales mémorisées uniquement à votre demande (bouton « Mémoriser la
+                    voix » dans une réunion), chiffrées sur ce PC et jamais envoyées. Permet de
+                    reconnaître automatiquement les intervenants habituels d'une réunion à l'autre.
+                  </p>
+                  <p id="voicebook-empty" class="muted small">Aucune voix mémorisée pour le moment.</p>
+                  <ul id="voicebook-list" class="voicebook"></ul>
+                  <div class="row" data-untracked>
+                    <button id="voicebook-clear" type="button" class="danger" hidden>Tout oublier</button>
+                  </div>
+                  <div id="voicebook-result" class="result" hidden></div>
                 </div>
 
                 <div class="group field">

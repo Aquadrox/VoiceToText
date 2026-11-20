@@ -1155,7 +1155,8 @@ ol.entries li + li {
 }
 
 /* Nom trouvé dans la présentation de l'intervenant, sous son nom. */
-.speakers span.found {
+.speakers span.found,
+.speakers span.recognized {
   grid-column: 2 / -1;
   color: var(--muted);
   font-size: 12px;
@@ -1163,8 +1164,59 @@ ol.entries li + li {
   overflow-wrap: anywhere;
 }
 
-.speakers input.found {
+.speakers span.recognized {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.speakers input.found,
+.speakers input.recognized {
   font-style: italic;
+}
+
+.speakers .speaker-actions {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.speakers .speaker-enroll {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.voicebook {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.voicebook li {
+  display: grid;
+  grid-template-columns: minmax(11em, 15em) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.voicebook li:first-child {
+  border-top: none;
+}
+
+.voicebook .voicebook-name {
+  width: 100%;
+}
+
+.voicebook .voicebook-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.voicebook .voicebook-remove {
+  font-size: 12px;
+  padding: 4px 10px;
 }
 
 .meeting-more {

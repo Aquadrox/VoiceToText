@@ -277,3 +277,28 @@ fn select_copy_text_clip_range_and_default_title_work() {
     assert!(title.starts_with("Réunion du "), "{title}");
     assert!(title.contains(" à "), "{title}");
 }
+
+#[test]
+fn resolve_enroll_name_prefers_input_then_known_name_and_rejects_empty() {
+    use super::commands::resolve_enroll_name;
+    use vtt_core::voicebook::VoiceRecognition;
+
+    let mut rec = record();
+    assert!(resolve_enroll_name(&rec, 0, None).is_err());
+    assert!(resolve_enroll_name(&rec, 0, Some("   ")).is_err());
+    assert_eq!(
+        resolve_enroll_name(&rec, 0, Some("  Marie  ")).unwrap(),
+        "Marie"
+    );
+
+    rec.speaker_recognized = vec![Some(VoiceRecognition {
+        entry_id: "v-1".into(),
+        name: "Claire".into(),
+        confidence: 91,
+    })];
+    assert_eq!(resolve_enroll_name(&rec, 0, None).unwrap(), "Claire");
+    assert_eq!(
+        resolve_enroll_name(&rec, 0, Some("Claire Dupont")).unwrap(),
+        "Claire Dupont"
+    );
+}
