@@ -17,11 +17,18 @@ use crate::pipeline::SAMPLE_RATE;
 mod names;
 mod record;
 mod report;
+mod store;
 
 pub use names::{NameGuess, guess_names, same_person};
 pub use record::{MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE};
 pub use report::{
     Action, Chapter, HtmlOptions, MeetingReport, Point, Priority, Qa, Quote, parse_json, parse_time,
+};
+pub use store::{
+    ANALYSIS_FILE, DAY_MS, DEFAULT_EXCERPT_CHARS, ExportOptions, MAX_SPEAKER_COUNT, SpeakerSummary,
+    delete_analysis, excerpt, export_meeting_text, has_analysis, is_expired, is_valid_id,
+    load_analysis, load_meeting, meeting_dir, safe_file_name, save_analysis, speaker_count,
+    speaker_summaries, validate_speaker_count, validate_title,
 };
 
 /// Qui parle : le micro (l'utilisateur) ou le son du PC (les autres).
@@ -68,11 +75,11 @@ impl Chunk {
     }
 }
 
-fn samples_to_ms(samples: u64) -> u64 {
+pub fn samples_to_ms(samples: u64) -> u64 {
     samples * 1000 / u64::from(SAMPLE_RATE)
 }
 
-fn ms_to_samples(ms: u64) -> usize {
+pub fn ms_to_samples(ms: u64) -> usize {
     (ms * u64::from(SAMPLE_RATE) / 1000) as usize
 }
 
