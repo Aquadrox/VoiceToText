@@ -882,6 +882,85 @@ pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingForgetS
     java(&mut env, &json)
 }
 
+/// Voix mémorisées dans le carnet local : `{"ok": [...]}` ou erreur.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicebookList<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let json = protect(|| reply(meetings::voicebook_list(&root)));
+    java(&mut env, &json)
+}
+
+/// Mémorise la voix d'un intervenant d'une réunion (opt-in) : `{"ok": {...}}` ou erreur.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_meetingEnrollSpeaker<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    index: jint,
+    name: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let name = text(&mut env, &name);
+    let json = protect(|| {
+        reply(
+            decode_index(index, "intervenant inconnu")
+                .and_then(|index| meetings::enroll_speaker_voice(&root, &id, index, &name)),
+        )
+    });
+    java(&mut env, &json)
+}
+
+/// Renomme une voix mémorisée dans le carnet local.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicebookRename<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+    name: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let name = text(&mut env, &name);
+    let json = protect(|| reply(meetings::rename_voicebook_entry(&root, &id, &name)));
+    java(&mut env, &json)
+}
+
+/// Oublie une voix du carnet local en un clic.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicebookRemove<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+    id: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let id = text(&mut env, &id);
+    let json = protect(|| reply(meetings::remove_voicebook_entry(&root, &id)));
+    java(&mut env, &json)
+}
+
+/// Efface toutes les voix du carnet local.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_voicebookClear<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    root: JString<'a>,
+) -> jstring {
+    let root = PathBuf::from(text(&mut env, &root));
+    let json = protect(|| {
+        meetings::clear_voicebook(&root);
+        reply(Ok::<_, String>(()))
+    });
+    java(&mut env, &json)
+}
+
 /// Modèles des intervenants (bloquant) : `{"ok": null}` ou erreur.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_aquadrox_voicetotext_Native_downloadVoices<'a>(

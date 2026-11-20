@@ -8,7 +8,10 @@ use vtt_core::config::MeetingAudio;
 use vtt_core::diarize;
 use vtt_core::meeting::{self, MeetingKind, MeetingStatus, MeetingSummary, Segment, Track};
 
-use super::storage::{Resampler, audio_samples, dir, live, load, lock, memory, step, update};
+use super::storage::{
+    Resampler, audio_samples, dir, live, load, lock, memory, save_analysis, step, update,
+    voicebook_path,
+};
 use super::*;
 
 /// Les identifiants sont des heures en ms, uniques dans un dossier ;
@@ -428,4 +431,138 @@ fn speakers_are_requested_named_and_forgotten() {
 fn long_texts_are_cut_on_characters() {
     assert_eq!(meeting::excerpt("Bonjour", 90), "Bonjour");
     assert_eq!(meeting::excerpt("Ça va très bien", 6), "Ça va…");
+}
+
+struct FakeDiarize;
+
+impl diarize::Models for FakeDiarize {
+    fn segment(&mut self, window: &[f32]) -> Result<Vec<[f32; diarize::CLASSES]>, vtt_core::Error> {
+        let frames = (diarize::WINDOW - diarize::FRAME_SIZE) / diarize::FRAME_STEP + 1;
+        let mut local: Vec<i32> = Vec::new();
+        Ok((0..frames)
+            .map(|f| {
+                let mid = f * diarize::FRAME_STEP + diarize::FRAME_SIZE / 2;
+                let v = (window[mid] * 10.0).round() as i32;
+                let mut row = [0.0; diarize::CLASSES];
+                let class = if v <= 0 {
+                    0
+                } else {
+                    let slot = local.iter().position(|&x| x == v).unwrap_or_else(|| {
+                        local.push(v);
+                        local.len() - 1
+                    });
+                    1 + slot.min(2)
+                };
+                row[class] = 1.0;
+                row
+            })
+            .collect())
+    }
+
+    fn embed(&mut self, samples: &[f32]) -> Result<Vec<f32>, vtt_core::Error> {
+        let v = (samples[samples.len() / 2] * 10.0).round() as i32;
+        let mut e = vec![0.05f32; 3];
+        if (1..=3).contains(&v) {
+            e[(v - 1) as usize] = 1.0;
+        }
+        Ok(e)
+    }
+}
+
+#[test]
+fn voicebook_enrolls_recognizes_across_meetings_renames_and_removes() {
+    let _serial = lock(&SERIAL);
+    let root = root("voicebook");
+
+    // Prépare une analyse vocale à deux voix (0.1 puis 0.2).
+    const SECOND: usize = vtt_core::SAMPLE_RATE as usize;
+    let mut audio = vec![0.1f32; 8 * SECOND];
+    audio.extend(std::iter::repeat_n(0.2f32, 8 * SECOND));
+    let mut analysis = diarize::Analysis::new(diarize::Options::default().step);
+    analysis.add(0, &audio, &mut FakeDiarize).unwrap();
+    analysis.finish(&mut FakeDiarize).unwrap();
+
+    // Réunion 1 : on garde voix.bin et on mémorise la voix 0 sous « Marie ».
+    let id1 = create(&root, &new(MeetingAudio::Conserve, None)).unwrap();
+    stop(&root, &id1).unwrap();
+    update(&root, &id1, |r| {
+        r.status = MeetingStatus::Terminee;
+        r.segments = vec![
+            Segment {
+                track: Track::Moi,
+                start_ms: 500,
+                end_ms: 7_500,
+                text: "Bonjour à tous.".into(),
+                copied: false,
+                speaker: None,
+            },
+            Segment {
+                track: Track::Moi,
+                start_ms: 8_500,
+                end_ms: 15_500,
+                text: "Salut.".into(),
+                copied: false,
+                speaker: None,
+            },
+        ];
+        r.set_speakers(&analysis);
+    })
+    .unwrap();
+    save_analysis(&root.join(&id1), &analysis).unwrap();
+
+    assert!(voicebook_list(&root).unwrap().is_empty());
+    assert!(enroll_speaker_voice(&root, &id1, 0, "  ").is_err());
+
+    let marie = enroll_speaker_voice(&root, &id1, 0, "Marie").unwrap();
+    assert_eq!(marie.name, "Marie");
+    assert_eq!(marie.meetings, 1);
+    assert_eq!(voicebook_list(&root).unwrap(), vec![marie.clone()]);
+    assert_eq!(detail(&root, &id1).unwrap().speaker_list[0].name, "Marie");
+
+    // `voicebook.bin` dans `root` ne perturbe jamais la liste des réunions.
+    assert_eq!(list(&root, "").unwrap().len(), 1);
+
+    // Réunion 2 avec la même voix 0 : reconnue automatiquement par set_speaker_count.
+    let id2 = create(&root, &new(MeetingAudio::Conserve, None)).unwrap();
+    stop(&root, &id2).unwrap();
+    update(&root, &id2, |r| {
+        r.status = MeetingStatus::Terminee;
+        r.segments = vec![Segment {
+            track: Track::Moi,
+            start_ms: 500,
+            end_ms: 7_500,
+            text: "On fait le point.".into(),
+            copied: false,
+            speaker: None,
+        }];
+    })
+    .unwrap();
+    save_analysis(&root.join(&id2), &analysis).unwrap();
+    set_speaker_count(&root, &id2, None).unwrap();
+
+    let view2 = detail(&root, &id2).unwrap();
+    assert_eq!(view2.speaker_list[0].name, "Marie");
+    let rec = view2.speaker_list[0]
+        .recognized
+        .as_ref()
+        .expect("voix reconnue automatiquement");
+    assert_eq!(rec.entry_id, marie.id);
+    assert!(rec.confidence >= 95);
+
+    // Renommage, oubli en un clic et effacement complet.
+    rename_voicebook_entry(&root, &marie.id, "Marie Dupont").unwrap();
+    assert_eq!(voicebook_list(&root).unwrap()[0].name, "Marie Dupont");
+
+    assert!(remove_voicebook_entry(&root, &marie.id).unwrap());
+    assert!(!remove_voicebook_entry(&root, &marie.id).unwrap());
+    assert!(voicebook_list(&root).unwrap().is_empty());
+    assert!(!voicebook_path(&root).exists());
+
+    enroll_speaker_voice(&root, &id1, 0, "Marie").unwrap();
+    assert!(voicebook_path(&root).exists());
+    clear_voicebook(&root);
+    assert!(!voicebook_path(&root).exists());
+    assert!(voicebook_list(&root).unwrap().is_empty());
+
+    fs::remove_dir_all(&root).ok();
 }

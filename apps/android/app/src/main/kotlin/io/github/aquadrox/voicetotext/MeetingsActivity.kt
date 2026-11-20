@@ -2,6 +2,7 @@ package io.github.aquadrox.voicetotext
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
@@ -31,7 +32,9 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import io.github.aquadrox.voicetotext.Meetings.objects
+import io.github.aquadrox.voicetotext.Meetings.text
 import org.json.JSONObject
 
 /**
@@ -42,6 +45,7 @@ import org.json.JSONObject
 class MeetingsActivity : Activity() {
     private val store by lazy { Store(this) }
     private lateinit var message: TextView
+    private lateinit var voicebookSummary: TextView
     private lateinit var list: LinearLayout
     private lateinit var footer: TextView
     /** Fichier choisi en attendant l'autorisation, ou ouverture demandée. */
@@ -68,6 +72,13 @@ class MeetingsActivity : Activity() {
         }) {
             header("Réunions", "Enregistrer ou importer, puis transcription et compte rendu", onBack = { finish() })
             message = notice()
+            val voicebookCard = card().apply {
+                setPadding(0, dp(2), 0, dp(2))
+                clipToOutline = true
+            }
+            voicebookSummary = voicebookCard.navRow("Carnet de voix local", "", R.drawable.ic_audio_lines) {
+                voicebookDialog()
+            }
             list = LinearLayout(this@MeetingsActivity).apply { orientation = LinearLayout.VERTICAL }
             addView(list)
             footer = note("")
@@ -100,6 +111,11 @@ class MeetingsActivity : Activity() {
     /** Fichier partagé, raccourci « Enregistrer une réunion » ou carte de l'accueil. */
     private fun handle(intent: Intent?) {
         intent ?: return
+        val focus = intent.getStringExtra(SettingsPage.FOCUS)
+        if (focus == "voicebook") {
+            intent.removeExtra(SettingsPage.FOCUS)
+            list.post { voicebookDialog() }
+        }
         val uri = when (intent.action) {
             Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -118,6 +134,8 @@ class MeetingsActivity : Activity() {
     private fun load() {
         list.removeCallbacks(poll)
         list.removeAllViews()
+        val vbCount = JSONObject(Native.voicebookList(store.meetingsDir)).optJSONArray("ok")?.length() ?: 0
+        voicebookSummary.text = Meetings.voicebookSummary(vbCount)
         val reply = JSONObject(Native.meetings(store.meetingsDir, store.config))
         val rows = reply.optJSONArray("ok")?.objects().orEmpty()
         message.say(reply.optString("error"))
@@ -453,6 +471,97 @@ class MeetingsActivity : Activity() {
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         minHeight = dp(44)
     }.also { addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
+
+    /** Feuille Carnet de voix local : liste, renommage, oubli en un clic, effacement global. */
+    private fun voicebookDialog() {
+        val dialog = Dialog(this)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(20))
+            background = GradientDrawable().apply {
+                setColor(getColor(R.color.card))
+                cornerRadii = FloatArray(8) { if (it < 4) dp(20).toFloat() else 0f }
+            }
+        }
+        column.addView(
+            View(this).apply { background = rounded(getColor(R.color.border_strong), 2f) },
+            LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(10)
+            },
+        )
+        column.text("Carnet de voix local", 20f, bold = true)
+        column.note("Empreintes vocales mémorisées uniquement à votre demande (réunion → Intervenants → « Mémoriser la voix »), stockées localement sur ce téléphone et jamais envoyées.")
+        val entriesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        column.addView(entriesBox)
+        var clearBtn: Button? = null
+        fun refresh() {
+            entriesBox.removeAllViews()
+            val reply = JSONObject(Native.voicebookList(store.meetingsDir))
+            val err = reply.text("error")
+            val entries = reply.optJSONArray("ok")?.objects().orEmpty()
+            if (err.isNotEmpty()) {
+                entriesBox.note("Erreur : $err")
+            } else if (entries.isEmpty()) {
+                entriesBox.note("Aucune voix mémorisée pour le moment.")
+            } else {
+                for (entry in entries) {
+                    val entryId = entry.text("id")
+                    val entryName = entry.text("name")
+                    entriesBox.divider(6)
+                    val field = entriesBox.field("Nom").apply { setText(entryName) }
+                    entriesBox.note(Meetings.voicebookMeta(entry))
+                    entriesBox.row {
+                        secondary("Renommer") {
+                            val res = JSONObject(Native.voicebookRename(store.meetingsDir, entryId, field.text.toString()))
+                            val renameErr = res.text("error")
+                            if (renameErr.isNotEmpty()) {
+                                Toast.makeText(this@MeetingsActivity, renameErr, Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this@MeetingsActivity, "Nom mis à jour", Toast.LENGTH_SHORT).show()
+                                refresh()
+                                load()
+                            }
+                        }
+                        secondary("Oublier") {
+                            val res = JSONObject(Native.voicebookRemove(store.meetingsDir, entryId))
+                            val rmErr = res.text("error")
+                            if (rmErr.isNotEmpty()) {
+                                Toast.makeText(this@MeetingsActivity, rmErr, Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this@MeetingsActivity, "Voix de $entryName oubliée", Toast.LENGTH_SHORT).show()
+                                refresh()
+                                load()
+                            }
+                        }.apply { setTextColor(getColor(R.color.danger)) }
+                    }
+                }
+            }
+            clearBtn?.visibility = if (entries.isEmpty()) View.GONE else View.VISIBLE
+        }
+        clearBtn = column.secondary("Tout oublier") {
+            AlertDialog.Builder(this)
+                .setTitle("Effacer tout le carnet de voix ?")
+                .setMessage("Toutes les empreintes vocales mémorisées sur ce téléphone seront supprimées.")
+                .setPositiveButton("Tout oublier") { _, _ ->
+                    Native.voicebookClear(store.meetingsDir)
+                    Toast.makeText(this, "Carnet de voix effacé", Toast.LENGTH_SHORT).show()
+                    refresh()
+                    load()
+                }
+                .setNegativeButton("Annuler", null)
+                .show()
+        }.apply { setTextColor(getColor(R.color.danger)) }
+        column.secondary("Fermer") { dialog.dismiss() }
+        refresh()
+        dialog.setContentView(ScrollView(this).apply { addView(column) })
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
+    }
 
     companion object {
         /** Ouvre directement la feuille « Nouvelle réunion ». */

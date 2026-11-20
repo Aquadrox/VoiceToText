@@ -110,6 +110,36 @@ object Meetings {
 
     fun JSONArray.objects(): List<JSONObject> = List(length()) { getJSONObject(it) }
 
+    /** Résumé d'une entrée du carnet de voix (ex. « 2 réunions · 12 extraits »). */
+    fun voicebookMeta(entry: JSONObject): String {
+        val meetings = entry.optInt("meetings", 1).coerceAtLeast(1)
+        val samples = entry.optInt("samples", 0).coerceAtLeast(0)
+        val mLabel = if (meetings > 1) "$meetings réunions" else "1 réunion"
+        val sLabel = if (samples > 1) "$samples extraits" else "$samples extrait"
+        return "$mLabel · $sLabel"
+    }
+
+    /** Sous-titre de l'entrée « Carnet de voix local » dans la page Réunions. */
+    fun voicebookSummary(count: Int): String = when {
+        count <= 0 -> "Aucune voix mémorisée · opt-in local"
+        count == 1 -> "1 voix mémorisée sur ce téléphone"
+        else -> "$count voix mémorisées sur ce téléphone"
+    }
+
+    /** Indication affichée quand un intervenant a été reconnu grâce au carnet local. */
+    fun recognizedNote(speaker: JSONObject): String {
+        val rec = speaker.optJSONObject("recognized") ?: return ""
+        val confidence = rec.optInt("confidence", 0)
+        return "Voix reconnue dans le carnet ($confidence %)"
+    }
+
+    /** Libellé du bouton opt-in « Mémoriser / Enrichir la voix de … ». */
+    fun enrollButtonLabel(name: String, recognized: Boolean): String {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return "Mémoriser la voix"
+        return if (recognized) "Enrichir la voix de $trimmed" else "Mémoriser la voix de $trimmed"
+    }
+
     fun copy(context: Context, label: String, text: String) {
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
         Toast.makeText(context, "Copié", Toast.LENGTH_SHORT).show()

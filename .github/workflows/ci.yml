@@ -207,7 +207,12 @@ jobs:
       - name: Outils de base (git, curl)
         run: |
           sed -i -E 's#http://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list
-          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+          cat <<'EOF' > /etc/apt/apt.conf.d/80-retries
+          Acquire::Retries "5";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          Acquire::ForceIPv4 "true";
+          EOF
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git curl
       - uses: actions/checkout@v7

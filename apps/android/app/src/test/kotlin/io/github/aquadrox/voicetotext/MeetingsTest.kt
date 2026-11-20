@@ -125,4 +125,35 @@ class MeetingsTest {
             .put(JSONObject().put("id", 2))
         assertEquals(listOf(1, 2), arr.objects().map { it.getInt("id") })
     }
+
+    @Test
+    fun voicebookHelpersFormatMetaSummaryBadgeAndEnrollLabels() {
+        assertEquals(
+            "1 réunion · 1 extrait",
+            Meetings.voicebookMeta(JSONObject().put("meetings", 1).put("samples", 1)),
+        )
+        assertEquals(
+            "3 réunions · 14 extraits",
+            Meetings.voicebookMeta(JSONObject().put("meetings", 3).put("samples", 14)),
+        )
+
+        assertEquals("Aucune voix mémorisée · opt-in local", Meetings.voicebookSummary(0))
+        assertEquals("1 voix mémorisée sur ce téléphone", Meetings.voicebookSummary(1))
+        assertEquals("4 voix mémorisées sur ce téléphone", Meetings.voicebookSummary(4))
+
+        assertEquals("", Meetings.recognizedNote(JSONObject()))
+        assertEquals(
+            "Voix reconnue dans le carnet (92 %)",
+            Meetings.recognizedNote(
+                JSONObject().put("recognized", JSONObject().put("confidence", 92)),
+            ),
+        )
+
+        assertEquals("Mémoriser la voix", Meetings.enrollButtonLabel("   ", false))
+        assertEquals("Mémoriser la voix de Marie", Meetings.enrollButtonLabel(" Marie ", false))
+        assertEquals("Enrichir la voix de Marie", Meetings.enrollButtonLabel("Marie", true))
+
+        val hits = SettingsIndex.search("carnet voix", bubble = false)
+        assertTrue(hits.any { it.section == Section.MEETINGS && it.key == "voicebook" })
+    }
 }

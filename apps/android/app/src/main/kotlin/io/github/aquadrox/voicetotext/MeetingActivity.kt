@@ -10,7 +10,9 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -528,7 +530,8 @@ class MeetingActivity : Activity() {
             },
         )
         column.text("Intervenants", 20f, bold = true)
-        column.note("Qui se présente (« je m'appelle Marie ») est nommé d'office. Donnez ou corrigez un nom : il remplace « Intervenant N » partout (transcription, partage, prochain compte rendu).")
+        column.note("Qui se présente (« je m'appelle Marie ») ou figure dans votre carnet de voix est nommé d'office. Donnez ou corrigez un nom : il remplace « Intervenant N » partout (transcription, partage, prochain compte rendu).")
+        val voicesKept = detail.optBoolean("voices_kept")
         val fields = mutableListOf<Triple<Int, EditText, String?>>()
         for (speaker in list) {
             val index = speaker.optInt("index")
@@ -553,8 +556,10 @@ class MeetingActivity : Activity() {
             column.addView(row)
             val field = row.field("Nom").apply { setText(speaker.text("name")) }
             val found = speaker.text("found")
-            // Nom trouvé dans sa présentation : seulement s'il est changé, il devient un nom donné.
-            fields += Triple(index, field, speaker.text("name").takeIf { found.isNotEmpty() })
+            val recognizedNote = Meetings.recognizedNote(speaker)
+            val isRecognized = recognizedNote.isNotEmpty()
+            // Nom proposé (présentation ou carnet) : seulement s'il est changé, il devient un nom manuel.
+            fields += Triple(index, field, speaker.text("name").takeIf { found.isNotEmpty() || isRecognized })
             if (detail.optBoolean("replay")) {
                 val start = speaker.optLong("first_ms")
                 row.addView(
@@ -571,9 +576,44 @@ class MeetingActivity : Activity() {
                     },
                 )
             }
-            if (found.isNotEmpty()) {
+            if (isRecognized) {
+                column.text(recognizedNote, 13f, R.color.accent)
+            } else if (found.isNotEmpty()) {
                 column.text("Présentation à ${Meetings.clock(speaker.optLong("found_ms"))} : « $found »", 13f, R.color.muted)
                     .setTypeface(null, Typeface.ITALIC)
+            }
+            if (voicesKept) {
+                val enrollBtn = column.secondary(Meetings.enrollButtonLabel(field.text.toString(), isRecognized)) {
+                    val chosen = field.text.toString().trim()
+                    if (chosen.isEmpty()) return@secondary
+                    val reply = JSONObject(Native.meetingEnrollSpeaker(store.meetingsDir, meetingId, index, chosen))
+                    val err = reply.text("error")
+                    if (err.isNotEmpty()) {
+                        Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+                    } else {
+                        val entry = reply.optJSONObject("ok")
+                        val savedName = entry?.text("name")?.ifEmpty { chosen } ?: chosen
+                        val countMeetings = entry?.optInt("meetings", 1) ?: 1
+                        val msg = if (countMeetings > 1) {
+                            "Voix de $savedName enrichie dans le carnet ($countMeetings réunions)"
+                        } else {
+                            "Voix de $savedName mémorisée dans le carnet local"
+                        }
+                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                        load()
+                    }
+                }
+                enrollBtn.isEnabled = field.text.toString().trim().isNotEmpty()
+                field.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(s: Editable?) {
+                        val current = s?.toString().orEmpty()
+                        enrollBtn.text = Meetings.enrollButtonLabel(current, isRecognized)
+                        enrollBtn.isEnabled = current.trim().isNotEmpty()
+                    }
+                })
             }
         }
         column.divider(6)

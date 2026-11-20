@@ -87,6 +87,7 @@ object SettingsIndex {
         Entry(Section.HELP, "import", "Importer les réglages du PC", "exporter fichier windows transférer"),
         Entry(Section.HELP, "pc", "VoiceToText sur PC", "windows ordinateur altgr"),
         Entry(Section.MEETINGS, "", "Réunions", "enregistrer cours conférence compte rendu transcription audio intervenants"),
+        Entry(Section.MEETINGS, "voicebook", "Carnet de voix local", "voix empreintes intervenants reconnus mémoriser oublier carnet"),
     )
 
     /** Réglages dont le titre, la catégorie ou les synonymes ont un mot commençant par chaque mot tapé. */

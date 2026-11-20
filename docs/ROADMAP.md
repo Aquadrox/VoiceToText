@@ -565,13 +565,14 @@ Factoriser la logique commune des réunions et découper les deux gros modules `
 - ✅ Saut 6B (PR #113) — Bureau (`apps/desktop/src/meetings/` + `speakers.rs`) : découpage de `apps/desktop/src/meetings.rs` (2 332 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `export`, `commands`, `tests`) et branchement sur `vtt-core::meeting::store` sans changement de comportement
 - ✅ Saut 6C (PR #114) — Android (`crates/vtt-android/src/meetings/`) : découpage de `crates/vtt-android/src/meetings.rs` (1 721 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `process`, `views`, `tests`) et branchement sur `vtt-core::meeting::store` (clôture `#92`)
 
-### 7. Carnet de voix local (empreintes récurrentes, opt-in) (#90) 🚧
+### 7. Carnet de voix local (empreintes récurrentes, opt-in) (#90) ✅
 
 Reconnaître automatiquement les intervenants habituels d'une réunion à l'autre, 100 % local et chiffré, uniquement sur choix explicite de l'utilisateur :
 
 - ✅ Saut 7A (PR #115) — Cœur `vtt-core::voicebook` + `diarize::Analysis::speaker_profiles` + intégration `MeetingRecord` / `SpeakerSummary` : base locale chiffrée d'empreintes vocales (`voicebook.bin` avec en-tête `VTTVB01`, écriture atomique via fermeture de chiffrement), moyenne L2 normalisée pondérée par échantillons, appariement cosinus strict anti-faux-positifs (seuil `0,62`, marge `0,08`, affectation 1-pour-1), combinaison non destructive avec `NameGuess` (priorité nom manuel > carnet > présentation), opt-in explicite et suppression en un clic
-- ✅ Saut 7B — Bureau (`apps/desktop`) : persistance chiffrée du carnet (`voicebook.bin` via `VoiceBookStore` / `vtt_platform::protect`), reconnaissance automatique à la fin d'une analyse vocale (`capture.rs`, `storage.rs`, `set_speaker_count`), affichage du badge reconnu + bouton « Mémoriser / Enrichir la voix de … » dans la fiche réunion, gestion dans **Réglages → Réunions → Carnet de voix local** (renommage, oubli en un clic, effacement complet en deux clics) et tests Rust + UI JS
-- ⬜ Saut 7C — Android (`vtt-android` + Kotlin) + v0.40.0 : pont JNI, reconnaissance automatique, mémorisation/suppression depuis les réunions et réglages Android, tests Rust + Kotlin JVM et version **v0.40.0** (clôture `#90`)
+- ✅ Saut 7B (PR #116) — Bureau (`apps/desktop`) : persistance chiffrée du carnet (`voicebook.bin` via `VoiceBookStore` / `vtt_platform::protect`), reconnaissance automatique à la fin d'une analyse vocale (`capture.rs`, `storage.rs`, `set_speaker_count`), affichage du badge reconnu + bouton « Mémoriser / Enrichir la voix de … » dans la fiche réunion, gestion dans **Réglages → Réunions → Carnet de voix local** (renommage, oubli en un clic, effacement complet en deux clics) et tests Rust + UI JS
+- ✅ Saut 7C — Android (`vtt-android` + Kotlin) + v0.40.0 : pont JNI (`voicebookList` / `meetingEnrollSpeaker` / `voicebookRename` / `voicebookRemove` / `voicebookClear`), reconnaissance automatique dans `analyze_voices` / `set_speaker_count`, mémorisation/badge dans `MeetingActivity`, gestion du carnet depuis `MeetingsActivity` (et recherche `SettingsIndex`), tests Rust + Kotlin JVM et version **v0.40.0** (clôture `#90`)
+- ⬜ À vérifier sur le terrain : précision de la reconnaissance inter-réunions (même voix / voix proches sans faux positif) sur PC et Android, mémorisation et oubli en un clic
 
 ## Prochaines étapes — Puis ⬜
 

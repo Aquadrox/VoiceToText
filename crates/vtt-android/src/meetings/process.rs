@@ -227,8 +227,9 @@ fn analyze_voices(root: &Path, id: &str, models_dir: &Path) -> Result<(), String
         send(&mut piece, &mut sent)?;
     }
     analysis.finish(&mut diarizer).map_err(|e| e.to_string())?;
+    let book = super::storage::load_voicebook_or_empty(root);
     let keep = update(root, id, |r| {
-        r.set_speakers(&analysis);
+        r.set_speakers_with_voicebook(&analysis, Some(&book));
         r.progress = None;
         r.keeps_voices()
     })?;
@@ -267,9 +268,10 @@ pub fn set_speaker_count(root: &Path, id: &str, count: Option<usize>) -> Result<
         log::warn!("analyse des voix de {id} : {e}");
         "analyse des voix non gardée : relancez « Distinguer les intervenants »".to_owned()
     })?;
+    let book = super::storage::load_voicebook_or_empty(root);
     update(root, id, |r| {
         r.speaker_count = count;
-        r.set_speakers(&analysis);
+        r.set_speakers_with_voicebook(&analysis, Some(&book));
     })
 }
 
@@ -287,6 +289,88 @@ pub fn forget_speakers(root: &Path, id: &str) -> Result<(), String> {
     update(root, id, MeetingRecord::forget_speakers)?;
     meeting::delete_analysis(&dir);
     Ok(())
+}
+
+/// Voix mémorisées dans le carnet local (sans vecteurs biométriques).
+pub fn voicebook_list(root: &Path) -> Result<Vec<vtt_core::voicebook::VoiceEntryView>, String> {
+    let _guard = super::storage::lock(&super::storage::VOICEBOOK);
+    Ok(super::storage::load_voicebook_locked(root)?.views())
+}
+
+/// Mémorise explicitement la voix d'un intervenant d'une réunion dans le
+/// carnet local (opt-in).
+pub fn enroll_speaker_voice(
+    root: &Path,
+    id: &str,
+    index: usize,
+    name: &str,
+) -> Result<vtt_core::voicebook::VoiceEntryView, String> {
+    let (record, dir) = load(root, id)?;
+    let target_name = if !name.trim().is_empty() {
+        name.trim().to_owned()
+    } else {
+        record
+            .names()
+            .get(index)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| "donnez d'abord un nom à cet intervenant".to_owned())?
+    };
+    let analysis = load_analysis(&dir).map_err(|e| {
+        log::warn!("analyse des voix de {id} : {e}");
+        "empreintes vocales non gardées pour cette réunion".to_owned()
+    })?;
+    let profiles = analysis.speaker_profiles(&diarize::Options {
+        speakers: record.speaker_count,
+        ..diarize::Options::default()
+    });
+    let profile = profiles
+        .into_iter()
+        .find(|p| p.speaker == index)
+        .ok_or_else(|| "intervenant introuvable dans l'analyse vocale".to_owned())?;
+    let samples = u32::try_from(profile.samples).unwrap_or(u32::MAX);
+    let view = {
+        let _guard = super::storage::lock(&super::storage::VOICEBOOK);
+        let mut book = super::storage::load_voicebook_locked(root)?;
+        let entry = book.enroll(&target_name, &profile.embedding, samples, now_ms())?;
+        super::storage::save_voicebook_locked(root, &book)?;
+        vtt_core::voicebook::VoiceEntryView::from(&entry)
+    };
+    update(root, id, |r| {
+        let _ = r.rename_speaker(index, &view.name);
+    })?;
+    log::info!(
+        "carnet de voix : voix de « {} » mémorisée depuis la réunion {id}",
+        view.name
+    );
+    Ok(view)
+}
+
+/// Renomme une voix mémorisée dans le carnet local.
+pub fn rename_voicebook_entry(root: &Path, id: &str, name: &str) -> Result<(), String> {
+    let _guard = super::storage::lock(&super::storage::VOICEBOOK);
+    let mut book = super::storage::load_voicebook_locked(root)?;
+    book.rename(id, name, now_ms())?;
+    super::storage::save_voicebook_locked(root, &book)
+}
+
+/// Oublie une voix mémorisée en un clic ; renvoie `true` si elle existait.
+pub fn remove_voicebook_entry(root: &Path, id: &str) -> Result<bool, String> {
+    let _guard = super::storage::lock(&super::storage::VOICEBOOK);
+    let mut book = super::storage::load_voicebook_locked(root)?;
+    let removed = book.remove(id);
+    if removed {
+        super::storage::save_voicebook_locked(root, &book)?;
+    }
+    Ok(removed)
+}
+
+/// Efface toutes les voix du carnet local.
+pub fn clear_voicebook(root: &Path) {
+    let _guard = super::storage::lock(&super::storage::VOICEBOOK);
+    vtt_core::voicebook::VoiceBook::delete_file(&super::storage::voicebook_path(root));
+    log::info!("carnet de voix effacé");
 }
 
 /// Rédige (ou refait) le compte rendu. Bloquant (requête au LLM).
