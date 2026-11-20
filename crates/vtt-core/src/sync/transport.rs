@@ -1167,4 +1167,170 @@ mod tests {
         let _ = fs::remove_dir_all(&root_pc);
         let _ = fs::remove_dir_all(&root_phone);
     }
+
+    #[test]
+    fn tcp_loopback_three_device_usage_sync_converges_without_double_counting() {
+        use crate::config::Pricing;
+        use crate::sync::merge::SyncMessage;
+        use crate::usage::{Ledger, Usage};
+
+        // Rétrocompatibilité filaire : un pair v0.39.0 n'envoie pas le champ `usage`.
+        let legacy_json = r#"{"type":"meeting_index","digests":[]}"#;
+        let parsed: SyncMessage = serde_json::from_str(legacy_json).unwrap();
+        assert!(matches!(
+            parsed,
+            SyncMessage::MeetingIndex {
+                digests,
+                usage: None
+            } if digests.is_empty()
+        ));
+
+        let make_device = |label: &str, name: &str| {
+            let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "vtt_sync_usage_{label}_{}_{seq}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).unwrap();
+            let usage_path = root.join("usage.json");
+            let storage = Arc::new(
+                DiskSyncStorage::new(
+                    root.join("config.toml"),
+                    root.join("sync_peers.json"),
+                    root.join("meetings"),
+                    name,
+                )
+                .with_usage_path(usage_path.clone()),
+            );
+            (root, usage_path, storage)
+        };
+
+        let (root_pc, pc_usage, pc_storage) = make_device("pc", "PC Bureau");
+        let (root_phone, phone_usage, phone_storage) = make_device("phone", "Android");
+        let (root_deck, deck_usage, deck_storage) = make_device("deck", "Steam Deck");
+
+        let pricing = Pricing::default();
+        let mut pc_ledger = Ledger::open(pc_usage.clone());
+        pc_ledger
+            .record_dictation("2026-11-20", Some("code.exe"), 120, 45_000, false)
+            .unwrap();
+        pc_ledger
+            .record(
+                "2026-11-20",
+                Some("code.exe"),
+                &Usage {
+                    input_tokens: 1_000,
+                    cached_input_tokens: 200,
+                    output_tokens: 150,
+                },
+                &pricing,
+            )
+            .unwrap();
+
+        let mut phone_ledger = Ledger::open(phone_usage.clone());
+        phone_ledger
+            .record_dictation("2026-11-20", Some("com.whatsapp"), 80, 30_000, false)
+            .unwrap();
+        phone_ledger
+            .record_dictation("2026-11-20", Some("com.whatsapp"), 20, 8_000, true)
+            .unwrap();
+
+        let mut deck_ledger = Ledger::open(deck_usage.clone());
+        deck_ledger
+            .record_dictation("2026-11-20", Some("steam"), 50, 17_000, false)
+            .unwrap();
+
+        let pc_server =
+            SyncServer::start("127.0.0.1:0".parse().unwrap(), pc_storage.clone(), None).unwrap();
+        let deck_server =
+            SyncServer::start("127.0.0.1:0".parse().unwrap(), deck_storage.clone(), None).unwrap();
+
+        // Appairage : Téléphone ↔ PC et Téléphone ↔ Steam Deck (PC et Deck ne se parlent jamais).
+        let offer_pc = pc_server
+            .open_pairing(vec![pc_server.local_addr().to_string()], Some(60_000))
+            .unwrap();
+        let pc_peer =
+            pair_over_tcp(phone_storage.as_ref(), &offer_pc, Duration::from_secs(3)).unwrap();
+
+        let offer_deck = deck_server
+            .open_pairing(vec![deck_server.local_addr().to_string()], Some(60_000))
+            .unwrap();
+        let deck_peer =
+            pair_over_tcp(phone_storage.as_ref(), &offer_deck, Duration::from_secs(3)).unwrap();
+
+        // 1. Téléphone ↔ PC : échangent leurs statistiques respectives.
+        let s1 = sync_with_peer(
+            phone_storage.as_ref(),
+            &pc_peer.device_id,
+            None,
+            SyncOptions::default(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(s1.usage_changed);
+
+        // 2. Téléphone ↔ Steam Deck : le téléphone apporte aussi les stats du PC au Deck,
+        //    et récupère celles du Deck.
+        let s2 = sync_with_peer(
+            phone_storage.as_ref(),
+            &deck_peer.device_id,
+            None,
+            SyncOptions::default(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(s2.usage_changed);
+
+        // 3. Téléphone ↔ PC à nouveau : le PC récupère transitivement les stats du Steam Deck !
+        let s3 = sync_with_peer(
+            phone_storage.as_ref(),
+            &pc_peer.device_id,
+            None,
+            SyncOptions::default(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(!s3.usage_changed); // Le téléphone avait déjà celles du PC
+
+        // 4. Re-synchro immédiate : idempotente (aucun changement, aucun double comptage).
+        let s4 = sync_with_peer(
+            phone_storage.as_ref(),
+            &pc_peer.device_id,
+            None,
+            SyncOptions::default(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(!s4.usage_changed);
+
+        // Vérifie que les 3 appareils ont exactement les mêmes totaux globaux :
+        // 120 + 80 + 20 + 50 = 270 mots, 4 dictées, 1 commande, 100_000 ms, 1 appel LLM.
+        for path in [&pc_usage, &phone_usage, &deck_usage] {
+            let ledger = Ledger::open(path.clone());
+            let day = ledger.day("2026-11-20");
+            assert_eq!(day.words, 270);
+            assert_eq!(day.dictations, 4);
+            assert_eq!(day.commands, 1);
+            assert_eq!(day.audio_ms, 100_000);
+            assert_eq!(day.requests, 1);
+            assert_eq!(day.input_tokens, 1_000);
+            assert_eq!(day.output_tokens, 150);
+
+            let apps = ledger.apps(None);
+            assert_eq!(apps.len(), 3);
+            assert_eq!(apps[0].app, "code.exe");
+            assert_eq!(apps[0].totals.words, 120);
+            assert_eq!(apps[1].app, "com.whatsapp");
+            assert_eq!(apps[1].totals.words, 100);
+            assert_eq!(apps[2].app, "steam");
+            assert_eq!(apps[2].totals.words, 50);
+        }
+
+        pc_server.stop();
+        deck_server.stop();
+        let _ = fs::remove_dir_all(&root_pc);
+        let _ = fs::remove_dir_all(&root_phone);
+        let _ = fs::remove_dir_all(&root_deck);
+    }
 }

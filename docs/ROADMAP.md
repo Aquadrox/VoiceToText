@@ -528,6 +528,7 @@ Synchroniser réglages (dictionnaire, snippets, styles, prompts, profils — jam
 - ✅ Saut 2B (PR #98) — Transport réseau local TCP (`SyncServer`, client avec secours manuel `IP:port`), découverte mDNS pur Rust (`_voicetotext._tcp.local.`, RFC 6762/6763) et synchronisation bidirectionnelle des réunions (`meeting.json`, préservation du `source_path` local, exclusion des enregistrements en cours)
 - ✅ Saut 2C (PR #99) — Interface PC (`apps/desktop`) : serveur/mDNS dans `SyncService` (démarré automatiquement uniquement dès qu'un pair existe), application à chaud, génération QR code SVG, section **Réglages → Synchronisation** (QR code + empreinte + lien copiable, appairage par lien, appareils appairés/détectés, secours `IP:port`, tests Rust + UI JS)
 - ✅ Saut 2D — Pont JNI `vtt-android` (`sync.rs`) + écran Android **Synchronisation Wi-Fi** (`SyncSettings` avec lien profond QR `vttsync://`, collage presse-papier, découverte native `NsdManager`, synchro en un appui, préférences par pair, secours `IP:port`, tests Rust + Kotlin JVM)
+- ✅ Statistiques d'activité multi-appareils : enregistrement des dictées/LLM côté Android (`usage.json` / `usage-apps.json`) et fusion bidirectionnelle/transitive sans double comptage (`usage-sync.json`, CRDT max par appareil) entre PC, Android et Steam Deck pour des statistiques globales exactes sur l'écran d'accueil
 - ⬜ À vérifier sur le terrain : appairage QR et synchronisation réelle PC ↔ Android / Steam Deck sur Wi-Fi local (et règles pare-feu Windows)
 
 ### 3. Contexte du champ actif / d'écran (opt-in) ✅

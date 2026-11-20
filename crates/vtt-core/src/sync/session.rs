@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::meeting::{MeetingRecord, MeetingStatus, RECORD_FILE};
+use crate::usage::{Ledger, UsageBundle};
 
 use super::channel::EncryptedChannel;
 use super::crypto::SyncKey;
@@ -72,6 +73,9 @@ pub struct SyncSummary {
     pub merge_report: Option<MergeReport>,
     pub meetings_sent: usize,
     pub meetings_received: usize,
+    /// Au moins un compteur d'activité (mots, dictées, durée, coût) a été enrichi.
+    #[serde(default)]
+    pub usage_changed: bool,
     pub at_ms: u64,
 }
 
@@ -90,16 +94,30 @@ pub trait SyncStorage: Send + Sync {
     fn get_peer(&self, id: &DeviceId) -> Result<Option<Peer>>;
     fn upsert_peer(&self, peer: Peer) -> Result<()>;
     fn mark_peer_synced(&self, id: &DeviceId, at_ms: u64, addr: Option<String>) -> Result<()>;
+
+    /// Exporte les statistiques d'activité (mots, dictées, durée, coût) de cet
+    /// appareil et des appareils déjà synchronisés (`None` si non suivi).
+    fn load_usage_bundle(&self) -> Result<Option<UsageBundle>> {
+        Ok(None)
+    }
+
+    /// Fusionne les statistiques reçues d'un pair ; renvoie `true` si un
+    /// compteur a évolué.
+    fn merge_usage_bundle(&self, _bundle: &UsageBundle) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// Implémentation disque compatible avec l'arborescence PC et Android :
 /// - `config_path` : `config.toml`
 /// - `peers_path` : `sync_peers.json`
 /// - `meetings_dir` : `<meetings_dir>/<id>/meeting.json`
+/// - `usage_path` (facultatif) : `usage.json` (+ `usage-apps.json` / `usage-sync.json`)
 pub struct DiskSyncStorage {
     config_path: PathBuf,
     peers_path: PathBuf,
     meetings_dir: PathBuf,
+    usage_path: Option<PathBuf>,
     default_device_name: String,
     lock: Mutex<()>,
 }
@@ -115,9 +133,17 @@ impl DiskSyncStorage {
             config_path,
             peers_path,
             meetings_dir,
+            usage_path: None,
             default_device_name: sanitize_device_name(&default_device_name.into()),
             lock: Mutex::new(()),
         }
+    }
+
+    /// Associe le fichier `usage.json` afin d'échanger aussi les statistiques
+    /// d'activité (mots, dictées, durée, coût) lors de chaque synchronisation.
+    pub fn with_usage_path(mut self, usage_path: PathBuf) -> Self {
+        self.usage_path = Some(usage_path);
+        self
     }
 
     pub fn config_path(&self) -> &Path {
@@ -130,6 +156,10 @@ impl DiskSyncStorage {
 
     pub fn meetings_dir(&self) -> &Path {
         &self.meetings_dir
+    }
+
+    pub fn usage_path(&self) -> Option<&Path> {
+        self.usage_path.as_deref()
     }
 
     /// Liste tous les appareils actuellement appairés.
@@ -315,6 +345,31 @@ impl SyncStorage for DiskSyncStorage {
         }
         Ok(())
     }
+
+    fn load_usage_bundle(&self) -> Result<Option<UsageBundle>> {
+        let Some(usage_path) = &self.usage_path else {
+            return Ok(None);
+        };
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let store = PeerStore::load_or_init(&self.peers_path, &self.default_device_name)?;
+        let ledger = Ledger::open(usage_path.clone());
+        Ok(Some(
+            ledger.export_bundle(store.identity.device_id.as_str()),
+        ))
+    }
+
+    fn merge_usage_bundle(&self, bundle: &UsageBundle) -> Result<bool> {
+        let Some(usage_path) = &self.usage_path else {
+            return Ok(false);
+        };
+        if bundle.is_empty() {
+            return Ok(false);
+        }
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let store = PeerStore::load_or_init(&self.peers_path, &self.default_device_name)?;
+        let mut ledger = Ledger::open(usage_path.clone());
+        Ok(ledger.merge_bundle(store.identity.device_id.as_str(), bundle)?)
+    }
 }
 
 fn file_mtime_ms(path: &Path) -> Option<u64> {
@@ -407,9 +462,9 @@ pub fn pair_as_responder<S: Read + Write>(
 /// Exécute une synchronisation bidirectionnelle côté initiateur (client).
 ///
 /// Protocole strictement alterné (sans risque d'interblocage TCP) :
-/// 1. Client → Serveur : `ConfigSnapshot` (si `sync_settings`), puis `MeetingIndex`.
+/// 1. Client → Serveur : `ConfigSnapshot` (si `sync_settings`), puis `MeetingIndex` (avec stats).
 /// 2. Serveur → Client : `ConfigSnapshot` (si les deux veulent `sync_settings`),
-///    puis `MeetingIndex`, puis `MeetingRequest` (ce que le serveur veut).
+///    puis `MeetingIndex` (avec stats), puis `MeetingRequest` (ce que le serveur veut).
 /// 3. Client → Serveur : `MeetingRequest` (ce que le client veut), puis les
 ///    `MeetingTransfer` demandés par le serveur, puis `Done`.
 /// 4. Serveur → Client : les `MeetingTransfer` demandés par le client, puis `Done`.
@@ -436,8 +491,9 @@ pub fn sync_as_initiator<S: Read + Write>(
     } else {
         Vec::new()
     };
+    let local_usage = storage.load_usage_bundle()?.filter(|b| !b.is_empty());
 
-    // 1. Envoi de la config locale (sans clés API) + index des réunions.
+    // 1. Envoi de la config locale (sans clés API) + index des réunions + statistiques.
     if opts.sync_settings {
         let (payload, _) = SyncableConfig::from_config(&local_cfg);
         channel.send_message(&SyncMessage::ConfigSnapshot {
@@ -448,12 +504,13 @@ pub fn sync_as_initiator<S: Read + Write>(
     }
     channel.send_message(&SyncMessage::MeetingIndex {
         digests: local_digests.clone(),
+        usage: local_usage,
     })?;
 
-    // 2. Réception de la config distante (éventuelle) + index distant + demande serveur.
+    // 2. Réception de la config distante (éventuelle) + index distant (+ stats) + demande serveur.
     let mut config_changed = false;
     let mut merge_report = None;
-    let remote_digests = match recv_checked(&mut channel)? {
+    let (remote_digests, remote_usage) = match recv_checked(&mut channel)? {
         SyncMessage::ConfigSnapshot {
             updated_at_ms,
             device_id,
@@ -477,12 +534,16 @@ pub fn sync_as_initiator<S: Read + Write>(
             }
             expect_meeting_index(&mut channel)?
         }
-        SyncMessage::MeetingIndex { digests } => digests,
+        SyncMessage::MeetingIndex { digests, usage } => (digests, usage),
         other => {
             return Err(SyncError::Protocol(format!(
                 "ConfigSnapshot ou MeetingIndex attendu, reçu {other:?}"
             )));
         }
+    };
+    let usage_changed = match remote_usage {
+        Some(bundle) => storage.merge_usage_bundle(&bundle)?,
+        None => false,
     };
     let server_wants = expect_meeting_request(&mut channel)?;
 
@@ -519,6 +580,7 @@ pub fn sync_as_initiator<S: Read + Write>(
         merge_report,
         meetings_sent,
         meetings_received,
+        usage_changed,
         at_ms: now_ms,
     })
 }
@@ -541,17 +603,17 @@ pub fn sync_as_responder<S: Read + Write>(
     let opts = options.intersect_with_peer(peer);
     let local = storage.identity()?;
 
-    // 1. Réception de la config distante (éventuelle) + index des réunions du client.
-    let (client_snap, client_digests) = match recv_checked(channel)? {
+    // 1. Réception de la config distante (éventuelle) + index des réunions (+ stats) du client.
+    let (client_snap, client_digests, client_usage) = match recv_checked(channel)? {
         SyncMessage::ConfigSnapshot {
             updated_at_ms,
             device_id,
             payload,
         } => {
-            let digests = expect_meeting_index(channel)?;
-            (Some((updated_at_ms, device_id, payload)), digests)
+            let (digests, usage) = expect_meeting_index(channel)?;
+            (Some((updated_at_ms, device_id, payload)), digests, usage)
         }
-        SyncMessage::MeetingIndex { digests } => (None, digests),
+        SyncMessage::MeetingIndex { digests, usage } => (None, digests, usage),
         other => {
             return Err(SyncError::Protocol(format!(
                 "ConfigSnapshot ou MeetingIndex attendu, reçu {other:?}"
@@ -595,9 +657,15 @@ pub fn sync_as_responder<S: Read + Write>(
     } else {
         Vec::new()
     };
+    let local_usage = storage.load_usage_bundle()?.filter(|b| !b.is_empty());
     channel.send_message(&SyncMessage::MeetingIndex {
         digests: local_digests.clone(),
+        usage: local_usage,
     })?;
+    let usage_changed = match client_usage {
+        Some(bundle) => storage.merge_usage_bundle(&bundle)?,
+        None => false,
+    };
 
     let server_wants = if opts.sync_meetings {
         diff_meetings(&local_digests, &client_digests).to_request
@@ -633,6 +701,7 @@ pub fn sync_as_responder<S: Read + Write>(
         merge_report,
         meetings_sent,
         meetings_received,
+        usage_changed,
         at_ms: now_ms,
     })
 }
@@ -646,9 +715,9 @@ fn recv_checked<S: Read + Write>(channel: &mut EncryptedChannel<S>) -> Result<Sy
 
 fn expect_meeting_index<S: Read + Write>(
     channel: &mut EncryptedChannel<S>,
-) -> Result<Vec<MeetingDigest>> {
+) -> Result<(Vec<MeetingDigest>, Option<UsageBundle>)> {
     match recv_checked(channel)? {
-        SyncMessage::MeetingIndex { digests } => Ok(digests),
+        SyncMessage::MeetingIndex { digests, usage } => Ok((digests, usage)),
         other => Err(SyncError::Protocol(format!(
             "MeetingIndex attendu, reçu {other:?}"
         ))),

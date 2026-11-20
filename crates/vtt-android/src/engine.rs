@@ -14,6 +14,7 @@ use vtt_core::config::{DictationConfig, LlmConfig, Pricing, PromptKind};
 use vtt_core::context;
 use vtt_core::history::{Entry, History};
 use vtt_core::live::{DEFAULT_PREVIEW_CHARS, LiveSession};
+use vtt_core::usage::{Ledger, day_from_unix_ms};
 use vtt_core::{
     AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink, Transcriber,
 };
@@ -30,6 +31,9 @@ struct Engine {
     model: String,
     /// `None` : historique désactivé dans les réglages.
     history: Option<History>,
+    /// Compteurs d'activité et coût LLM (toujours actifs, sans aucun texte
+    /// dicté, synchronisés avec le PC et les autres appareils).
+    ledger: Option<Ledger>,
     pricing: Pricing,
     /// Langue du mode traduction.
     translate_to: String,
@@ -126,6 +130,7 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         .history
         .enabled
         .then(|| History::open(history_file.to_owned(), config.history.max_entries));
+    let ledger = Some(Ledger::open(history_file.with_file_name("usage.json")));
     let path = models::local(models_dir, &config.asr.model)
         .ok_or_else(|| format!("modèle {} non téléchargé", config.asr.model))?;
     let mut engine = lock(&ENGINE);
@@ -142,6 +147,7 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
             .pipeline
             .set_voice_commands(config.dictation.voice_commands);
         engine.history = history;
+        engine.ledger = ledger;
         engine.pricing = config.llm.pricing.clone();
         engine.translate_to = config.translation.language.clone();
         engine.dictation = config.dictation.clone();
@@ -161,6 +167,7 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         pipeline,
         model: config.asr.model.clone(),
         history,
+        ledger,
         pricing: config.llm.pricing.clone(),
         translate_to: config.translation.language.clone(),
         dictation: config.dictation.clone(),
@@ -389,6 +396,47 @@ fn entry_with_duration(
     })
 }
 
+/// Enregistre les compteurs d'activité (mots, durée, commandes) et le coût LLM
+/// dans `usage.json` / `usage-apps.json` (aucun texte dicté). Rien n'est
+/// comptabilisé sur un champ de mot de passe ; en navigation privée
+/// (`Privacy::NoHistory`), les compteurs globaux sont gardés sans nom
+/// d'application.
+fn record_stats(
+    ledger: Option<&mut Ledger>,
+    outcome: &Outcome,
+    duration_ms: u64,
+    app: Option<&str>,
+    pricing: &Pricing,
+    privacy: Privacy,
+) {
+    if privacy == Privacy::Password {
+        return;
+    }
+    let Some(ledger) = ledger else {
+        return;
+    };
+    let Outcome::Inserted {
+        raw,
+        usage,
+        command,
+        ..
+    } = outcome
+    else {
+        return;
+    };
+    let day = day_from_unix_ms(now_ms());
+    let app = (privacy == Privacy::Normal).then_some(app).flatten();
+    if let Some(usage) = usage
+        && let Err(e) = ledger.record(&day, app, usage, pricing)
+    {
+        log::warn!("statistiques LLM : {e}");
+    }
+    let words = raw.split_whitespace().count() as u64;
+    if let Err(e) = ledger.record_dictation(&day, app, words, duration_ms, *command) {
+        log::warn!("statistiques dictée : {e}");
+    }
+}
+
 /// Dicte `samples` (16 kHz mono) ; `app` : application de destination
 /// (styles par application). `context_text` : texte optionnel autour du curseur
 /// (strictement ignoré hors `Privacy::Normal`, en Command Mode, si l'option
@@ -443,6 +491,16 @@ pub fn dictate(
                 .run_command(&clip, &target, selection.as_deref())
         }
     };
+    if let Ok(outcome) = &raw {
+        record_stats(
+            engine.ledger.as_mut(),
+            outcome,
+            clip.duration_ms(),
+            app.as_deref(),
+            &engine.pricing,
+            privacy,
+        );
+    }
     if privacy == Privacy::Normal
         && let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
         && let Some(entry) = entry(outcome, &clip, app, &engine.pricing)
@@ -700,6 +758,16 @@ pub fn live_finish(tail: Vec<f32>) -> Dictation {
     let raw = engine
         .pipeline
         .finalize_raw(&raw_dictation, &target, None, translate_to);
+    if let Ok(outcome) = &raw {
+        record_stats(
+            engine.ledger.as_mut(),
+            outcome,
+            raw_dictation.duration_ms,
+            active.app.as_deref(),
+            &engine.pricing,
+            active.privacy,
+        );
+    }
     if active.privacy == Privacy::Normal
         && let (Ok(outcome), Some(history)) = (&raw, engine.history.as_mut())
         && let Some(entry) = entry_with_duration(
@@ -894,10 +962,14 @@ mod tests {
             cleaner,
             Box::new(Collect),
         );
+        let ledger = history_file
+            .as_ref()
+            .map(|file| Ledger::open(file.with_file_name("usage.json")));
         *lock(&ENGINE) = Some(Engine {
             pipeline,
             model: "test-model".into(),
             history: history_file.map(|file| History::open(file, 50)),
+            ledger,
             pricing,
             translate_to: translate_to.into(),
             dictation,
@@ -1479,10 +1551,14 @@ mod tests {
             cleaner,
             Box::new(Collect),
         );
+        let ledger = history_file
+            .as_ref()
+            .map(|file| Ledger::open(file.with_file_name("usage.json")));
         *lock(&ENGINE) = Some(Engine {
             pipeline,
             model: "test-model".into(),
             history: history_file.map(|file| History::open(file, 50)),
+            ledger,
             pricing,
             translate_to: translate_to.into(),
             dictation,
@@ -1781,5 +1857,158 @@ mod tests {
         let result = live_finish(Vec::new());
         assert_eq!(result.kind, "error");
         assert!(result.error.as_deref().unwrap().contains("whisper hs"));
+    }
+
+    #[test]
+    fn dictation_records_usage_stats_and_respects_privacy() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("usage-dictate");
+        let file = dir.join("history.jsonl");
+        let usage_file = dir.join("usage.json");
+        let calls = Arc::new(AtomicUsize::new(0));
+        install_test_engine(
+            "bonjour tout le monde",
+            Some(Box::new(SpyCleaner {
+                calls: Arc::clone(&calls),
+                reply: "Bonjour tout le monde.".into(),
+                usage: Some(Usage {
+                    input_tokens: 200,
+                    cached_input_tokens: 50,
+                    output_tokens: 40,
+                }),
+                last_context: None,
+            })),
+            Some(file),
+            Pricing::default(),
+            "anglais",
+        );
+
+        // 1. Dictée normale : 4 mots, 1000 ms, app enregistrée + jetons LLM.
+        let r1 = dictate(
+            speech_samples(),
+            Some("com.whatsapp".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            None,
+        );
+        assert_eq!(r1.kind, "text");
+
+        // 2. Navigation privée (NoHistory) : mots et durée comptés, mais pas l'app.
+        let r2 = dictate(
+            speech_samples(),
+            Some("org.mozilla.firefox".into()),
+            Mode::Dictate,
+            Privacy::NoHistory,
+            None,
+        );
+        assert_eq!(r2.kind, "text");
+
+        // 3. Champ mot de passe : strictement rien comptabilisé.
+        let r3 = dictate(
+            speech_samples(),
+            Some("com.bank".into()),
+            Mode::Dictate,
+            Privacy::Password,
+            None,
+        );
+        assert_eq!(r3.kind, "text");
+
+        // 4. Command Mode : compteur `commands` incrémenté.
+        let r4 = dictate(
+            speech_samples(),
+            Some("com.whatsapp".into()),
+            Mode::Command(Some("texte".into())),
+            Privacy::Normal,
+            None,
+        );
+        assert_eq!(r4.kind, "text");
+
+        let ledger = Ledger::open(usage_file);
+        let day = day_from_unix_ms(now_ms());
+        let totals = ledger.day(&day);
+        assert_eq!(totals.words, 12); // 3 dictées × 4 mots (Password exclu)
+        assert_eq!(totals.dictations, 3);
+        assert_eq!(totals.commands, 1);
+        assert_eq!(totals.audio_ms, 3_000);
+        assert_eq!(totals.requests, 3);
+        assert_eq!(totals.input_tokens, 600);
+        assert_eq!(totals.output_tokens, 120);
+
+        let apps = ledger.apps(None);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].app, "com.whatsapp");
+        assert_eq!(apps[0].totals.words, 8);
+        assert_eq!(apps[0].totals.commands, 1);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn live_finish_records_usage_stats_except_on_password() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("usage-live");
+        let file = dir.join("history.jsonl");
+        let usage_file = dir.join("usage.json");
+        let calls = Arc::new(AtomicUsize::new(0));
+        install_sequence_engine(
+            vec![
+                Ok("un deux".into()),
+                Ok("trois quatre cinq".into()),
+                Ok("secret mot de passe".into()),
+            ],
+            None,
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::new(Mutex::new(String::new())),
+                last_context: Arc::new(Mutex::new(Vec::new())),
+                usage: Some(Usage {
+                    input_tokens: 300,
+                    cached_input_tokens: 0,
+                    output_tokens: 60,
+                }),
+            })),
+            Some(file),
+            Pricing::default(),
+            "anglais",
+            DictationConfig::default(),
+        );
+
+        live_start(
+            Some("com.slack".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            None,
+        )
+        .unwrap();
+        let _ = live_feed(&speech_with_pause(4.0)).unwrap();
+        let r1 = live_finish(live_speech(1.0));
+        assert_eq!(r1.kind, "text");
+
+        // Session mot de passe : aucun compteur touché.
+        live_start(
+            Some("com.bank".into()),
+            Mode::Dictate,
+            Privacy::Password,
+            None,
+        )
+        .unwrap();
+        let r2 = live_finish(live_speech(1.0));
+        assert_eq!(r2.kind, "text");
+
+        let ledger = Ledger::open(usage_file);
+        let day = day_from_unix_ms(now_ms());
+        let totals = ledger.day(&day);
+        assert_eq!(totals.words, 5);
+        assert_eq!(totals.dictations, 1);
+        assert!(totals.audio_ms >= 5_000);
+        assert_eq!(totals.requests, 1);
+        assert_eq!(totals.input_tokens, 300);
+
+        let apps = ledger.apps(None);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].app, "com.slack");
+        assert_eq!(apps[0].totals.words, 5);
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
