@@ -554,23 +554,33 @@ Ne plus dicter plusieurs minutes « à l'aveugle » en mode mains libres (#93) :
 
 - ✅ Saut 5A (PR #109) — Cœur `vtt-core` : `Chunker::with_bounds` (réutilisation de la découpe aux pauses des réunions sans modifier le comportement 6–15 s des réunions), module `live` (`LiveSession` 3,5–9 s avec seuil micro dictée, assemblage propre et aperçu glissant UTF-8 aux frontières de mots), `Pipeline::transcribe_chunk` et `Pipeline::finalize_raw` (un seul passage LLM cohérent + insertion unique, commandes vocales, snippets, styles, traduction et repli préservés)
 - ✅ Saut 5B (PR #110) — Bureau (`vtt-platform` + `apps/desktop`) : lecture incrémentale non destructive du micro (`Recorder::drain_live` / `stop_with_tail`), transcription par tranches sur le worker pendant le mode mains libres, aperçu en continu dans la pastille flottante (et zone de test), finalisation LLM unique à l'arrêt et conservation de l'audio complet pour « Réessayer »
-- ✅ Saut 5C — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres (`LiveLogic`, `Recorder::drainLive`, `Dictation`, `VoiceKeyboard`), tests Rust + Kotlin JVM et montée de version **v0.39.0**
+- ✅ Saut 5C (PR #111) — Android (`vtt-android` + clavier) + v0.39.0 : session incrémentale JNI (`liveStart` / `liveFeed` / `liveFinish` / `liveCancel`), respect strict de `Privacy::Password` / `Privacy::NoHistory`, aperçu en direct dans la barre d'état du clavier mains libres (`LiveLogic`, `Recorder::drainLive`, `Dictation`, `VoiceKeyboard`), tests Rust + Kotlin JVM et montée de version **v0.39.0**
 - ⬜ À vérifier sur le terrain : prévisualisation en continu sur une longue dictée mains libres côté PC (pastille flottante + « Réessayer ») et côté Android (clavier mains libres, champ mot de passe sans aperçu ni LLM, navigation privée sans historique)
+
+### 6. Consolidation technique : réunions `meetings.rs` (#92) 🚧
+
+Factoriser la logique commune des réunions et découper les deux gros modules `meetings.rs` (PC et Android) avant le Carnet de voix et la recherche sémantique :
+
+- ✅ Saut 6A — Cœur `vtt-core::meeting::store` : résolution sécurisée des dossiers (`is_valid_id`, `meeting_dir`, `load_meeting`), conservation (`is_expired`), vues d'intervenants (`SpeakerSummary`, `speaker_summaries`, `validate_speaker_count`, `speaker_count`, `excerpt`), persistance atomique de `voix.bin` (`save_analysis` / `load_analysis` / `has_analysis` / `delete_analysis`), export texte/Markdown/HTML unifié (`export_meeting_text`, `safe_file_name`) et helpers temporels (`samples_to_ms` / `ms_to_samples`)
+- ⬜ Saut 6B — Bureau (`apps/desktop/src/meetings/` + `speakers.rs`) : découper `apps/desktop/src/meetings.rs` (2 332 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `export`, `commands`, `tests`) et brancher sur `vtt-core::meeting::store` sans changement de comportement
+- ⬜ Saut 6C — Android (`crates/vtt-android/src/meetings/`) : découper `crates/vtt-android/src/meetings.rs` (1 721 lignes) en sous-modules thématiques (`mod`, `storage`, `capture`, `process`, `views`, `tests`) et brancher sur `vtt-core::meeting::store` (clôture `#92`)
+
+### 7. Carnet de voix local (empreintes récurrentes, opt-in) (#90) ⬜
+
+Reconnaître automatiquement les intervenants habituels d'une réunion à l'autre, 100 % local et chiffré, uniquement sur choix explicite de l'utilisateur :
+
+- ⬜ Saut 7A — Cœur `vtt-core::voicebook` : base locale chiffrée d'empreintes vocales (WeSpeaker, moyenne L2 normalisée, appariement cosinus strict anti-faux-positifs, combinaison non destructive avec `NameGuess`, opt-in explicite et suppression en un clic)
+- ⬜ Saut 7B — Bureau (`apps/desktop`) : persistance chiffrée du carnet, reconnaissance automatique à la fin d'une analyse vocale, bouton « Mémoriser la voix de … » et gestion dans les réglages PC
+- ⬜ Saut 7C — Android (`vtt-android` + Kotlin) + v0.40.0 : pont JNI, reconnaissance automatique, mémorisation/suppression depuis les réunions et réglages Android, tests Rust + Kotlin JVM et version **v0.40.0** (clôture `#90`)
 
 ## Prochaines étapes — Puis ⬜
 
-### Consolidation technique (en parallèle) ⬜
+### Consolidation technique (suite) ⬜
 
-- ⬜ Découper `apps/desktop/src/meetings.rs` et `crates/vtt-android/src/meetings.rs` en sous-modules thématiques (capture, transcription, export, stockage, commandes) et remonter la logique d'orchestration commune dans `vtt-core`
 - ⬜ Découper `crates/vtt-core/src/config.rs` et `apps/desktop/ui/app.css` en modules plus lisibles si nécessaire
-- ⬜ Pérenniser des tests de non-régression UI en CI : tests Playwright légers sur `apps/desktop/ui` (clair/sombre, réglages, réunions) et tests unitaires / Robolectric committés sur Android
+- ⬜ Pérenniser des tests de non-régression UI en CI (#91) : tests Playwright légers sur `apps/desktop/ui` (clair/sombre, réglages, réunions) et tests unitaires / Robolectric committés sur Android
 
 ## Prochaines étapes — Ensuite ⬜
-
-### Carnet de voix local (empreintes récurrentes) ⬜
-
-- ⬜ Base locale chiffrée d'empreintes vocales (WeSpeaker, opt-in explicite par personne : « Mémoriser la voix de … », suppression en un clic)
-- ⬜ Reconnaissance automatique des intervenants connus dès la fin d'une nouvelle réunion (PC et Android), combinée avec la détection de présentation existante
 
 ### Recherche sémantique locale + RAG amélioré ⬜
 
