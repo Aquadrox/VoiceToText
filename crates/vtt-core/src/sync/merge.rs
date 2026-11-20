@@ -524,6 +524,7 @@ mod tests {
             speaker_turns: Vec::new(),
             speaker_names: Vec::new(),
             speaker_guesses: Vec::new(),
+            speaker_recognized: Vec::new(),
             speaker_count: None,
             marks: Vec::new(),
             conference: Some(false),

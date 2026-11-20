@@ -23,6 +23,7 @@ pub mod suggest;
 pub mod sync;
 pub mod text;
 pub mod usage;
+pub mod voicebook;
 
 pub use config::Config;
 pub use pipeline::{
