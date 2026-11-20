@@ -25,7 +25,7 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use vtt_core::calls::Provider;
-use vtt_core::meeting::{Chunk, Track};
+use vtt_core::meeting::{Chunk, MeetingKind, MeetingRecord, Track};
 use vtt_core::{AudioClip, Pipeline};
 
 use crate::controller::{Work, WorkerHandle};
@@ -34,9 +34,6 @@ use crate::settings::{self, SharedConfig};
 use crate::speakers::{VoiceFeed, VoicesState};
 
 pub(crate) use commands::*;
-pub use vtt_core::meeting::{
-    MeetingKind, MeetingRecord, MeetingStatus, MeetingSummary, Output, RECORD_FILE,
-};
 
 /// Une réunion est en cours d'enregistrement (lu par la dictée : pas de
 /// pause des médias, qui couperait un appel dans le navigateur).
