@@ -15,6 +15,7 @@ use super::{
     HtmlOptions, MeetingRecord, RECORD_FILE, Reply, speaker_label, to_markdown, transcript_text,
 };
 use crate::diarize;
+use crate::voicebook::VoiceRecognition;
 
 /// Un jour, en millisecondes (durée de conservation des réunions).
 pub const DAY_MS: u64 = 24 * 3_600 * 1_000;
@@ -112,6 +113,9 @@ pub struct SpeakerSummary {
     /// Si `name` vient de sa présentation : la phrase et son horodatage.
     pub found: Option<String>,
     pub found_ms: Option<u64>,
+    /// Si `name` vient du carnet de voix local (opt-in) : entrée et confiance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recognized: Option<VoiceRecognition>,
 }
 
 /// Construit la liste triée des intervenants distingués à partir de la fiche
@@ -128,6 +132,7 @@ pub fn speaker_summaries(
             && !speakers.iter().any(|s| s.index == index)
         {
             let guess = record.name_guess(index);
+            let recognized = record.recognized_voice(index).cloned();
             speakers.push(SpeakerSummary {
                 index,
                 label: speaker_label(reply.track, Some(index), &[]),
@@ -142,6 +147,7 @@ pub fn speaker_summaries(
                 first_ms: reply.start_ms,
                 found: guess.map(|g| g.quote.clone()),
                 found_ms: guess.map(|g| g.at_ms),
+                recognized,
             });
         }
     }
@@ -379,6 +385,7 @@ mod tests {
         assert_eq!(summaries[0].first, "Bonjour à tous.");
         assert_eq!(summaries[0].first_ms, 3_100);
         assert_eq!(summaries[0].found, None);
+        assert_eq!(summaries[0].recognized, None);
 
         assert_eq!(summaries[1].index, 1);
         assert_eq!(summaries[1].label, "Intervenant 2");
@@ -388,6 +395,23 @@ mod tests {
         assert_eq!(summaries[1].first_ms, 500);
         assert_eq!(summaries[1].found.as_deref(), Some("Moi c'est Paul."));
         assert_eq!(summaries[1].found_ms, Some(500));
+        assert_eq!(summaries[1].recognized, None);
+        let json = serde_json::to_string(&summaries[0]).unwrap();
+        assert!(!json.contains("recognized"));
+
+        // Voix reconnue par le carnet : affichée tant qu'il n'y a pas de nom manuel.
+        rec.speaker_names.clear();
+        rec.speaker_recognized = vec![Some(VoiceRecognition {
+            entry_id: "v-1".into(),
+            name: "Claire".into(),
+            confidence: 92,
+        })];
+        let summaries = speaker_summaries(&rec, &replies, 15);
+        assert_eq!(summaries[0].name, "Claire");
+        assert_eq!(
+            summaries[0].recognized.as_ref().map(|r| r.confidence),
+            Some(92)
+        );
     }
 
     #[test]

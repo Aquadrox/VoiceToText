@@ -138,6 +138,20 @@ pub struct Turn {
     pub speaker: usize,
 }
 
+/// Empreinte vocale moyenne (normalisée L2) d'un locuteur identifié dans une
+/// réunion, alignée sur son numéro dans [`Analysis::turns`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeakerProfile {
+    /// Numéro du locuteur (0, 1, 2… dans l'ordre d'arrivée).
+    pub speaker: usize,
+    /// Centre normalisé L2 des empreintes sûres de ce locuteur.
+    pub embedding: Vec<f32>,
+    /// Nombre d'empreintes ayant contribué à ce centre.
+    pub samples: usize,
+    /// Durée cumulée de parole seule (ms) sur ces empreintes.
+    pub clean_ms: u64,
+}
+
 fn samples_to_ms(samples: usize) -> u64 {
     samples as u64 * 1000 / SAMPLE_RATE as u64
 }
@@ -615,9 +629,21 @@ impl Analysis {
 
     /// Tours de parole d'après l'analyse (`options.step` ne sert pas ici).
     pub fn turns(&self, options: &Options) -> Vec<Turn> {
+        self.turns_and_profiles(options).0
+    }
+
+    /// Empreintes moyennes (normalisées L2) de chaque locuteur, dans le même
+    /// ordre que [`Analysis::turns`].
+    pub fn speaker_profiles(&self, options: &Options) -> Vec<SpeakerProfile> {
+        self.turns_and_profiles(options).1
+    }
+
+    /// Calcule en une passe les tours de parole et l'empreinte moyenne de
+    /// chaque locuteur (numérotés dans le même ordre d'arrivée).
+    pub fn turns_and_profiles(&self, options: &Options) -> (Vec<Turn>, Vec<SpeakerProfile>) {
         let n = self.embeddings.len();
         if n == 0 {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let labels = self.labels(options);
         let clusters = labels.iter().max().map_or(0, |m| m + 1);
@@ -713,7 +739,39 @@ impl Analysis {
                 .position(|&s| s == t.speaker)
                 .expect("locuteur vu ci-dessus");
         }
-        turns
+
+        let min_clean = ms_to_samples(options.min_clean_ms);
+        let profiles = arrival
+            .iter()
+            .enumerate()
+            .map(|(speaker, &cluster_id)| {
+                let mut members: Vec<usize> = labels
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, &lbl)| lbl == cluster_id && self.clean_samples(i) >= min_clean)
+                    .map(|(i, _)| i)
+                    .collect();
+                if members.is_empty() {
+                    members = labels
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, &lbl)| lbl == cluster_id)
+                        .map(|(i, _)| i)
+                        .collect();
+                }
+                let clean_ms = members
+                    .iter()
+                    .map(|&i| samples_to_ms(self.clean_samples(i)))
+                    .sum();
+                SpeakerProfile {
+                    speaker,
+                    embedding: center(&self.embeddings, &members),
+                    samples: members.len(),
+                    clean_ms,
+                }
+            })
+            .collect();
+        (turns, profiles)
     }
 
     /// Analyse enregistrable (voix par fenêtre et empreintes ; jamais
@@ -1189,6 +1247,33 @@ mod tests {
         let mut speakers: Vec<usize> = turns.iter().map(|t| t.speaker).collect();
         speakers.dedup();
         assert!(speakers.iter().all(|&s| s < 2), "{turns:?}");
+    }
+
+    #[test]
+    fn speaker_profiles_align_with_arrival_order_and_are_unit_normalized() {
+        // Voix B (0.2) parle d'abord, puis voix A (0.1) : l'intervenant 0 doit
+        // porter l'axe 1 (voix B) et l'intervenant 1 l'axe 0 (voix A).
+        let audio = conversation(&[(0.2, 8), (0.1, 8), (0.2, 6)]);
+        let mut analysis = Analysis::new(Options::default().step);
+        analysis.add(0, &audio, &mut Fake).unwrap();
+        analysis.finish(&mut Fake).unwrap();
+
+        let (turns, profiles) = analysis.turns_and_profiles(&Options::default());
+        assert_eq!(turns.first().unwrap().speaker, 0);
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0].speaker, 0);
+        assert_eq!(profiles[1].speaker, 1);
+        assert_eq!(profiles, analysis.speaker_profiles(&Options::default()));
+
+        for profile in &profiles {
+            assert!(profile.samples > 0);
+            assert!(profile.clean_ms > 0);
+            let norm: f32 = profile.embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+            assert!((norm - 1.0).abs() < 1e-4, "norm={norm}");
+        }
+        // Intervenant 0 = voix B (axe 1 dominant), intervenant 1 = voix A (axe 0 dominant).
+        assert!(profiles[0].embedding[1] > profiles[0].embedding[0]);
+        assert!(profiles[1].embedding[0] > profiles[1].embedding[1]);
     }
 
     #[test]

@@ -56,6 +56,7 @@ fn record() -> MeetingRecord {
         speaker_turns: Vec::new(),
         speaker_names: Vec::new(),
         speaker_guesses: Vec::new(),
+        speaker_recognized: Vec::new(),
         speaker_count: None,
         identifying: false,
         marks: Vec::new(),
