@@ -275,3 +275,4 @@ for (const button of document.querySelectorAll("[data-apps-period]")) {
 
 registerPage("accueil", { show: showHome });
 setInterval(() => isShown("accueil") && showHome(), HOME_REFRESH_MS);
+window.__TAURI__.event.listen("sync-changed", () => isShown("accueil") && showHome());

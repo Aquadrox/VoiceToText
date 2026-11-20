@@ -45,6 +45,7 @@ pub struct SyncSummaryView {
     pub peer_id: String,
     pub peer_name: String,
     pub config_changed: bool,
+    pub usage_changed: bool,
     pub meetings_sent: usize,
     pub meetings_received: usize,
     pub message: String,
@@ -174,6 +175,7 @@ fn open_storage(
         meetings_dir.to_path_buf(),
         fallback,
     )
+    .with_usage_path(config_path.with_file_name("usage.json"))
 }
 
 fn peer_to_view(peer: &Peer) -> PeerView {
@@ -532,6 +534,7 @@ pub fn sync_now(
         peer_id: summary.peer_id.as_str().to_owned(),
         peer_name: summary.peer_name,
         config_changed: summary.config_changed,
+        usage_changed: summary.usage_changed,
         meetings_sent: summary.meetings_sent,
         meetings_received: summary.meetings_received,
         message,
@@ -573,6 +576,9 @@ pub fn format_summary_message(summary: &SyncSummary) -> String {
     let mut parts = Vec::new();
     if summary.config_changed {
         parts.push("réglages fusionnés".to_owned());
+    }
+    if summary.usage_changed {
+        parts.push("statistiques mises à jour".to_owned());
     }
     if summary.meetings_received > 0 {
         parts.push(format!(
@@ -902,5 +908,108 @@ mod tests {
         let _ = fs::remove_dir_all(&phone_dir);
         let _ = fs::remove_dir_all(&pc2_dir);
         let _ = fs::remove_dir_all(&phone2_dir);
+    }
+
+    #[test]
+    fn sync_merges_usage_stats_bidirectionally_between_phone_and_pc_without_double_counting() {
+        use vtt_core::config::Pricing;
+        use vtt_core::usage::{Ledger, Usage};
+
+        let pc_dir = temp_dir("usage_pc");
+        let phone_dir = temp_dir("usage_phone");
+
+        let pc_usage = pc_dir.join("usage.json");
+        let phone_usage = phone_dir.join("usage.json");
+        let pricing = Pricing::default();
+
+        // Dictées sur le PC (code.exe) et sur le téléphone (com.whatsapp).
+        let mut pc_ledger = Ledger::open(pc_usage.clone());
+        pc_ledger
+            .record_dictation("2026-11-20", Some("code.exe"), 90, 32_000, false)
+            .unwrap();
+        let mut phone_ledger = Ledger::open(phone_usage.clone());
+        phone_ledger
+            .record_dictation("2026-11-20", Some("com.whatsapp"), 45, 18_000, false)
+            .unwrap();
+        phone_ledger
+            .record(
+                "2026-11-20",
+                Some("com.whatsapp"),
+                &Usage {
+                    input_tokens: 400,
+                    cached_input_tokens: 100,
+                    output_tokens: 80,
+                },
+                &pricing,
+            )
+            .unwrap();
+
+        let pc_storage = Arc::new(
+            DiskSyncStorage::new(
+                pc_dir.join("config.toml"),
+                pc_dir.join("sync_peers.json"),
+                pc_dir.join("meetings"),
+                "PC Bureau",
+            )
+            .with_usage_path(pc_usage.clone()),
+        );
+        let server =
+            SyncServer::start("127.0.0.1:0".parse().unwrap(), pc_storage.clone(), None).unwrap();
+        let offer = server
+            .open_pairing(vec![server.local_addr().to_string()], Some(60_000))
+            .unwrap();
+
+        let phone_cfg = phone_dir.join("config.toml");
+        let phone_peers = phone_dir.join("sync_peers.json");
+        let phone_meetings = phone_dir.join("meetings");
+
+        let paired = pair_uri(
+            &phone_cfg,
+            &phone_peers,
+            &phone_meetings,
+            "Xiaomi 17T Pro",
+            &offer.to_uri(),
+        )
+        .unwrap();
+
+        let first = sync_now(
+            &phone_cfg,
+            &phone_peers,
+            &phone_meetings,
+            "Xiaomi 17T Pro",
+            &paired.device_id,
+            "",
+        )
+        .unwrap();
+        assert!(first.usage_changed);
+        assert!(first.message.contains("statistiques mises à jour"));
+
+        // Deuxième synchro immédiate : aucun changement ni double comptage.
+        let second = sync_now(
+            &phone_cfg,
+            &phone_peers,
+            &phone_meetings,
+            "Xiaomi 17T Pro",
+            &paired.device_id,
+            "",
+        )
+        .unwrap();
+        assert!(!second.usage_changed);
+
+        // PC et téléphone voient tous les deux la somme exacte (90 + 45 = 135 mots).
+        for path in [&pc_usage, &phone_usage] {
+            let combined = Ledger::open(path.clone());
+            let day = combined.day("2026-11-20");
+            assert_eq!(day.words, 135);
+            assert_eq!(day.dictations, 2);
+            assert_eq!(day.audio_ms, 50_000);
+            assert_eq!(day.requests, 1);
+            assert_eq!(day.input_tokens, 400);
+            assert_eq!(day.output_tokens, 80);
+        }
+
+        server.stop();
+        let _ = fs::remove_dir_all(&pc_dir);
+        let _ = fs::remove_dir_all(&phone_dir);
     }
 }

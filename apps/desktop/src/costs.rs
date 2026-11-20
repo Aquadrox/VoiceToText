@@ -59,6 +59,15 @@ pub fn summary(store: &LedgerStore) -> Summary {
     ledger.summary(&today())
 }
 
+/// Recharge les compteurs synchronisés des autres appareils (`usage-sync.json`)
+/// sans toucher aux compteurs locaux.
+pub fn reload_remote(store: &LedgerStore) {
+    store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .reload_remote();
+}
+
 /// Heure locale (UTC si le fuseau est introuvable).
 fn local_now() -> OffsetDateTime {
     OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc())

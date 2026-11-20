@@ -10,7 +10,7 @@ use std::thread;
 
 use qrcode::{Color, EcLevel, QrCode};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use vtt_core::sync::{
     DEFAULT_CONNECT_TIMEOUT, DEFAULT_PORT, DeviceId, DirectDecisionHandle, DiscoveredPeer,
     DiskSyncStorage, MdnsService, PairingOffer, Peer, PendingDirectPairing, SyncEvent, SyncOptions,
@@ -19,6 +19,7 @@ use vtt_core::sync::{
 };
 
 use crate::app_settings;
+use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
 
 /// Événement Tauri émis à la fenêtre dès qu'un appairage ou une synchro
@@ -106,6 +107,7 @@ pub struct SyncSummaryView {
     pub config_changed: bool,
     pub meetings_sent: usize,
     pub meetings_received: usize,
+    pub usage_changed: bool,
     pub message: String,
     pub at_ms: u64,
 }
@@ -143,12 +145,15 @@ impl SyncService {
     /// pas la synchro Wi-Fi, l'écoute ne démarre automatiquement au lancement que
     /// si au moins un appareil est déjà appairé dans `sync_peers.json`.
     pub fn new(app: AppHandle, paths: Paths) -> Arc<Self> {
-        let storage = Arc::new(DiskSyncStorage::new(
-            paths.config_file.clone(),
-            paths.sync_peers_file.clone(),
-            paths.meetings_dir.clone(),
-            default_device_name(),
-        ));
+        let storage = Arc::new(
+            DiskSyncStorage::new(
+                paths.config_file.clone(),
+                paths.sync_peers_file.clone(),
+                paths.meetings_dir.clone(),
+                default_device_name(),
+            )
+            .with_usage_path(paths.usage_file.clone()),
+        );
         let has_peers = paths.sync_peers_file.exists()
             && storage.peers().map(|p| !p.is_empty()).unwrap_or(false);
 
@@ -654,6 +659,9 @@ impl SyncService {
         if summary.config_changed {
             apply_synced_config(&self.app, &self.paths);
         }
+        if summary.usage_changed {
+            reload_synced_usage(&self.app);
+        }
         let message = format_summary_message(&summary);
         self.record_activity(message.clone(), false);
         let _ = self.app.emit(SYNC_CHANGED_EVENT, ());
@@ -662,6 +670,7 @@ impl SyncService {
             peer_id: summary.peer_id.as_str().to_owned(),
             peer_name: summary.peer_name,
             config_changed: summary.config_changed,
+            usage_changed: summary.usage_changed,
             meetings_sent: summary.meetings_sent,
             meetings_received: summary.meetings_received,
             message,
@@ -721,6 +730,9 @@ fn handle_server_event(
             if summary.config_changed {
                 apply_synced_config(app, paths);
             }
+            if summary.usage_changed {
+                reload_synced_usage(app);
+            }
             SyncActivity {
                 message: format_summary_message(&summary),
                 at_ms: summary.at_ms,
@@ -770,6 +782,13 @@ fn apply_synced_config(app: &AppHandle, paths: &Paths) {
         (_, Some(err)) => {
             log::warn!("sync: rechargement config.toml impossible : {err}");
         }
+    }
+}
+
+fn reload_synced_usage(app: &AppHandle) {
+    if let Some(ledger) = app.try_state::<LedgerStore>() {
+        costs::reload_remote(&ledger);
+        log::info!("sync: statistiques des autres appareils rechargées");
     }
 }
 
@@ -875,6 +894,9 @@ pub fn format_summary_message(summary: &SyncSummary) -> String {
     let mut parts = Vec::new();
     if summary.config_changed {
         parts.push("réglages fusionnés".to_owned());
+    }
+    if summary.usage_changed {
+        parts.push("statistiques mises à jour".to_owned());
     }
     if summary.meetings_received > 0 {
         parts.push(format!(
@@ -1110,6 +1132,7 @@ mod tests {
             peer_id: id,
             peer_name: "Android".into(),
             config_changed: false,
+            usage_changed: false,
             merge_report: None,
             meetings_sent: 0,
             meetings_received: 0,
@@ -1119,13 +1142,14 @@ mod tests {
 
         let updated = SyncSummary {
             config_changed: true,
+            usage_changed: true,
             meetings_received: 2,
             meetings_sent: 1,
             ..base
         };
         assert_eq!(
             format_summary_message(&updated),
-            "Android : réglages fusionnés, 2 réunions reçues, 1 réunion envoyée."
+            "Android : réglages fusionnés, statistiques mises à jour, 2 réunions reçues, 1 réunion envoyée."
         );
     }
 }

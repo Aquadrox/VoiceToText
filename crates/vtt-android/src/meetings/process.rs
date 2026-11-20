@@ -297,6 +297,22 @@ pub fn summarize(root: &Path, id: &str, toml: &str, language: &str) -> Result<()
     write_summary(root, id, &config, language)
 }
 
+fn record_meeting_usage(
+    root: &Path,
+    usage: Option<&vtt_core::usage::Usage>,
+    pricing: &vtt_core::config::Pricing,
+) {
+    let Some(usage) = usage else {
+        return;
+    };
+    let usage_path = root.parent().unwrap_or(root).join("usage.json");
+    let mut ledger = vtt_core::usage::Ledger::open(usage_path);
+    let day = vtt_core::usage::day_from_unix_ms(now_ms());
+    if let Err(e) = ledger.record(&day, None, usage, pricing) {
+        log::warn!("statistiques LLM réunion : {e}");
+    }
+}
+
 fn write_summary(
     root: &Path,
     id: &str,
@@ -326,16 +342,19 @@ fn write_summary(
     );
     let pricing = &config.llm.pricing;
     match result {
-        Ok(cleaned) => update(root, id, |r| {
-            r.summary = Some(MeetingSummary {
-                text: cleaned.text,
-                at_ms: now_ms(),
-                model: config.llm.model.clone(),
-                cost: cleaned.usage.map(|u| pricing.cost(&u)),
-                currency: pricing.currency.clone(),
-            });
-            r.summary_error = None;
-        }),
+        Ok(cleaned) => {
+            record_meeting_usage(root, cleaned.usage.as_ref(), pricing);
+            update(root, id, |r| {
+                r.summary = Some(MeetingSummary {
+                    text: cleaned.text,
+                    at_ms: now_ms(),
+                    model: config.llm.model.clone(),
+                    cost: cleaned.usage.map(|u| pricing.cost(&u)),
+                    currency: pricing.currency.clone(),
+                });
+                r.summary_error = None;
+            })
+        }
         Err(e) => {
             let message = e.to_string();
             update(root, id, |r| r.summary_error = Some(message.clone()))?;
@@ -380,19 +399,22 @@ pub fn report(root: &Path, id: &str, toml: &str, language: &str) -> Result<(), S
     );
     let pricing = &config.llm.pricing;
     match result {
-        Ok(drafted) => update(root, id, |r| {
-            let mut report = drafted.report;
-            if let Some(previous) = &r.report {
-                report.keep_done(previous);
-            }
-            report.at_ms = now_ms();
-            report.model = config.llm.model.clone();
-            report.cost = drafted.usage.map(|u| pricing.cost(&u));
-            report.currency = pricing.currency.clone();
-            r.report = Some(report);
-            r.report_error = None;
-            r.progress = None;
-        }),
+        Ok(drafted) => {
+            record_meeting_usage(root, drafted.usage.as_ref(), pricing);
+            update(root, id, |r| {
+                let mut report = drafted.report;
+                if let Some(previous) = &r.report {
+                    report.keep_done(previous);
+                }
+                report.at_ms = now_ms();
+                report.model = config.llm.model.clone();
+                report.cost = drafted.usage.map(|u| pricing.cost(&u));
+                report.currency = pricing.currency.clone();
+                r.report = Some(report);
+                r.report_error = None;
+                r.progress = None;
+            })
+        }
         Err(e) => {
             let message = e.to_string();
             update(root, id, |r| {

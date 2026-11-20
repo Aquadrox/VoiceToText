@@ -478,8 +478,13 @@ pub enum SyncMessage {
         device_id: DeviceId,
         payload: SyncableConfig,
     },
-    /// Catalogue des réunions disponibles sur cet appareil.
-    MeetingIndex { digests: Vec<MeetingDigest> },
+    /// Catalogue des réunions disponibles sur cet appareil, accompagné des
+    /// statistiques d'activité par appareil (facultatif pour rétrocompatibilité).
+    MeetingIndex {
+        digests: Vec<MeetingDigest>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<crate::usage::UsageBundle>,
+    },
     /// Demande des fiches manquantes ou plus récentes.
     MeetingRequest { ids: Vec<String> },
     /// Transfert d'une fiche de réunion complète (sans chemin local).
