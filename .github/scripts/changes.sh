@@ -24,22 +24,29 @@ everything() {
   exit 0
 }
 
+# Dans un conteneur (job appimage, root sur un dépôt monté par le runner),
+# actions/checkout@v7 inscrit safe.directory dans un HOME temporaire : sans
+# -c safe.directory='*', git 2.34 refuse de lire le dépôt et force tout.
+git_ro() {
+  git -c safe.directory='*' "$@"
+}
+
 [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || everything "événement ${GITHUB_EVENT_NAME:-inconnu}"
 [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ] || everything "commits de la PR inconnus"
-files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA") || everything "historique introuvable"
+files=$(git_ro diff --name-only "$BASE_SHA...$HEAD_SHA") || everything "historique introuvable"
 [ -n "$files" ] || everything "aucun fichier modifié détecté"
 
 # Chaque PR monte la version (Cargo.toml, et Cargo.lock pour les crates du
 # projet) : si c'est le seul changement de ces fichiers, il ne demande pas
 # de tout revérifier.
 project_version() {
-  git show "$1:Cargo.toml" | grep -m1 '^version = ' | cut -d'"' -f2 | sed 's/\./\\./g'
+  git_ro show "$1:Cargo.toml" | grep -m1 '^version = ' | cut -d'"' -f2 | sed 's/\./\\./g'
 }
 only_version_bump() {
   local changed old new
   old=$(project_version "$BASE_SHA") && new=$(project_version "$HEAD_SHA") || return 1
   [ -n "$old" ] && [ -n "$new" ] || return 1
-  changed=$(git diff --unified=0 "$BASE_SHA...$HEAD_SHA" -- "$1" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ') || return 1
+  changed=$(git_ro diff --unified=0 "$BASE_SHA...$HEAD_SHA" -- "$1" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ') || return 1
   # Seules lignes acceptées : la version du projet, ancienne ou nouvelle.
   [ -n "$changed" ] && ! grep -qvE "^[+-]version = \"($old|$new)\"$" <<<"$changed"
 }
