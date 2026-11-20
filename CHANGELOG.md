@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.40.0 — 2026-11-20
+
+- Carnet de voix local (opt-in, 100 % local et chiffré) : mémorisez la voix des intervenants habituels uniquement à votre demande pour qu'ils soient reconnus automatiquement d'une réunion à l'autre, en complément de la détection des présentations (« je m'appelle… »). Aucune empreinte vocale ne quitte votre appareil et chaque voix peut être oubliée en un clic.
+- [PC] Bouton « Mémoriser / Enrichir la voix de … » dans la fiche des réunions, indication de confiance sur les voix reconnues et gestion complète (renommage, oubli en un clic, effacement global) dans Réglages → Réunions → Carnet de voix local.
+- [Android] Bouton « Mémoriser / Enrichir la voix de … » dans la fenêtre Intervenants d'une réunion, reconnaissance automatique à la fin de l'analyse vocale et gestion du Carnet de voix local depuis l'écran Réunions (et la recherche des réglages).
+
 ## 0.39.0 — 2026-11-19
 
 - Prévisualisation en continu pendant la dictée mains libres : la reconnaissance vocale découpe désormais les longues dictées aux pauses au fil de la parole pour afficher les derniers mots reconnus en direct, puis exécute un seul nettoyage IA cohérent et une seule insertion à l'arrêt.

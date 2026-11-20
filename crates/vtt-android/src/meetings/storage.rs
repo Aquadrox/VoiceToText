@@ -250,3 +250,41 @@ pub(super) fn save_analysis(dir: &Path, analysis: &diarize::Analysis) -> Result<
 pub(super) fn load_analysis(dir: &Path) -> Result<diarize::Analysis, String> {
     meeting::load_analysis(dir, plain)
 }
+
+/// Un seul accès en lecture-modification-écriture au carnet de voix local.
+pub(super) static VOICEBOOK: Mutex<()> = Mutex::new(());
+
+/// Fichier du carnet de voix dans le stockage privé de l'application (chiffré
+/// par Android, exclu des sauvegardes cloud).
+pub(super) fn voicebook_path(root: &Path) -> PathBuf {
+    root.join(vtt_core::voicebook::VOICEBOOK_FILE)
+}
+
+pub(super) fn load_voicebook_locked(root: &Path) -> Result<vtt_core::voicebook::VoiceBook, String> {
+    vtt_core::voicebook::VoiceBook::load(&voicebook_path(root), plain)
+}
+
+pub(super) fn save_voicebook_locked(
+    root: &Path,
+    book: &vtt_core::voicebook::VoiceBook,
+) -> Result<(), String> {
+    let path = voicebook_path(root);
+    if book.is_empty() {
+        vtt_core::voicebook::VoiceBook::delete_file(&path);
+        return Ok(());
+    }
+    book.save(&path, plain)
+}
+
+/// Charge le carnet pour la reconnaissance automatique sans jamais bloquer une
+/// réunion si le fichier est corrompu.
+pub(super) fn load_voicebook_or_empty(root: &Path) -> vtt_core::voicebook::VoiceBook {
+    let _guard = lock(&VOICEBOOK);
+    match load_voicebook_locked(root) {
+        Ok(book) => book,
+        Err(e) => {
+            log::warn!("carnet de voix illisible : {e}");
+            vtt_core::voicebook::VoiceBook::default()
+        }
+    }
+}

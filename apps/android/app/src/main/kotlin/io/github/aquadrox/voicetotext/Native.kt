@@ -174,6 +174,21 @@ object Native {
     /** Ne plus distinguer : tours de parole, noms et empreintes effacés. */
     external fun meetingForgetSpeakers(root: String, id: String): String
 
+    /** Voix mémorisées dans le carnet local : `{"ok": [{"id", "name", "samples", "meetings", …}]}`. */
+    external fun voicebookList(root: String): String
+
+    /** Mémorise (opt-in) la voix d'un intervenant d'une réunion : `{"ok": {...}}` ou erreur. */
+    external fun meetingEnrollSpeaker(root: String, id: String, index: Int, name: String): String
+
+    /** Renomme une voix mémorisée dans le carnet local. */
+    external fun voicebookRename(root: String, id: String, name: String): String
+
+    /** Oublie une voix du carnet local en un clic. */
+    external fun voicebookRemove(root: String, id: String): String
+
+    /** Efface toutes les voix du carnet local. */
+    external fun voicebookClear(root: String): String
+
     /** Modèles des intervenants (bloquant) : `{"ok": null}` ou erreur. */
     external fun downloadVoices(modelsDir: String): String
 

@@ -20,8 +20,9 @@ mod views;
 
 pub use capture::{New, create, feed, mark, receiving, recover, set_progress, stop};
 pub use process::{
-    forget_speakers, identify, process, rename_speaker, report, report_html, set_action_done,
-    set_speaker_count, summarize,
+    clear_voicebook, enroll_speaker_voice, forget_speakers, identify, process,
+    remove_voicebook_entry, rename_speaker, rename_voicebook_entry, report, report_html,
+    set_action_done, set_speaker_count, summarize, voicebook_list,
 };
 pub use views::{
     Detail, Reply, ReportView, Row, SpeakerView, SummaryView, clip, delete, detail, export, list,
