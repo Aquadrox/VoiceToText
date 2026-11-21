@@ -575,6 +575,15 @@ Reconnaître automatiquement les intervenants habituels d'une réunion à l'autr
 - ✅ Saut 7C — Android (`vtt-android` + Kotlin) + v0.40.0 : pont JNI (`voicebookList` / `meetingEnrollSpeaker` / `voicebookRename` / `voicebookRemove` / `voicebookClear`), reconnaissance automatique dans `analyze_voices` / `set_speaker_count`, mémorisation/badge dans `MeetingActivity`, gestion du carnet depuis `MeetingsActivity` (et recherche `SettingsIndex`), tests Rust + Kotlin JVM et version **v0.40.0** (clôture `#90`)
 - ⬜ À vérifier sur le terrain : précision de la reconnaissance inter-réunions (même voix / voix proches sans faux positif) sur PC et Android, mémorisation et oubli en un clic
 
+### 8. Insertion au fil de la dictée (dictée longue) ✅
+
+Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu (v0.41.0) :
+
+- ✅ Cœur `vtt-core` : option `dictation.live_insert` (désactivée par défaut), `Pipeline::insert_live_chunk` (chaque tranche coupée à une pause passe par commandes vocales, snippet, style, nettoyage LLM avec la fin du texte déjà inséré comme contexte `<deja_insere>` — prompt système inchangé pour le cache — et traduction, puis est insérée aussitôt avec le bon espacement ; rien n'est jamais effacé), `LiveInsertion` et `Pipeline::finish_live_insertion` (une entrée d'historique par dictée, jetons cumulés, première erreur de nettoyage), « annule la dernière dictée » en cours de route = dernière phrase
+- ✅ PC (`apps/desktop`) : session en direct dès l'appui (aperçu dans la pastille aussi en maintenant la touche, ASR déjà fait au relâchement), insertion phrase par phrase en mains libres (le collage reste impossible touche tenue), interruption propre si l'application refuse le collage (« Réessayer » reprend l'audio complet), case dans **Réglages → Dictée et traduction**
+- ✅ Android (`vtt-android` + Kotlin) : actions `text` / `undo` rendues par `liveFeed` / `liveFinish` (`kind` « live »), clavier (maintien et mains libres, aperçu dans la barre d'état en maintien aussi) et bulle (toucher / toucher), jamais sur un mot de passe ; texte refusé par l'application → dictée complète copiée ; réglage et recherche dans **Réglages → Dictée**
+- ⬜ À vérifier sur le terrain : longues dictées mains libres PC (Word, navigateur, messagerie), clavier et bulle Android (EditText et pages web), qualité de l'enchaînement entre phrases et coût LLM
+
 ## Prochaines étapes — Puis ⬜
 
 ### Consolidation technique (suite) ⬜

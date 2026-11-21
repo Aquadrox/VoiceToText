@@ -16,7 +16,8 @@ use vtt_core::history::{Entry, History};
 use vtt_core::live::{DEFAULT_PREVIEW_CHARS, LiveSession};
 use vtt_core::usage::{Ledger, day_from_unix_ms};
 use vtt_core::{
-    AudioClip, Config, Error, Outcome, Pipeline, PostProcessor, Target, TextSink, Transcriber,
+    AudioClip, Config, Error, LiveInsertion, Outcome, Pipeline, PostProcessor, Target, TextSink,
+    Transcriber,
 };
 use vtt_llm::{LlmCleaner, Prompts};
 
@@ -63,6 +64,46 @@ impl TextSink for Collect {
     }
 
     fn undo(&self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// Ce que l'application doit faire dans le champ pendant une dictée insérée
+/// au fil de l'eau : insérer un morceau, ou annuler le précédent (« annule la
+/// dernière dictée »).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LiveAction {
+    /// « text » ou « undo ».
+    pub kind: &'static str,
+    /// Texte à insérer tel quel (séparateur compris) ; vide pour « undo ».
+    pub text: String,
+}
+
+/// Sortie du pipeline pour l'insertion au fil de la dictée : les insertions
+/// et annulations sont rendues à l'application, qui les applique au champ.
+#[derive(Default)]
+struct LiveActions(Mutex<Vec<LiveAction>>);
+
+impl LiveActions {
+    fn take(&self) -> Vec<LiveAction> {
+        std::mem::take(&mut *lock(&self.0))
+    }
+}
+
+impl TextSink for LiveActions {
+    fn insert(&self, text: &str) -> Result<(), Error> {
+        lock(&self.0).push(LiveAction {
+            kind: "text",
+            text: text.to_owned(),
+        });
+        Ok(())
+    }
+
+    fn undo(&self) -> Result<(), Error> {
+        lock(&self.0).push(LiveAction {
+            kind: "undo",
+            text: String::new(),
+        });
         Ok(())
     }
 }
@@ -239,6 +280,11 @@ pub struct Dictation {
     pub error: Option<String>,
     /// Durée du traitement (transcription et nettoyage), en millisecondes.
     pub ms: u64,
+    /// Dictée insérée au fil de l'eau (`kind` « live ») : ce qui reste à
+    /// appliquer au champ ; `text` est alors le texte complet de la dictée,
+    /// déjà inséré en partie.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<LiveAction>,
 }
 
 pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
@@ -253,7 +299,7 @@ pub fn outcome(result: Result<Outcome, Error>) -> Dictation {
             text,
             raw,
             error: post_process_error,
-            ms: 0,
+            ..Dictation::default()
         },
         Ok(Outcome::Undone) => Dictation {
             kind: "undo",
@@ -304,6 +350,9 @@ struct ActiveLive {
     /// Première erreur ASR rencontrée en direct ; renvoyée à l'arrêt si aucune
     /// tranche n'a produit de texte exploitable.
     asr_error: Option<String>,
+    /// Insertion au fil de la dictée (`dictation.live_insert`, jamais sur un
+    /// mot de passe) : texte déjà rendu à l'application.
+    insert: Option<LiveInsertion>,
 }
 
 static LIVE: Mutex<Option<ActiveLive>> = Mutex::new(None);
@@ -320,6 +369,10 @@ pub struct LiveFeed {
     pub preview: String,
     /// Nombre de tranches ayant déjà produit du texte exploitable.
     pub segments: usize,
+    /// Insertion au fil de la dictée : morceaux à insérer (ou à annuler)
+    /// maintenant dans le champ, dans l'ordre.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<LiveAction>,
 }
 
 fn now_ms() -> u64 {
@@ -526,7 +579,7 @@ pub fn live_start(
     if matches!(mode, Mode::Command(_)) {
         return Err("la prévisualisation en continu n'est pas disponible en Command Mode".into());
     }
-    let context_terms = {
+    let (context_terms, insert) = {
         let engine = lock(&ENGINE);
         let engine = engine
             .as_ref()
@@ -535,7 +588,10 @@ pub fn live_start(
             app: app.clone(),
             ..Target::default()
         };
-        resolve_context_terms(engine, &target, &mode, privacy, context_text)
+        (
+            resolve_context_terms(engine, &target, &mode, privacy, context_text),
+            engine.dictation.live_insert && privacy != Privacy::Password,
+        )
     };
     let id = NEXT_LIVE_ID.fetch_add(1, Ordering::SeqCst) + 1;
     *lock(&LIVE) = Some(ActiveLive {
@@ -546,6 +602,7 @@ pub fn live_start(
         privacy,
         context_terms,
         asr_error: None,
+        insert: insert.then(LiveInsertion::new),
     });
     Ok(id)
 }
@@ -589,10 +646,12 @@ pub fn live_feed(samples: &[f32]) -> Result<LiveFeed, String> {
             changed: false,
             preview,
             segments,
+            actions: Vec::new(),
         });
     }
 
     let mut changed = false;
+    let sink = LiveActions::default();
     for chunk in chunks {
         if CANCELLED_LIVE_ID.load(Ordering::SeqCst) >= id {
             let mut guard = lock(&LIVE);
@@ -623,6 +682,24 @@ pub fn live_feed(samples: &[f32]) -> Result<LiveFeed, String> {
             Ok(Some((text, ms))) => {
                 if active.session.push_text(&text, ms) && privacy != Privacy::Password {
                     changed = true;
+                    if let Some(mut state) = active.insert.take() {
+                        let target = Target {
+                            app: active.app.clone(),
+                            context_terms: active.context_terms.clone(),
+                            ..Target::default()
+                        };
+                        let translate = matches!(active.mode, Mode::Translate);
+                        drop(guard);
+                        let result = insert_chunk(&mut state, &text, &target, translate, &sink);
+                        guard = lock(&LIVE);
+                        let Some(active) = guard.as_mut().filter(|a| a.id == id) else {
+                            return Ok(LiveFeed::default());
+                        };
+                        active.insert = Some(state);
+                        if let Err(e) = result {
+                            log::warn!("insertion au fil de la dictée : {e}");
+                        }
+                    }
                 }
             }
             Ok(None) => {}
@@ -647,7 +724,29 @@ pub fn live_feed(samples: &[f32]) -> Result<LiveFeed, String> {
             active.session.preview(DEFAULT_PREVIEW_CHARS)
         },
         segments: active.session.segment_count(),
+        actions: sink.take(),
     })
+}
+
+/// Nettoie et rend à l'application une tranche transcrite (insertion au fil
+/// de la dictée). Le moteur n'est pris que le temps de la tranche.
+fn insert_chunk(
+    state: &mut LiveInsertion,
+    raw: &str,
+    target: &Target,
+    translate: bool,
+    sink: &LiveActions,
+) -> Result<(), String> {
+    let engine = lock(&ENGINE);
+    let engine = engine
+        .as_ref()
+        .ok_or("moteur non démarré : modèle libéré ou pas encore chargé")?;
+    let translate_to = translate.then_some(engine.translate_to.as_str());
+    engine
+        .pipeline
+        .insert_live_chunk(state, raw, target, Some(sink), translate_to)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Termine la session mains libres en cours avec le reliquat audio, transcrit
@@ -674,16 +773,41 @@ pub fn live_finish(tail: Vec<f32>) -> Dictation {
 
     let started = Instant::now();
     let prior_asr_ms = active.session.total_asr_ms();
-    let hints: &[String] = if active.privacy == Privacy::Password {
-        &[]
+    let hints: Vec<String> = if active.privacy == Privacy::Password {
+        Vec::new()
     } else {
-        &active.context_terms
+        active.context_terms.clone()
+    };
+    let target = Target {
+        app: active.app.clone(),
+        context_terms: active.context_terms.clone(),
+        ..Target::default()
+    };
+    let translate_to = match active.mode {
+        Mode::Translate => Some(engine.translate_to.clone()),
+        _ => None,
+    };
+    let sink = LiveActions::default();
+    let insert_text = |state: Option<&mut LiveInsertion>, text: &str| {
+        if let Some(state) = state
+            && let Err(e) = engine.pipeline.insert_live_chunk(
+                state,
+                text,
+                &target,
+                Some(&sink),
+                translate_to.as_deref(),
+            )
+        {
+            log::warn!("insertion au fil de la dictée : {e}");
+        }
     };
 
     for chunk in active.session.feed(&tail) {
-        match engine.pipeline.transcribe_chunk(&chunk, hints) {
+        match engine.pipeline.transcribe_chunk(&chunk, &hints) {
             Ok(Some((text, ms))) => {
-                active.session.push_text(&text, ms);
+                if active.session.push_text(&text, ms) {
+                    insert_text(active.insert.as_mut(), &text);
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -695,9 +819,11 @@ pub fn live_finish(tail: Vec<f32>) -> Dictation {
         }
     }
     if let Some(last_chunk) = active.session.finish() {
-        match engine.pipeline.transcribe_chunk(&last_chunk, hints) {
+        match engine.pipeline.transcribe_chunk(&last_chunk, &hints) {
             Ok(Some((text, ms))) => {
-                active.session.push_text(&text, ms);
+                if active.session.push_text(&text, ms) {
+                    insert_text(active.insert.as_mut(), &text);
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -745,19 +871,21 @@ pub fn live_finish(tail: Vec<f32>) -> Dictation {
         return result;
     }
 
-    let target = Target {
-        app: active.app.clone(),
-        context_terms: active.context_terms,
-        ..Target::default()
-    };
     let raw_dictation = active.session.to_raw();
-    let translate_to = match active.mode {
-        Mode::Translate => Some(engine.translate_to.as_str()),
-        _ => None,
+    let live_insert = active.insert.is_some();
+    let raw = match active.insert.take() {
+        Some(state) => Ok(engine.pipeline.finish_live_insertion(
+            state,
+            raw_dictation.duration_ms,
+            raw_dictation.asr_ms,
+            translate_to.as_deref(),
+        )),
+        None => {
+            engine
+                .pipeline
+                .finalize_raw(&raw_dictation, &target, None, translate_to.as_deref())
+        }
     };
-    let raw = engine
-        .pipeline
-        .finalize_raw(&raw_dictation, &target, None, translate_to);
     if let Ok(outcome) = &raw {
         record_stats(
             engine.ledger.as_mut(),
@@ -781,6 +909,10 @@ pub fn live_finish(tail: Vec<f32>) -> Dictation {
         log::warn!("historique : {e}");
     }
     let mut result = outcome(raw);
+    if live_insert && result.kind != "error" {
+        result.kind = "live";
+        result.actions = sink.take();
+    }
     result.ms = elapsed(started);
     log::info!(
         "dictée mains libres traitée en {} ms ({}, {} tranches)",
@@ -1035,7 +1167,8 @@ mod tests {
                 text: "Bonjour.".into(),
                 raw: "euh bonjour".into(),
                 error: None,
-                ms: 0
+                ms: 0,
+                actions: Vec::new(),
             }
         );
         assert_eq!(outcome(Ok(Outcome::Undone)).kind, "undo");
@@ -1669,6 +1802,116 @@ mod tests {
         assert!((entries[0].cost.unwrap() - 0.002).abs() < 1e-9);
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn live_insert_returns_each_cleaned_chunk_to_insert_and_records_one_entry() {
+        let _guard = Guard::acquire();
+        let dir = temp_dir("live-insert");
+        let file = dir.join("history.jsonl");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_raw = Arc::new(Mutex::new(String::new()));
+        install_sequence_engine(
+            vec![
+                Ok("Première phrase.".into()),
+                Ok("deuxième phrase.".into()),
+                Ok("et fin.".into()),
+            ],
+            None,
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::clone(&last_raw),
+                last_context: Arc::new(Mutex::new(Vec::new())),
+                usage: Some(Usage {
+                    input_tokens: 100,
+                    cached_input_tokens: 0,
+                    output_tokens: 10,
+                }),
+            })),
+            Some(file.clone()),
+            Pricing::default(),
+            "anglais",
+            DictationConfig {
+                live_insert: true,
+                ..DictationConfig::default()
+            },
+        );
+        live_start(
+            Some("com.whatsapp".into()),
+            Mode::Dictate,
+            Privacy::Normal,
+            None,
+        )
+        .unwrap();
+
+        let first = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert_eq!(
+            first.actions,
+            vec![LiveAction {
+                kind: "text",
+                text: "Propre : Première phrase.".into()
+            }]
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let second = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert_eq!(second.actions[0].text, " Propre : deuxième phrase.");
+        // Une seule tranche par appel : rien de plus à insérer.
+        assert!(live_feed(&live_speech(0.5)).unwrap().actions.is_empty());
+
+        let result = live_finish(live_speech(1.5));
+        assert_eq!(result.kind, "live");
+        assert_eq!(
+            result.actions,
+            vec![LiveAction {
+                kind: "text",
+                text: " Propre : et fin.".into()
+            }]
+        );
+        assert_eq!(
+            result.text,
+            "Propre : Première phrase. Propre : deuxième phrase. Propre : et fin."
+        );
+        assert_eq!(result.raw, "Première phrase. deuxième phrase. et fin.");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains(r#""actions":[{"kind":"text","#), "{json}");
+
+        // Une seule entrée d'historique pour toute la dictée.
+        let entries = History::open(file, 50).recent(10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].usage.unwrap().input_tokens, 300);
+        *lock(&ENGINE) = None;
+    }
+
+    #[test]
+    fn live_insert_is_never_used_on_password_fields() {
+        let _guard = Guard::acquire();
+        let calls = Arc::new(AtomicUsize::new(0));
+        install_sequence_engine(
+            vec![Ok("motdepasse".into()), Ok("suite".into())],
+            None,
+            Some(Box::new(RecordingCleaner {
+                calls: Arc::clone(&calls),
+                last_raw: Arc::new(Mutex::new(String::new())),
+                last_context: Arc::new(Mutex::new(Vec::new())),
+                usage: None,
+            })),
+            None,
+            Pricing::default(),
+            "anglais",
+            DictationConfig {
+                live_insert: true,
+                ..DictationConfig::default()
+            },
+        );
+        live_start(None, Mode::Dictate, Privacy::Password, None).unwrap();
+        let feed = live_feed(&speech_with_pause(4.0)).unwrap();
+        assert!(feed.actions.is_empty());
+        let result = live_finish(live_speech(1.0));
+        assert_eq!(result.kind, "text");
+        assert!(result.actions.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        *lock(&ENGINE) = None;
     }
 
     #[test]

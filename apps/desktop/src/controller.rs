@@ -16,7 +16,9 @@ use vtt_core::config::{AsrConfig, DictationConfig, HotkeyConfig, Pricing, Snippe
 use vtt_core::context;
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::live::{DEFAULT_PREVIEW_CHARS, LiveSession};
-use vtt_core::{AudioClip, Config, Outcome, Pipeline, PostProcessor, Target, TextSink, Word};
+use vtt_core::{
+    AudioClip, Config, LiveInsertion, Outcome, Pipeline, PostProcessor, Target, TextSink, Word,
+};
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, FocusedField, MediaPauser, now_ms};
 
@@ -44,7 +46,7 @@ const POLL: Duration = Duration::from_millis(100);
 const FEEDBACK_MIN_MS: u64 = 300;
 /// Rafraîchissement du niveau du micro dans la pastille.
 const LEVEL_REFRESH: Duration = Duration::from_millis(50);
-/// Fréquence de lecture incrémentale du micro en mode mains libres.
+/// Fréquence de lecture incrémentale du micro pendant une dictée.
 const LIVE_DRAIN_INTERVAL: Duration = Duration::from_millis(250);
 /// Délai avant de se fier à l'état physique de la touche : Windows le met à
 /// jour après le passage dans le hook.
@@ -63,20 +65,30 @@ pub struct Recorders {
 /// Travail confié au thread de traitement.
 pub enum Work {
     Dictation(Job),
-    /// Début d'une dictée mains libres : prépare le découpage incrémental.
+    /// Début d'une dictée : prépare le découpage incrémental (aperçu dans la
+    /// pastille, en maintien comme en mains libres).
     LiveStart {
         session_id: u64,
         pending_context: Arc<Mutex<Vec<String>>>,
     },
-    /// Nouveaux échantillons 16 kHz mono captés pendant la dictée mains libres.
+    /// Nouveaux échantillons 16 kHz mono captés pendant la dictée.
     LiveFeed {
         session_id: u64,
         samples: Vec<f32>,
     },
-    /// Annulation (Échap) de la dictée mains libres en cours.
+    /// Mains libres avec insertion au fil de la dictée (`dictation.live_insert`) :
+    /// chaque tranche est désormais nettoyée et insérée dès qu'elle est prête.
+    LiveInsert {
+        session_id: u64,
+        target: Target,
+        translate_to: Option<String>,
+    },
+    /// Annulation (Échap, Command Mode) de la dictée en cours.
     LiveCancel(u64),
-    /// Fin de la dictée mains libres : traite le reliquat et lance l'unique
-    /// nettoyage LLM + insertion, tout en gardant `job.clip` complet pour « Réessayer ».
+    /// Fin de la dictée : traite le reliquat et lance l'unique nettoyage LLM
+    /// suivi de l'insertion (ou insère la dernière tranche si le texte est
+    /// inséré au fil de la dictée), tout en gardant `job.clip` complet pour
+    /// « Réessayer ».
     LiveFinish {
         session_id: u64,
         tail: Vec<f32>,
@@ -385,6 +397,7 @@ fn run(
         recording,
         cancelled_live,
         hands_free: false,
+        live: false,
         live_session_id: 0,
         last_live_drain: Instant::now(),
         reporter,
@@ -532,14 +545,16 @@ struct Controls<'a> {
     /// musique en pause.
     confirmed: bool,
     recording: Arc<AtomicBool>,
-    /// Dernier identifiant de session mains libres annulée (Échap) : le worker
+    /// Dernier identifiant de session en direct annulée (Échap) : le worker
     /// ignore immédiatement les tranches encore en file.
     cancelled_live: Arc<AtomicU64>,
-    /// Une dictée mains libres en continu est en cours.
+    /// La dictée en cours est en mode mains libres.
     hands_free: bool,
-    /// Identifiant croissant des sessions mains libres.
+    /// Une session en direct (découpage aux pauses, aperçu) est en cours.
+    live: bool,
+    /// Identifiant croissant des sessions en direct.
     live_session_id: u64,
-    /// Dernier drainage incrémental de l'audio en mode mains libres.
+    /// Dernier drainage incrémental de l'audio.
     last_live_drain: Instant,
     reporter: &'a StatusReporter,
     clips: Sender<Work>,
@@ -612,6 +627,9 @@ impl Controls<'_> {
                     self.command = command;
                     self.translate_to = self.translation.current();
                     self.recording.store(true, Ordering::SeqCst);
+                    if !command {
+                        self.start_live();
+                    }
                     vtt_platform::suppress_menu_activation(self.trigger);
                     self.reporter.set(if command {
                         Status::Command
@@ -623,12 +641,8 @@ impl Controls<'_> {
             },
             Some(Action::Command) => {
                 self.command = true;
-                if std::mem::take(&mut self.hands_free) {
-                    self.cancelled_live
-                        .store(self.live_session_id, Ordering::SeqCst);
-                    let _ = self.clips.send(Work::LiveCancel(self.live_session_id));
-                    self.reporter.live_preview("");
-                }
+                self.hands_free = false;
+                self.cancel_live();
                 self.reporter.set(Status::Command);
             }
             Some(Action::HandsFree) => {
@@ -637,17 +651,15 @@ impl Controls<'_> {
                 log::info!("mode mains libres");
                 if !self.command {
                     self.hands_free = true;
-                    self.live_session_id = self.live_session_id.saturating_add(1);
-                    self.last_live_drain = Instant::now();
-                    let _ = self.clips.send(Work::LiveStart {
-                        session_id: self.live_session_id,
-                        pending_context: Arc::clone(&self.pending_context),
-                    });
-                    let initial = self.recorder.drain_live();
-                    if !initial.is_empty() {
-                        let _ = self.clips.send(Work::LiveFeed {
+                    if !self.live {
+                        self.start_live();
+                    }
+                    if self.dictation.live_insert {
+                        log::info!("insertion au fil de la dictée");
+                        let _ = self.clips.send(Work::LiveInsert {
                             session_id: self.live_session_id,
-                            samples: initial,
+                            target: self.target.clone(),
+                            translate_to: self.translate_to.clone(),
                         });
                     }
                 }
@@ -656,26 +668,23 @@ impl Controls<'_> {
             Some(Action::Cancel) => {
                 self.recorder.stop();
                 self.recording.store(false, Ordering::SeqCst);
-                if std::mem::take(&mut self.hands_free) {
-                    self.cancelled_live
-                        .store(self.live_session_id, Ordering::SeqCst);
-                    let _ = self.clips.send(Work::LiveCancel(self.live_session_id));
-                    self.reporter.live_preview("");
-                }
+                self.hands_free = false;
+                self.cancel_live();
                 self.pending_context = Arc::new(Mutex::new(Vec::new()));
                 self.finish(Sound::Cancel);
                 self.reporter.set(Status::Idle);
             }
             Some(Action::Stop) => {
-                let was_hands_free = std::mem::take(&mut self.hands_free);
-                let (clip, live_tail) = if was_hands_free {
+                self.hands_free = false;
+                let was_live = std::mem::take(&mut self.live);
+                let (clip, live_tail) = if was_live {
                     let (clip, tail) = self.recorder.stop_with_tail();
                     (clip, Some(tail))
                 } else {
                     (self.recorder.stop(), None)
                 };
                 self.recording.store(false, Ordering::SeqCst);
-                if was_hands_free {
+                if was_live {
                     self.reporter.live_preview("");
                 }
                 self.finish(Sound::Stop);
@@ -708,9 +717,39 @@ impl Controls<'_> {
         }
     }
 
-    /// En mode mains libres, alimente le thread de traitement au fil de l'eau.
+    /// Démarre une session en direct : l'audio est découpé aux pauses et
+    /// transcrit pendant la dictée (aperçu dans la pastille).
+    fn start_live(&mut self) {
+        self.live = true;
+        self.live_session_id = self.live_session_id.saturating_add(1);
+        self.last_live_drain = Instant::now();
+        let _ = self.clips.send(Work::LiveStart {
+            session_id: self.live_session_id,
+            pending_context: Arc::clone(&self.pending_context),
+        });
+        let initial = self.recorder.drain_live();
+        if !initial.is_empty() {
+            let _ = self.clips.send(Work::LiveFeed {
+                session_id: self.live_session_id,
+                samples: initial,
+            });
+        }
+    }
+
+    /// Abandonne la session en direct (Échap, Command Mode) : les tranches
+    /// encore en file sont ignorées.
+    fn cancel_live(&mut self) {
+        if std::mem::take(&mut self.live) {
+            self.cancelled_live
+                .store(self.live_session_id, Ordering::SeqCst);
+            let _ = self.clips.send(Work::LiveCancel(self.live_session_id));
+            self.reporter.live_preview("");
+        }
+    }
+
+    /// Pendant une dictée, alimente le thread de traitement au fil de l'eau.
     fn poll_live(&mut self) {
-        if !self.hands_free || self.last_live_drain.elapsed() < LIVE_DRAIN_INTERVAL {
+        if !self.live || self.last_live_drain.elapsed() < LIVE_DRAIN_INTERVAL {
             return;
         }
         self.last_live_drain = Instant::now();
@@ -873,6 +912,41 @@ struct ActiveLive {
     /// Première erreur ASR rencontrée pendant le flux ; renvoyée à l'arrêt si
     /// aucune tranche n'a produit de texte.
     asr_error: Option<String>,
+    /// Insertion au fil de la dictée (mains libres, `dictation.live_insert`).
+    insert: Option<LiveInsert>,
+}
+
+/// Texte inséré tranche par tranche pendant une dictée mains libres.
+struct LiveInsert {
+    /// Fenêtre de destination relevée au début de la dictée (style).
+    target: Target,
+    translate_to: Option<String>,
+    state: LiveInsertion,
+    /// Insertion refusée par l'application : les tranches suivantes ne sont
+    /// plus insérées, l'erreur est signalée à l'arrêt (« Réessayer » reprend
+    /// l'audio complet).
+    error: Option<vtt_core::Error>,
+}
+
+impl LiveInsert {
+    /// Nettoie et insère une tranche transcrite.
+    fn insert(&mut self, pipeline: &Pipeline, raw: &str, context_terms: &[String]) {
+        if self.error.is_some() {
+            return;
+        }
+        let mut target = self.target.clone();
+        target.context_terms = context_terms.to_vec();
+        if let Err(e) = pipeline.insert_live_chunk(
+            &mut self.state,
+            raw,
+            &target,
+            None,
+            self.translate_to.as_deref(),
+        ) {
+            log::warn!("insertion au fil de la dictée interrompue : {e}");
+            self.error = Some(e);
+        }
+    }
 }
 
 /// Thread de traitement : les dictées sont traitées une par une, hors du
@@ -949,6 +1023,7 @@ impl Worker {
                 Work::Dictation(_)
                     | Work::LiveStart { .. }
                     | Work::LiveFeed { .. }
+                    | Work::LiveInsert { .. }
                     | Work::LiveFinish { .. }
                     | Work::Retry(_)
                     | Work::Preload
@@ -970,7 +1045,29 @@ impl Worker {
                             session: LiveSession::new(),
                             pending_context,
                             asr_error: None,
+                            insert: None,
                         });
+                    }
+                    continue;
+                }
+                Work::LiveInsert {
+                    session_id,
+                    target,
+                    translate_to,
+                } => {
+                    if let Some(active) = live.as_mut().filter(|a| a.session_id == session_id) {
+                        let mut insert = LiveInsert {
+                            target,
+                            translate_to,
+                            state: LiveInsertion::new(),
+                            error: None,
+                        };
+                        // Ce qui a déjà été transcrit avant le passage en mains libres.
+                        if !active.session.is_empty() {
+                            let hints = lock(&active.pending_context).clone();
+                            insert.insert(&self.pipeline, &active.session.full_raw(), &hints);
+                        }
+                        active.insert = Some(insert);
                     }
                     continue;
                 }
@@ -1197,6 +1294,9 @@ fn feed_live_session(
             Ok(Some((text, ms))) => {
                 if active.session.push_text(&text, ms) {
                     changed = true;
+                    if let Some(insert) = active.insert.as_mut() {
+                        insert.insert(pipeline, &text, hints);
+                    }
                 }
             }
             Ok(None) => {}
@@ -1245,7 +1345,11 @@ fn finalize_live_session(
     if let Some(last_chunk) = active.session.finish() {
         match pipeline.transcribe_chunk(&last_chunk, &target.context_terms) {
             Ok(Some((text, ms))) => {
-                active.session.push_text(&text, ms);
+                if active.session.push_text(&text, ms)
+                    && let Some(insert) = active.insert.as_mut()
+                {
+                    insert.insert(pipeline, &text, &target.context_terms);
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -1260,6 +1364,17 @@ fn finalize_live_session(
         && let Some(err) = active.asr_error
     {
         return Err(vtt_core::Error::Asr(err));
+    }
+    if let Some(insert) = active.insert {
+        if let Some(err) = insert.error {
+            return Err(err);
+        }
+        return Ok(pipeline.finish_live_insertion(
+            insert.state,
+            job.clip.duration_ms(),
+            active.session.total_asr_ms(),
+            job.translate_to.as_deref(),
+        ));
     }
     let mut raw = active.session.to_raw();
     // Utiliser la durée exacte de l'audio complet enregistré.
@@ -1750,18 +1865,19 @@ mod tests {
         assert!(extract_context_for_field(&enabled, &excluded, &field, &[]).is_empty());
     }
 
+    struct SeqAsr {
+        replies: Vec<&'static str>,
+        index: AtomicUsize,
+    }
+    impl Transcriber for SeqAsr {
+        fn transcribe(&self, _: &AudioClip) -> Result<String, Error> {
+            let i = self.index.fetch_add(1, Ordering::Relaxed);
+            Ok(self.replies.get(i).copied().unwrap_or("").to_owned())
+        }
+    }
+
     #[test]
     fn live_session_feeds_preview_and_finalizes_once_while_short_uses_full_clip() {
-        struct SeqAsr {
-            replies: Vec<&'static str>,
-            index: AtomicUsize,
-        }
-        impl Transcriber for SeqAsr {
-            fn transcribe(&self, _: &AudioClip) -> Result<String, Error> {
-                let i = self.index.fetch_add(1, Ordering::Relaxed);
-                Ok(self.replies.get(i).copied().unwrap_or("").to_owned())
-            }
-        }
         struct CountingCleaner(Arc<AtomicUsize>);
         impl PostProcessor for CountingCleaner {
             fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
@@ -1793,6 +1909,7 @@ mod tests {
             session: LiveSession::with_bounds(1_000, 3_000),
             pending_context: Arc::new(Mutex::new(Vec::new())),
             asr_error: None,
+            insert: None,
         };
 
         let mut part1 = speech(1.5);
@@ -1835,6 +1952,7 @@ mod tests {
             session: LiveSession::new(),
             pending_context: Arc::new(Mutex::new(Vec::new())),
             asr_error: None,
+            insert: None,
         };
         let short_job = Job {
             clip: AudioClip {
@@ -1861,6 +1979,76 @@ mod tests {
     }
 
     #[test]
+    fn hands_free_live_insert_inserts_each_chunk_as_it_comes() {
+        let llm_calls = Arc::new(AtomicUsize::new(0));
+        struct CountingCleaner(Arc<AtomicUsize>);
+        impl PostProcessor for CountingCleaner {
+            fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                EchoCleaner.process(raw, directives)
+            }
+        }
+        let inserted = Arc::new(Mutex::new(Vec::new()));
+        let pipeline = Pipeline::new(
+            Box::new(SeqAsr {
+                replies: vec!["première partie.", "deuxième partie."],
+                index: AtomicUsize::new(0),
+            }),
+            Some(Box::new(CountingCleaner(Arc::clone(&llm_calls)))),
+            Box::new(CaptureSink(Arc::clone(&inserted))),
+        );
+        let speech = |s: f32| {
+            (0..(s * vtt_core::SAMPLE_RATE as f32) as usize)
+                .map(|i| if i % 2 == 0 { 0.2 } else { -0.2 })
+                .collect::<Vec<_>>()
+        };
+        let silence = |s: f32| vec![0.0f32; (s * vtt_core::SAMPLE_RATE as f32) as usize];
+        let mut active = ActiveLive {
+            session_id: 4,
+            session: LiveSession::with_bounds(1_000, 3_000),
+            pending_context: Arc::new(Mutex::new(Vec::new())),
+            asr_error: None,
+            insert: Some(LiveInsert {
+                target: Target::default(),
+                translate_to: None,
+                state: LiveInsertion::new(),
+                error: None,
+            }),
+        };
+
+        let mut part1 = speech(1.5);
+        part1.extend(silence(0.4));
+        feed_live_session(&pipeline, &mut active, &part1, &[], 80);
+        // Première phrase insérée dès la pause, sans attendre l'arrêt.
+        assert_eq!(*lock(&inserted), vec!["PREMIÈRE PARTIE."]);
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 1);
+
+        let tail = speech(1.2);
+        let mut full = part1.clone();
+        full.extend(&tail);
+        let job = Job {
+            clip: AudioClip { samples: full },
+            target: Target::default(),
+            command: false,
+            translate_to: None,
+        };
+        let out =
+            finalize_live_session(&pipeline, Some(active), &tail, &job, &Target::default(), "")
+                .unwrap();
+        assert_eq!(
+            *lock(&inserted),
+            vec!["PREMIÈRE PARTIE.", " DEUXIÈME PARTIE."]
+        );
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 2);
+        assert!(matches!(
+            out,
+            Outcome::Inserted { ref raw, ref text, .. }
+                if raw == "première partie. deuxième partie."
+                    && text == "PREMIÈRE PARTIE. DEUXIÈME PARTIE."
+        ));
+    }
+
+    #[test]
     fn live_session_propagates_asr_error_when_no_segment_succeeded() {
         struct FailingAsr;
         impl Transcriber for FailingAsr {
@@ -1879,6 +2067,7 @@ mod tests {
             session: LiveSession::with_bounds(1_000, 3_000),
             pending_context: Arc::new(Mutex::new(Vec::new())),
             asr_error: None,
+            insert: None,
         };
         let mut audio: Vec<f32> = (0..(1.5 * vtt_core::SAMPLE_RATE as f32) as usize)
             .map(|i| if i % 2 == 0 { 0.2 } else { -0.2 })

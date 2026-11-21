@@ -540,6 +540,10 @@
                     <span><strong>Commandes vocales</strong><small>« nouvelle ligne », « nouveau paragraphe », « point à la ligne », « annule la dernière dictée » ; mot épelé lettre par lettre (« A, Q, U, A… ») recollé.</small></span>
                   </label>
                   <label class="option field">
+                    <input id="dict-live-insert" type="checkbox" />
+                    <span><strong>Insérer le texte au fil de la dictée</strong><small>En mains libres, chaque phrase est nettoyée puis insérée dès que vous marquez une pause, au lieu de tout insérer à la fin : on voit ce qui est écrit pendant une longue dictée. Un appel au LLM par phrase ; Échap arrête sans effacer ce qui est déjà inséré. En maintenant la touche, l'aperçu s'affiche dans la pastille et le texte est inséré au relâchement.</small></span>
+                  </label>
+                  <label class="option field">
                     <input id="dict-context" type="checkbox" />
                     <span>
                       <strong>Contexte du champ actif (opt-in)</strong>

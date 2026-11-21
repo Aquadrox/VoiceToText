@@ -69,6 +69,7 @@ struct View<'a> {
     voice_commands: bool,
     screen_context: bool,
     screen_context_excluded_apps: &'a [String],
+    live_insert: bool,
     translation: &'a str,
     languages: &'static [&'static str],
     history: bool,
@@ -101,6 +102,7 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         voice_commands: config.dictation.voice_commands,
         screen_context: config.dictation.screen_context,
         screen_context_excluded_apps: &config.dictation.screen_context_excluded_apps,
+        live_insert: config.dictation.live_insert,
         translation: &config.translation.language,
         languages: TRANSLATION_LANGUAGES,
         history: config.history.enabled,
@@ -125,6 +127,9 @@ pub struct Update {
     pub screen_context: Option<bool>,
     #[serde(default)]
     pub screen_context_excluded_apps: Option<Vec<String>>,
+    /// Insertion au fil de la dictée ; absent : inchangé.
+    #[serde(default)]
+    pub live_insert: Option<bool>,
     pub translation: String,
     pub history: bool,
 }
@@ -162,6 +167,9 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     if let Some(excluded) = &update.screen_context_excluded_apps {
         config.dictation.screen_context_excluded_apps =
             vtt_core::context::clean_excluded_apps(excluded);
+    }
+    if let Some(enabled) = update.live_insert {
+        config.dictation.live_insert = enabled;
     }
     config.translation = translation;
     config.history.enabled = update.history;
@@ -333,6 +341,7 @@ mod tests {
             voice_commands: true,
             screen_context: None,
             screen_context_excluded_apps: None,
+            live_insert: None,
             translation: "anglais".into(),
             history: true,
         }
@@ -575,5 +584,21 @@ mod tests {
             config.dictation.screen_context_excluded_apps,
             ["com.whatsapp", "banque"]
         );
+    }
+
+    #[test]
+    fn live_insert_is_off_by_default_and_kept_when_absent() {
+        let json = view("", Path::new("/nulle-part")).unwrap();
+        assert!(json.contains("\"live_insert\":false"), "{json}");
+        let mut req = update_with(models::DEFAULT_MODEL, "https://api.deepseek.com");
+        req.live_insert = Some(true);
+        let saved = update("", &req).unwrap();
+        assert!(parse(&saved).unwrap().0.dictation.live_insert);
+        let kept = update(
+            &saved,
+            &update_with(models::DEFAULT_MODEL, "https://api.deepseek.com"),
+        )
+        .unwrap();
+        assert!(parse(&kept).unwrap().0.dictation.live_insert);
     }
 }

@@ -66,4 +66,50 @@ class LiveLogicTest {
         assertNull(LiveLogic.parseFeed("""{"error":"boom"}"""))
         assertNull(LiveLogic.parseFeed("pas du json"))
     }
+
+    @Test
+    fun parsesActionsToInsertFromFeedAndFinish() {
+        val feed = LiveLogic.parseFeed(
+            """{"ok":{"changed":true,"preview":"Bonjour.","segments":1,"actions":[{"kind":"text","text":"Bonjour."},{"kind":"undo","text":""},{"kind":"inconnu","text":"x"}]}}""",
+        )!!
+        assertEquals(listOf(LiveAction("text", "Bonjour."), LiveAction("undo", "")), feed.actions)
+        assertTrue(feed.actions[1].isUndo)
+        // Sans insertion au fil de la dictée : aucune action.
+        val plain = LiveLogic.parseFeed("""{"ok":{"changed":true,"preview":"a","segments":1}}""")!!
+        assertTrue(plain.actions.isEmpty())
+        val finish = org.json.JSONObject("""{"kind":"live","text":"A. B.","actions":[{"kind":"text","text":" B."}]}""")
+        assertEquals(listOf(LiveAction("text", " B.")), LiveLogic.parseActions(finish))
+    }
+
+    @Test
+    fun spacesOnlyTheFirstPieceAfterAWord() {
+        assertEquals(" Bonjour.", LiveLogic.spaced("mot", "Bonjour.", first = true))
+        assertEquals("Bonjour.", LiveLogic.spaced("", "Bonjour.", first = true))
+        assertEquals("Bonjour.", LiveLogic.spaced("mot ", "Bonjour.", first = true))
+        assertEquals(" Suite.", LiveLogic.spaced("mot", " Suite.", first = true))
+        // Les morceaux suivants arrivent avec leur séparateur.
+        assertEquals("Suite.", LiveLogic.spaced("fin.", "Suite.", first = false))
+    }
+
+    @Test
+    fun piecesUndoTheLastOneThenTheWholeDictationIsKnown() {
+        val pieces = LivePieces()
+        assertTrue(pieces.isEmpty)
+        assertEquals(0, pieces.undoLast())
+        pieces.added(9)
+        pieces.added(0)
+        pieces.added(6)
+        assertEquals(15, pieces.total)
+        assertEquals(6, pieces.undoLast())
+        assertEquals(9, pieces.total)
+        pieces.clear()
+        assertTrue(pieces.isEmpty)
+    }
+
+    @Test
+    fun holdStatusShowsPreviewExceptOnPasswords() {
+        assertEquals("bonjour", LiveLogic.holdStatus(Native.DICTATE, "anglais", Native.NORMAL, " bonjour "))
+        assertEquals("Écoute…", LiveLogic.holdStatus(Native.DICTATE, "anglais", Native.PASSWORD, "secret"))
+        assertEquals("Écoute… → anglais", LiveLogic.holdStatus(Native.TRANSLATE, "anglais", Native.NORMAL, ""))
+    }
 }

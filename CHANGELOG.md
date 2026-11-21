@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.41.0 — 2026-11-21
+
+- Nouvelle option « Insérer le texte au fil de la dictée » (désactivée par défaut) : pendant une longue dictée, chaque phrase est nettoyée puis insérée dès que vous marquez une pause, au lieu de tout insérer à la fin. Vous voyez ce qui est écrit et pouvez vous reprendre ; « annule la dernière dictée » efface la dernière phrase insérée.
+- [PC] Les derniers mots reconnus s'affichent aussi dans la pastille quand vous maintenez la touche de dictée, plus seulement en mains libres. L'option d'insertion au fil de la dictée (Réglages → Dictée et traduction) s'applique en mains libres ; en maintenant la touche, le texte est collé au relâchement.
+- [Android] Les derniers mots reconnus s'affichent aussi quand vous maintenez le micro du clavier. L'option d'insertion au fil de la dictée (Réglages → Dictée) fonctionne avec le clavier, en maintenant le micro comme en mains libres, et avec la bulle ; jamais sur un mot de passe.
+
 ## 0.40.0 — 2026-11-20
 
 - Carnet de voix local (opt-in, 100 % local et chiffré) : mémorisez la voix des intervenants habituels uniquement à votre demande pour qu'ils soient reconnus automatiquement d'une réunion à l'autre, en complément de la détection des présentations (« je m'appelle… »). Aucune empreinte vocale ne quitte votre appareil et chaque voix peut être oubliée en un clic.

@@ -66,6 +66,21 @@ class BubbleService : AccessibilityService() {
     private var target: AccessibilityNodeInfo? = null
     /** Longueur de la dernière insertion (commande « annule la dernière dictée »). */
     private var lastInserted = 0
+    /** Session en direct qui enregistre (insertion au fil de la dictée ; 0 : aucune). */
+    private var liveGen = 0L
+    /** Génération dont les morceaux sont encore insérés, jusqu'au résultat final. */
+    private var insertGen = 0L
+    /** Morceaux insérés par la dictée en cours. */
+    private val pieces = LivePieces()
+    /** Un morceau a été refusé par l'application : la dictée finit dans le presse-papier. */
+    private var liveRefused = false
+    private val livePump = object : Runnable {
+        override fun run() {
+            if (liveGen == 0L || !recorder.recording) return
+            drainLive()
+            main.postDelayed(this, LiveLogic.LIVE_DRAIN_MS)
+        }
+    }
 
     private var downX = 0f
     private var downY = 0f
@@ -133,6 +148,7 @@ class BubbleService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        cancelLive()
         if (recorder.recording) recorder.stop()
         state = IDLE
         holding = false
@@ -144,6 +160,7 @@ class BubbleService : AccessibilityService() {
         runCatching { unregisterReceiver(screen) }
         // Désactivée par l'utilisateur : pas un arrêt à expliquer.
         runCatching { BubbleStatus.disconnected(store) }
+        cancelLive()
         if (recorder.recording) recorder.stop()
         hide()
         super.onDestroy()
@@ -181,6 +198,7 @@ class BubbleService : AccessibilityService() {
             block()
         } catch (e: Exception) {
             Log.w("VoiceToText", "Bulle : $what", e)
+            runCatching { cancelLive() }
             runCatching { if (recorder.recording) recorder.stop() }
             main.removeCallbacks(longPress)
             target = null
@@ -239,6 +257,7 @@ class BubbleService : AccessibilityService() {
                     bubble = null
                     params = null
                     if (state != IDLE) {
+                        cancelLive()
                         if (recorder.recording) recorder.stop()
                         holding = false
                         state = IDLE
@@ -363,6 +382,7 @@ class BubbleService : AccessibilityService() {
      */
     private fun switchKeyboard() {
         if (state == LISTENING) {
+            cancelLive()
             recorder.stop()
             target = null
             state = IDLE
@@ -417,12 +437,105 @@ class BubbleService : AccessibilityService() {
         mode = kind
         state = LISTENING
         paint()
+        startLive()
+    }
+
+    /** Discrétion de la bulle : la navigation privée est invisible d'ici, l'historique se coupe à part. */
+    private fun privacy() = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
+
+    /** Texte autour du curseur, si l'option et le champ le permettent. */
+    private fun contextOf(node: AccessibilityNodeInfo?, privacy: Int, current: Int): String =
+        if (node != null && writable(node) &&
+            ContextLogic.canReadContext(Dictation.screenContext, privacy, current)
+        ) {
+            runCatching {
+                val full = content(node)
+                val (start, end) = range(node, full)
+                ContextLogic.windowAroundSelection(full, start, end)
+            }.getOrDefault("")
+        } else {
+            ""
+        }
+
+    /**
+     * Insertion au fil de la dictée (option) : chaque phrase est transcrite,
+     * nettoyée et écrite dans le champ dès la pause qui la suit.
+     */
+    private fun startLive() {
+        pieces.clear()
+        liveRefused = false
+        if (!Dictation.liveInsert || mode == Native.COMMAND) return
+        val node = target
+        val privacy = privacy()
+        val app = node?.packageName?.toString().orEmpty()
+        val gen = Dictation.liveStart(store, app, mode, privacy, contextOf(node, privacy, mode)) { started, error ->
+            if (liveGen == started) say(error)
+        }
+        liveGen = gen
+        insertGen = gen
+        main.removeCallbacks(livePump)
+        main.postDelayed(livePump, LiveLogic.LIVE_DRAIN_MS)
+    }
+
+    private fun drainLive() {
+        val gen = liveGen
+        if (gen == 0L || !recorder.recording) return
+        val samples = recorder.drainLive()
+        if (samples.isEmpty()) return
+        Dictation.liveFeed(gen, samples) { update ->
+            if (insertGen == gen) safely("insertion") { applyLive(liveNode(), update.actions) }
+        }
+    }
+
+    private fun cancelLive() {
+        main.removeCallbacks(livePump)
+        insertGen = 0L
+        if (liveGen > 0L) {
+            liveGen = 0L
+            Dictation.liveCancel()
+        }
+    }
+
+    /** Le champ de départ, sinon le champ actif de la même fenêtre et de la même application. */
+    private fun liveNode(origin: AccessibilityNodeInfo? = target): AccessibilityNodeInfo? =
+        origin?.takeIf { it.refresh() && writable(it) }
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf {
+                origin != null && writable(it) && it.windowId == origin.windowId && it.packageName == origin.packageName
+            }
+
+    /** Écrit (ou annule) les morceaux rendus par le moteur, dans l'ordre. */
+    private fun applyLive(node: AccessibilityNodeInfo?, actions: List<LiveAction>) {
+        for (action in actions) {
+            if (liveRefused) return
+            if (node == null) {
+                liveRefused = true
+                return
+            }
+            if (action.isUndo) {
+                // Rien d'inséré dans cette dictée : c'est la précédente qui est annulée.
+                lastInserted = if (pieces.isEmpty) lastInserted else pieces.undoLast()
+                if (lastInserted > 0) undo(node)
+                lastInserted = pieces.total
+            } else {
+                val inserted = insert(node, action.text, spaced = pieces.isEmpty)
+                if (inserted < 0) {
+                    liveRefused = true
+                    return
+                }
+                pieces.added(inserted)
+                lastInserted = pieces.total
+            }
+        }
     }
 
     private fun finish() {
         if (state != LISTENING) return
+        main.removeCallbacks(livePump)
+        val activeLiveGen = liveGen
+        liveGen = 0L
         val samples = recorder.stop()
         if (samples.isNotEmpty() && recorder.loudest == 0f) {
+            if (activeLiveGen > 0L) cancelLive()
             state = IDLE
             paint()
             say("Micro coupé par Android : voir « Bulle » dans l'application VoiceToText")
@@ -434,21 +547,7 @@ class BubbleService : AccessibilityService() {
         val app = node?.packageName?.toString().orEmpty()
         val selection = if (mode == Native.COMMAND && node != null) selected(node) else ""
         val current = mode
-        // Pas de bulle sur les mots de passe. La navigation privée est
-        // invisible d'ici : historique de la bulle coupable à part.
-        val privacy = if (store.bubbleHistory) Native.NORMAL else Native.NO_HISTORY
-        val context = if (node != null && writable(node) &&
-            ContextLogic.canReadContext(Dictation.screenContext, privacy, current)
-        ) {
-            runCatching {
-                val full = content(node)
-                val (start, end) = range(node, full)
-                ContextLogic.windowAroundSelection(full, start, end)
-            }.getOrDefault("")
-        } else {
-            ""
-        }
-        Dictation.run(store, samples, app, current, selection, privacy, context) { result ->
+        val done = { result: JSONObject ->
             state = IDLE
             safely("insertion") {
                 val ok = apply(result, current)
@@ -457,6 +556,15 @@ class BubbleService : AccessibilityService() {
             }
             update()
         }
+        if (activeLiveGen > 0L) {
+            Dictation.liveFinish(activeLiveGen, samples, done)
+            return
+        }
+        // Pas de bulle sur les mots de passe. La navigation privée est
+        // invisible d'ici : historique de la bulle coupable à part.
+        val privacy = privacy()
+        val context = contextOf(node, privacy, current)
+        Dictation.run(store, samples, app, current, selection, privacy, context, done = done)
     }
 
     /** Insère le résultat ; vrai si du texte a été écrit. */
@@ -465,11 +573,31 @@ class BubbleService : AccessibilityService() {
         // un autre champ ouvert entre-temps (autre application, mot de passe).
         val origin = target
         target = null
-        val node = origin?.takeIf { it.refresh() && writable(it) }
-            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf {
-                origin != null && writable(it) && it.windowId == origin.windowId && it.packageName == origin.packageName
-            }
+        val node = liveNode(origin)
         when (result.optString("kind")) {
+            "live" -> {
+                // Dictée écrite au fil de l'eau : il ne reste que la fin.
+                val actions = LiveLogic.parseActions(result)
+                applyLive(node, actions)
+                insertGen = 0L
+                pieces.clear()
+                val text = result.optString("text")
+                if (liveRefused && text.isNotEmpty()) {
+                    // Rien n'est perdu : la dictée complète part dans le presse-papier.
+                    liveRefused = false
+                    val clipboard = getSystemService(ClipboardManager::class.java)
+                    runCatching { clipboard.setPrimaryClip(ClipData.newPlainText("VoiceToText", text)) }
+                    say("Cette application refuse l'écriture : dictée copiée dans le presse-papier")
+                    return false
+                }
+                if (text.isEmpty()) {
+                    say(if (actions.any { it.isUndo }) "Dernière dictée annulée" else "Rien entendu")
+                    return false
+                }
+                val summary = Dictation.summary(result)
+                if (!summary.startsWith("✓")) say(summary)
+                return true
+            }
             "text" -> {
                 if (node == null) {
                     say("Champ de texte introuvable")

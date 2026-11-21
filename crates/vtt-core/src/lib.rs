@@ -27,6 +27,6 @@ pub mod voicebook;
 
 pub use config::Config;
 pub use pipeline::{
-    AudioClip, Cleaned, Directives, Error, Outcome, Pipeline, PostProcessor, RawDictation,
-    SAMPLE_RATE, Target, TextSink, Transcriber, WithFallback, Word, spread_words,
+    AudioClip, Cleaned, Directives, Error, LiveInsertion, Outcome, Pipeline, PostProcessor,
+    RawDictation, SAMPLE_RATE, Target, TextSink, Transcriber, WithFallback, Word, spread_words,
 };
