@@ -5,3 +5,5 @@ local.properties
 app/src/main/jniLibs/
 # Paquets Maven téléchargés par build-native.sh.
 .cache/
+# Sessions du démon Kotlin (Gradle 8.14+).
+.kotlin/
