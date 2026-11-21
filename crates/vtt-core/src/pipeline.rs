@@ -168,6 +168,10 @@ pub struct Directives<'a> {
     /// Termes extraits localement autour du curseur (orthographe de référence
     /// uniquement, jamais une consigne).
     pub context_terms: &'a [String],
+    /// Insertion au fil de la dictée : fin du texte déjà inséré juste avant
+    /// cette tranche (continuité des majuscules et de la ponctuation ; ce
+    /// texte n'est ni répété ni modifié).
+    pub preceding: Option<&'a str>,
 }
 
 pub trait PostProcessor: Send + Sync {
@@ -271,6 +275,117 @@ pub enum Outcome {
         /// Mode traduction : langue dans laquelle `text` a été traduit.
         translated: Option<String>,
     },
+}
+
+/// Longueur (en caractères) de la fin du texte déjà inséré donnée au LLM
+/// comme contexte de la tranche suivante.
+const LIVE_CONTEXT_CHARS: usize = 300;
+
+/// Une tranche insérée au fil de la dictée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LivePiece {
+    /// Texte brut de la tranche (après commandes de mise en page).
+    raw: String,
+    /// Texte réellement inséré, séparateur compris.
+    text: String,
+    snippet: bool,
+}
+
+/// Insertion au fil de la dictée : ce qui a déjà été inséré tranche par
+/// tranche (voir [`Pipeline::insert_live_chunk`]).
+#[derive(Debug, Clone, Default)]
+pub struct LiveInsertion {
+    pieces: Vec<LivePiece>,
+    inserted: String,
+    usage: Option<Usage>,
+    error: Option<String>,
+    fallback: Option<String>,
+    undone: bool,
+}
+
+impl LiveInsertion {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Texte inséré depuis le début de la dictée.
+    pub fn inserted(&self) -> &str {
+        &self.inserted
+    }
+
+    /// Nombre de tranches insérées.
+    pub fn len(&self) -> usize {
+        self.pieces.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pieces.is_empty()
+    }
+
+    fn push(&mut self, piece: LivePiece) {
+        self.inserted.push_str(&piece.text);
+        self.pieces.push(piece);
+    }
+
+    /// « annule la dernière dictée » au milieu d'une dictée : la dernière
+    /// tranche est retirée du bilan (l'application l'a annulée).
+    fn undo_last(&mut self) {
+        self.undone = true;
+        if self.pieces.pop().is_some() {
+            self.inserted = self.pieces.iter().map(|p| p.text.as_str()).collect();
+        }
+    }
+
+    /// Fin du texte inséré, coupée sur une frontière de caractère.
+    fn context_tail(&self) -> &str {
+        let count = self.inserted.chars().count();
+        if count <= LIVE_CONTEXT_CHARS {
+            return &self.inserted;
+        }
+        let start = self
+            .inserted
+            .char_indices()
+            .nth(count - LIVE_CONTEXT_CHARS)
+            .map_or(0, |(i, _)| i);
+        &self.inserted[start..]
+    }
+}
+
+/// Espace à placer entre le texte déjà inséré et la tranche suivante : aucune
+/// au début, après un blanc ou un retour à la ligne, après une apostrophe ou
+/// une parenthèse ouvrante, ni devant une ponctuation qui s'attache au mot
+/// précédent.
+pub fn live_separator(previous: &str, next: &str) -> &'static str {
+    if previous.is_empty()
+        || previous.ends_with(char::is_whitespace)
+        || next.starts_with(char::is_whitespace)
+        || previous.ends_with(['\'', '’', '(', '['])
+        || next.starts_with([',', '.', '…', ')', ']'])
+    {
+        ""
+    } else {
+        " "
+    }
+}
+
+fn add_usage(total: Option<Usage>, more: Option<Usage>) -> Option<Usage> {
+    match (total, more) {
+        (None, more) => more,
+        (total, None) => total,
+        (Some(a), Some(b)) => Some(Usage {
+            input_tokens: a.input_tokens + b.input_tokens,
+            cached_input_tokens: a.cached_input_tokens + b.cached_input_tokens,
+            output_tokens: a.output_tokens + b.output_tokens,
+        }),
+    }
+}
+
+/// Résultat du nettoyage d'un texte brut (avec repli sur le brut).
+struct Cleanup {
+    text: String,
+    error: Option<String>,
+    usage: Option<Usage>,
+    fallback: Option<String>,
 }
 
 pub struct Pipeline {
@@ -555,62 +670,14 @@ impl Pipeline {
             raw
         };
 
-        // Un échec du LLM ne doit jamais faire perdre la dictée.
-        let style = self.style_for(target);
-        if let Some((index, style)) = style {
-            log::info!(
-                "style n°{} ({})",
-                index + 1,
-                if style.cleanup {
-                    "consignes"
-                } else {
-                    "texte brut"
-                }
-            );
-        }
-        let processor = match style {
-            Some((_, style)) if !style.cleanup && translate_to.is_none() => None,
-            _ => self.post_processor.as_ref(),
-        };
-        let directives = Directives {
-            style: style
-                .map(|(_, s)| s.instructions.trim())
-                .filter(|i| !i.is_empty()),
-            translate_to,
-            context_terms: &target.context_terms,
-        };
         let started = Instant::now();
-        let (text, post_process_error, usage, fallback) = match processor {
-            None if translate_to.is_some() => (
-                raw.clone(),
-                Some("mode traduction : le nettoyage LLM est désactivé".to_owned()),
-                None,
-                None,
-            ),
-            None => (raw.clone(), None, None, None),
-            Some(processor) => match processor.process(&raw, directives) {
-                Ok(cleaned) if !cleaned.text.trim().is_empty() => (
-                    cleaned.text.trim().to_owned(),
-                    None,
-                    cleaned.usage,
-                    cleaned.fallback,
-                ),
-                Ok(cleaned) => (
-                    raw.clone(),
-                    Some("réponse vide".to_owned()),
-                    cleaned.usage,
-                    cleaned.fallback,
-                ),
-                Err(err) => (raw.clone(), Some(err.to_string()), None, None),
-            },
-        };
-
+        let Cleanup {
+            text,
+            error: post_process_error,
+            usage,
+            fallback,
+        } = self.clean(&raw, target, translate_to, None);
         let post_ms = started.elapsed().as_millis();
-        // « nouvelle ligne » en fin de dictée : le LLM rogne les retours finaux.
-        let mut text = text;
-        if raw.ends_with('\n') && !text.ends_with('\n') {
-            text.push('\n');
-        }
 
         let started = Instant::now();
         sink.insert(&text)?;
@@ -638,6 +705,209 @@ impl Pipeline {
             command: false,
             fallback,
         })
+    }
+
+    /// Insertion au fil de la dictée : une tranche transcrite (phrase coupée
+    /// à une pause) est traitée comme une petite dictée qui continue le texte
+    /// déjà inséré (commandes vocales, snippet, style, nettoyage LLM avec la
+    /// fin du texte précédent comme contexte, traduction) puis insérée
+    /// aussitôt dans `sink`, précédée d'une espace si besoin. Rien n'est
+    /// jamais effacé ni réécrit. Renvoie le texte inséré (séparateur compris),
+    /// `None` si la tranche était vide (silence, hallucination).
+    pub fn insert_live_chunk(
+        &self,
+        state: &mut LiveInsertion,
+        chunk_raw: &str,
+        target: &Target,
+        sink: Option<&dyn TextSink>,
+        translate_to: Option<&str>,
+    ) -> Result<Option<String>, Error> {
+        let sink = sink.unwrap_or(self.sink.as_ref());
+        let raw = text::strip_hallucinations(chunk_raw);
+        if raw.is_empty() {
+            return Ok(None);
+        }
+
+        if self.voice_commands && text::is_undo_command(&raw) {
+            sink.undo()?;
+            state.undo_last();
+            log::info!("commande vocale : annulation de la dernière insertion");
+            return Ok(None);
+        }
+
+        if let Some((index, snippet)) = self.snippet_for(&raw) {
+            let piece = format!("{}{snippet}", live_separator(state.inserted(), snippet));
+            sink.insert(&piece)?;
+            log::info!(
+                "insertion au fil de la dictée : tranche {}, snippet n°{}",
+                state.pieces.len() + 1,
+                index + 1
+            );
+            state.push(LivePiece {
+                raw,
+                text: piece.clone(),
+                snippet: true,
+            });
+            return Ok(Some(piece));
+        }
+
+        let raw = if self.voice_commands {
+            text::apply_layout_commands(&text::join_spelled_letters(&raw))
+        } else {
+            raw
+        };
+        if raw.trim().is_empty() && !raw.contains('\n') {
+            return Ok(None);
+        }
+
+        let started = Instant::now();
+        let preceding = state.context_tail();
+        let preceding = (!preceding.trim().is_empty()).then_some(preceding);
+        let cleanup = self.clean(&raw, target, translate_to, preceding);
+        let post_ms = started.elapsed().as_millis();
+        state.usage = add_usage(state.usage, cleanup.usage);
+        if cleanup.error.is_some() && state.error.is_none() {
+            state.error = cleanup.error;
+        }
+        if cleanup.fallback.is_some() {
+            state.fallback = cleanup.fallback;
+        }
+
+        let piece = format!(
+            "{}{}",
+            live_separator(state.inserted(), &cleanup.text),
+            cleanup.text
+        );
+        sink.insert(&piece)?;
+        log::info!(
+            "insertion au fil de la dictée : tranche {}, nettoyage {post_ms} ms",
+            state.pieces.len() + 1
+        );
+        state.push(LivePiece {
+            raw,
+            text: piece.clone(),
+            snippet: false,
+        });
+        Ok(Some(piece))
+    }
+
+    /// Bilan d'une dictée insérée au fil de l'eau, pour l'historique et les
+    /// statistiques : brut et texte assemblés, jetons cumulés, première
+    /// erreur de nettoyage. `Skipped` si rien n'a été inséré.
+    pub fn finish_live_insertion(
+        &self,
+        state: LiveInsertion,
+        duration_ms: u64,
+        asr_ms: u64,
+        translate_to: Option<&str>,
+    ) -> Outcome {
+        self.last_asr_ms.store(asr_ms, Ordering::Relaxed);
+        if state.pieces.is_empty() {
+            return if state.undone {
+                Outcome::Undone
+            } else {
+                Outcome::Skipped
+            };
+        }
+        log::info!(
+            "dictée de {duration_ms} ms insérée au fil de l'eau : {} tranche(s), ASR {asr_ms} ms",
+            state.pieces.len()
+        );
+        let raw = crate::live::join_live_segments(
+            &state
+                .pieces
+                .iter()
+                .map(|p| p.raw.clone())
+                .collect::<Vec<_>>(),
+        );
+        let snippet = state.pieces.iter().all(|p| p.snippet);
+        Outcome::Inserted {
+            raw,
+            text: state.inserted().trim().to_owned(),
+            translated: translate_to
+                .filter(|_| state.error.is_none())
+                .map(str::to_owned),
+            post_process_error: state.error,
+            snippet,
+            usage: state.usage,
+            command: false,
+            fallback: state.fallback,
+        }
+    }
+
+    /// Nettoyage d'un texte brut (déjà passé par les commandes de mise en
+    /// page) selon le style de la cible, avec repli sur le brut : un échec du
+    /// LLM ne doit jamais faire perdre la dictée. `preceding` : fin du texte
+    /// déjà inséré (insertion au fil de la dictée).
+    fn clean(
+        &self,
+        raw: &str,
+        target: &Target,
+        translate_to: Option<&str>,
+        preceding: Option<&str>,
+    ) -> Cleanup {
+        let style = self.style_for(target);
+        if let Some((index, style)) = style {
+            log::info!(
+                "style n°{} ({})",
+                index + 1,
+                if style.cleanup {
+                    "consignes"
+                } else {
+                    "texte brut"
+                }
+            );
+        }
+        let processor = match style {
+            Some((_, style)) if !style.cleanup && translate_to.is_none() => None,
+            _ => self.post_processor.as_ref(),
+        };
+        let directives = Directives {
+            style: style
+                .map(|(_, s)| s.instructions.trim())
+                .filter(|i| !i.is_empty()),
+            translate_to,
+            context_terms: &target.context_terms,
+            preceding,
+        };
+        let raw_cleanup = |error: Option<String>, usage, fallback| Cleanup {
+            text: raw.to_owned(),
+            error,
+            usage,
+            fallback,
+        };
+        let mut cleanup = match processor {
+            None if translate_to.is_some() => raw_cleanup(
+                Some("mode traduction : le nettoyage LLM est désactivé".to_owned()),
+                None,
+                None,
+            ),
+            None => raw_cleanup(None, None, None),
+            Some(processor) => match processor.process(raw, directives) {
+                Ok(cleaned) if !cleaned.text.trim().is_empty() => Cleanup {
+                    text: cleaned.text.trim().to_owned(),
+                    error: None,
+                    usage: cleaned.usage,
+                    fallback: cleaned.fallback,
+                },
+                Ok(cleaned) => raw_cleanup(
+                    Some("réponse vide".to_owned()),
+                    cleaned.usage,
+                    cleaned.fallback,
+                ),
+                Err(err) => raw_cleanup(Some(err.to_string()), None, None),
+            },
+        };
+        // « nouvelle ligne » en début ou en fin de dictée : le LLM rogne les
+        // retours extrêmes.
+        let leading = raw.len() - raw.trim_start_matches('\n').len();
+        if leading > 0 && !cleanup.text.starts_with('\n') {
+            cleanup.text.insert_str(0, &raw[..leading]);
+        }
+        if raw.ends_with('\n') && !cleanup.text.ends_with('\n') {
+            cleanup.text.push('\n');
+        }
+        cleanup
     }
 
     /// Command Mode : la dictée est une consigne appliquée à `selection`. En
@@ -1397,5 +1667,209 @@ mod tests {
             .unwrap()
             .expect("tranche valide");
         assert_eq!(text, "bonjour");
+    }
+
+    /// Nettoyage qui note le contexte reçu et met le texte en majuscules.
+    #[derive(Clone, Default)]
+    struct Contextual(Arc<Mutex<Vec<Option<String>>>>);
+    impl PostProcessor for Contextual {
+        fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(directives.preceding.map(str::to_owned));
+            Ok(Cleaned {
+                text: raw.to_uppercase(),
+                usage: Some(USAGE),
+                fallback: None,
+            })
+        }
+    }
+
+    #[test]
+    fn live_separator_rules() {
+        assert_eq!(live_separator("", "Bonjour"), "");
+        assert_eq!(live_separator("Bonjour.", "Ça va ?"), " ");
+        assert_eq!(live_separator("Bonjour.\n", "Ça va ?"), "");
+        assert_eq!(live_separator("Bonjour ", "Ça va ?"), "");
+        assert_eq!(live_separator("Bonjour", ", ça va ?"), "");
+        assert_eq!(live_separator("l'", "avion"), "");
+        assert_eq!(live_separator("Bonjour.", "\nÇa va ?"), "");
+    }
+
+    #[test]
+    fn live_chunks_are_cleaned_with_preceding_text_and_inserted_at_once() {
+        let post = Contextual::default();
+        let (p, sink) = pipeline("inutilisé", Some(Box::new(post.clone())));
+        let mut state = LiveInsertion::new();
+        let first = p
+            .insert_live_chunk(&mut state, "bonjour à tous.", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(first.as_deref(), Some("BONJOUR À TOUS."));
+        let second = p
+            .insert_live_chunk(&mut state, "on commence", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(second.as_deref(), Some(" ON COMMENCE"));
+        // Silence ou hallucination : rien.
+        assert_eq!(
+            p.insert_live_chunk(
+                &mut state,
+                " Sous-titrage ST' 501 ",
+                &no_target(),
+                None,
+                None
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            vec!["BONJOUR À TOUS.".to_owned(), " ON COMMENCE".to_owned()]
+        );
+        // La première tranche n'a pas de contexte, la seconde reçoit la première.
+        assert_eq!(
+            *post.0.lock().unwrap(),
+            vec![None, Some("BONJOUR À TOUS.".to_owned())]
+        );
+        assert_eq!(state.inserted(), "BONJOUR À TOUS. ON COMMENCE");
+
+        let outcome = p.finish_live_insertion(state, 12_000, 900, None);
+        let Outcome::Inserted {
+            raw,
+            text,
+            usage,
+            post_process_error,
+            snippet,
+            ..
+        } = outcome
+        else {
+            panic!("dictée insérée attendue");
+        };
+        assert_eq!(raw, "bonjour à tous. on commence");
+        assert_eq!(text, "BONJOUR À TOUS. ON COMMENCE");
+        assert_eq!(usage.unwrap().input_tokens, 2 * USAGE.input_tokens);
+        assert_eq!(post_process_error, None);
+        assert!(!snippet);
+        assert_eq!(p.last_asr_ms(), 900);
+    }
+
+    #[test]
+    fn live_context_is_bounded_to_the_end_of_inserted_text() {
+        let post = Contextual::default();
+        let (p, _) = pipeline("inutilisé", Some(Box::new(post.clone())));
+        let mut state = LiveInsertion::new();
+        let long = "é".repeat(LIVE_CONTEXT_CHARS + 50);
+        p.insert_live_chunk(&mut state, &long, &no_target(), None, None)
+            .unwrap();
+        p.insert_live_chunk(&mut state, "fin", &no_target(), None, None)
+            .unwrap();
+        let seen = post.0.lock().unwrap()[1].clone().unwrap();
+        assert_eq!(seen.chars().count(), LIVE_CONTEXT_CHARS);
+    }
+
+    #[test]
+    fn live_llm_failure_inserts_raw_chunk_and_keeps_first_error() {
+        let (p, sink) = pipeline("inutilisé", Some(Box::new(Failing)));
+        let mut state = LiveInsertion::new();
+        p.insert_live_chunk(&mut state, "Bonjour.", &no_target(), None, None)
+            .unwrap();
+        p.insert_live_chunk(&mut state, "Au revoir.", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            vec!["Bonjour.".to_owned(), " Au revoir.".to_owned()]
+        );
+        let Outcome::Inserted {
+            post_process_error, ..
+        } = p.finish_live_insertion(state, 8_000, 500, None)
+        else {
+            panic!("dictée insérée attendue");
+        };
+        assert!(post_process_error.unwrap().contains("délai dépassé"));
+    }
+
+    #[test]
+    fn live_voice_commands_snippets_and_undo() {
+        let (p, sink) = pipeline("inutilisé", Some(Box::new(Upper)));
+        let p = p.with_voice_commands(true).with_snippets(&snippets());
+        let mut state = LiveInsertion::new();
+        p.insert_live_chunk(
+            &mut state,
+            "Bonjour Paul, nouvelle ligne.",
+            &no_target(),
+            None,
+            None,
+        )
+        .unwrap();
+        // Retour à la ligne conservé : pas d'espace avant la suite.
+        let next = p
+            .insert_live_chunk(&mut state, "ma signature", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(next.as_deref(), Some("Florian\nVoiceToText"));
+        p.insert_live_chunk(&mut state, "Phrase en trop.", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(
+            p.insert_live_chunk(
+                &mut state,
+                "Annule la dernière dictée.",
+                &no_target(),
+                None,
+                None
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            sink.0.lock().unwrap().last().map(String::as_str),
+            Some("<annulé>")
+        );
+        assert_eq!(state.inserted(), "BONJOUR PAUL,\nFlorian\nVoiceToText");
+        assert_eq!(state.len(), 2);
+        let Outcome::Inserted { snippet, .. } = p.finish_live_insertion(state, 9_000, 700, None)
+        else {
+            panic!("dictée insérée attendue");
+        };
+        assert!(!snippet, "une seule tranche était un snippet");
+    }
+
+    #[test]
+    fn live_insertion_without_any_chunk_is_skipped_or_undone() {
+        let (p, _) = pipeline("inutilisé", None);
+        let p = p.with_voice_commands(true);
+        assert_eq!(
+            p.finish_live_insertion(LiveInsertion::new(), 1_000, 0, None),
+            Outcome::Skipped
+        );
+        let mut state = LiveInsertion::new();
+        p.insert_live_chunk(
+            &mut state,
+            "annule la dernière dictée",
+            &no_target(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            p.finish_live_insertion(state, 1_000, 0, None),
+            Outcome::Undone
+        );
+    }
+
+    #[test]
+    fn live_translation_is_reported_per_dictation() {
+        let (p, sink) = pipeline("inutilisé", Some(Box::new(Upper)));
+        let mut state = LiveInsertion::new();
+        p.insert_live_chunk(&mut state, "bonjour", &no_target(), None, Some("anglais"))
+            .unwrap();
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            vec!["BONJOUR (anglais)".to_owned()]
+        );
+        let Outcome::Inserted { translated, .. } =
+            p.finish_live_insertion(state, 2_000, 100, Some("anglais"))
+        else {
+            panic!("dictée insérée attendue");
+        };
+        assert_eq!(translated.as_deref(), Some("anglais"));
     }
 }

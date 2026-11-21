@@ -41,6 +41,7 @@ class DictationSettings : SettingsPage() {
     private lateinit var language: Spinner
     private lateinit var voiceCommands: Switch
     private lateinit var screenContext: Switch
+    private lateinit var liveInsert: Switch
     private lateinit var excludedBox: LinearLayout
     private lateinit var excludedInput: EditText
     private var languages = emptyList<String>()
@@ -116,6 +117,16 @@ class DictationSettings : SettingsPage() {
                     if (on) "✓ Commandes vocales activées" else "✓ Commandes vocales désactivées : tout est écrit tel quel",
                 )
             }.anchor("voice_commands")
+            divider()
+            liveInsert = toggle(
+                "Insérer le texte au fil de la dictée",
+                "Pendant une longue dictée, chaque phrase est nettoyée puis insérée dès que vous marquez une pause, au lieu de tout insérer à la fin : vous voyez ce qui est écrit et pouvez vous reprendre. Un appel au LLM par phrase. Jamais sur un mot de passe.",
+            ) { on ->
+                saveSettings(
+                    JSONObject().put("live_insert", on),
+                    if (on) "✓ Le texte s'insère phrase par phrase pendant la dictée" else "✓ Le texte s'insère en une fois à la fin de la dictée",
+                )
+            }.anchor("live_insert")
             divider()
             screenContext = toggle(
                 "Contexte du champ actif",
@@ -280,6 +291,7 @@ class DictationSettings : SettingsPage() {
     private fun refresh() {
         val view = Config.view(store) ?: return say("Réglages illisibles.")
         voiceCommands.quietly(view.getBoolean("voice_commands"))
+        liveInsert.quietly(view.optBoolean("live_insert", false))
         val contextOn = view.optBoolean("screen_context", false)
         screenContext.quietly(contextOn)
         excludedBox.visibility = if (contextOn) View.VISIBLE else View.GONE

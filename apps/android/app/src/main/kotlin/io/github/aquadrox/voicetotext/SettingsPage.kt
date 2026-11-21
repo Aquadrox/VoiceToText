@@ -57,6 +57,7 @@ object SettingsIndex {
         Entry(Section.DICTATION, "keyboard", "Clavier VoiceToText", "activer choisir changer de clavier méthode de saisie"),
         Entry(Section.DICTATION, "translation", "Langue de traduction", "traduire anglais espagnol allemand mode traduction langue"),
         Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande épeler lettres"),
+        Entry(Section.DICTATION, "live_insert", "Insérer le texte au fil de la dictée", "direct temps réel phrase par phrase pendant longue dictée voir le texte progressif"),
         Entry(Section.DICTATION, "screen_context", "Contexte du champ actif", "contexte ecran noms propres orthographe confidentialite applications exclues"),
         Entry(Section.CLEANUP, "llm", "Nettoyer le texte avec un LLM", "ponctuation majuscules correction ia intelligence artificielle brut"),
         Entry(Section.CLEANUP, "provider", "Fournisseur du LLM", "deepseek openai mistral glm openrouter ollama local serveur"),
@@ -140,6 +141,7 @@ object Config {
             .put("model", view.getString("model"))
             .put("voice_commands", view.getBoolean("voice_commands"))
             .put("screen_context", view.optBoolean("screen_context", false))
+            .put("live_insert", view.optBoolean("live_insert", false))
             .put("screen_context_excluded_apps", view.optJSONArray("screen_context_excluded_apps") ?: JSONArray())
             .put("translation", view.getString("translation"))
             .put("history", view.getBoolean("history"))

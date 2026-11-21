@@ -62,10 +62,10 @@ class VoiceKeyboard : InputMethodService() {
         }
     }
 
-    /** Alimentation incrémentale de la prévisualisation en continu (mains libres). */
+    /** Alimentation incrémentale de la session en direct (aperçu, insertion au fil de la dictée). */
     private val livePump = object : Runnable {
         override fun run() {
-            if (!handsFree || liveGen == 0L || !recorder.recording) return
+            if (liveGen == 0L || !recorder.recording) return
             drainLiveToEngine()
             ring.postDelayed(this, LiveLogic.LIVE_DRAIN_MS)
         }
@@ -73,9 +73,16 @@ class VoiceKeyboard : InputMethodService() {
 
     private var pressedAt = 0L
     private var handsFree = false
-    /** Génération de la session mains libres en continu active (0 : aucune). */
+    /** Génération de la session en direct qui enregistre (0 : aucune). */
     private var liveGen = 0L
-    /** Discrétion du champ capturée au démarrage de la session mains libres. */
+    /**
+     * Génération dont les morceaux sont encore insérés : survit à l'arrêt du
+     * micro jusqu'au résultat final, pour ne perdre aucune phrase en route.
+     */
+    private var insertGen = 0L
+    /** Morceaux insérés par la dictée en cours (insertion au fil de la dictée). */
+    private val pieces = LivePieces()
+    /** Discrétion du champ capturée au démarrage de la session en direct. */
     private var livePrivacy = Native.NORMAL
     /** Mode de la dictée en cours (Native.DICTATE, TRANSLATE, COMMAND). */
     private var mode = Native.DICTATE
@@ -297,44 +304,49 @@ class VoiceKeyboard : InputMethodService() {
 
     private fun enterHandsFree() {
         handsFree = true
-        val currentMode = mode
+        show(LiveLogic.handsFreeStatus(mode, Dictation.language, livePrivacy, ""))
+    }
+
+    /**
+     * Session en direct dès l'appui (maintien comme mains libres) : l'audio
+     * est transcrit à chaque pause pour l'aperçu dans la barre d'état et,
+     * si l'option est active, chaque phrase est insérée aussitôt. Jamais sur
+     * un mot de passe, jamais pour une consigne.
+     */
+    private fun startLive() {
         val info = currentInputEditorInfo
-        val app = info?.packageName.orEmpty()
         livePrivacy = privacy(info)
-        show(LiveLogic.handsFreeStatus(currentMode, Dictation.language, livePrivacy, ""))
-        if (!LiveLogic.canUseLive(livePrivacy, currentMode)) {
+        pieces.clear()
+        if (!LiveLogic.canUseLive(livePrivacy, mode)) {
             liveGen = 0L
             return
         }
-        val context = readContext(livePrivacy, currentMode)
-        liveGen = Dictation.liveStart(store, app, currentMode, livePrivacy, context) { gen, error ->
-            if (handsFree && liveGen == gen) {
-                show(error)
-            }
+        val context = readContext(livePrivacy, mode)
+        val gen = Dictation.liveStart(store, info?.packageName.orEmpty(), mode, livePrivacy, context) { started, error ->
+            if (liveGen == started) show(error)
         }
-        // Envoie les premiers échantillons captés pendant l'appui court, puis
-        // poursuit périodiquement tant que le mode mains libres reste actif.
-        drainLiveToEngine()
+        liveGen = gen
+        insertGen = gen
         ring.removeCallbacks(livePump)
         ring.postDelayed(livePump, LiveLogic.LIVE_DRAIN_MS)
     }
 
     private fun drainLiveToEngine() {
         val gen = liveGen
-        if (!handsFree || gen == 0L || !recorder.recording) return
+        if (gen == 0L || !recorder.recording) return
         val samples = recorder.drainLive()
         if (samples.isEmpty()) return
         val currentMode = mode
         val currentPrivacy = livePrivacy
-        Dictation.liveFeed(gen, samples) { preview ->
-            if (handsFree && liveGen == gen) {
-                val formatted = LiveLogic.handsFreeStatus(
-                    currentMode,
-                    Dictation.language,
-                    currentPrivacy,
-                    preview,
-                )
-                if (LiveLogic.canShowPreview(currentPrivacy, preview)) {
+        Dictation.liveFeed(gen, samples) { update ->
+            if (insertGen == gen) applyLive(update.actions)
+            if (liveGen == gen && update.preview.isNotEmpty()) {
+                val formatted = if (handsFree) {
+                    LiveLogic.handsFreeStatus(currentMode, Dictation.language, currentPrivacy, update.preview)
+                } else {
+                    LiveLogic.holdStatus(currentMode, Dictation.language, currentPrivacy, update.preview)
+                }
+                if (LiveLogic.canShowPreview(currentPrivacy, update.preview)) {
                     showLivePreview(formatted)
                 } else {
                     show(formatted)
@@ -343,8 +355,29 @@ class VoiceKeyboard : InputMethodService() {
         }
     }
 
+    /** Insère (ou annule) les morceaux rendus par le moteur, dans l'ordre. */
+    private fun applyLive(actions: List<LiveAction>) {
+        if (actions.isEmpty()) return
+        val connection = currentInputConnection ?: return
+        for (action in actions) {
+            if (action.isUndo) {
+                // Rien d'inséré dans cette dictée : c'est la précédente qui est annulée.
+                val length = if (pieces.isEmpty) lastInserted else pieces.undoLast()
+                if (length > 0) connection.deleteSurroundingText(length, 0)
+                lastInserted = pieces.total
+            } else {
+                val before = connection.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+                val text = LiveLogic.spaced(before, action.text, pieces.isEmpty)
+                connection.commitText(text, 1)
+                pieces.added(text.length)
+                lastInserted = pieces.total
+            }
+        }
+    }
+
     private fun cancelLive() {
         if (::ring.isInitialized) ring.removeCallbacks(livePump)
+        insertGen = 0L
         if (liveGen > 0L) {
             liveGen = 0L
             Dictation.liveCancel()
@@ -373,6 +406,7 @@ class VoiceKeyboard : InputMethodService() {
         if (view === command) command.background = keyBackground(ACCENT)
         ring.removeCallbacks(meter)
         ring.post(meter)
+        startLive()
         show(
             when (mode) {
                 Native.COMMAND -> "Consigne… (appliquée au texte sélectionné)"
@@ -435,6 +469,22 @@ class VoiceKeyboard : InputMethodService() {
                 lastInserted = spaced.length
                 val summary = Dictation.summary(result)
                 show(if (summary.startsWith("✓")) "$summary · $IDLE_SHORT" else summary)
+            }
+            "live" -> {
+                // Dictée insérée au fil de l'eau : il ne reste que la fin.
+                val actions = LiveLogic.parseActions(result)
+                applyLive(actions)
+                insertGen = 0L
+                pieces.clear()
+                val summary = Dictation.summary(result)
+                show(
+                    when {
+                        result.optString("text").isNotEmpty() ->
+                            if (summary.startsWith("✓")) "$summary · $IDLE_SHORT" else summary
+                        actions.any { it.isUndo } -> "Dernière dictée annulée"
+                        else -> "Rien entendu"
+                    },
+                )
             }
             "undo" -> {
                 if (lastInserted > 0) connection?.deleteSurroundingText(lastInserted, 0)

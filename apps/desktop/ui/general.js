@@ -171,6 +171,7 @@ function fillGeneral(view) {
   $("dict-sounds").checked = view.dictation.sounds;
   $("dict-media").checked = view.dictation.pause_media;
   $("dict-commands").checked = view.dictation.voice_commands;
+  $("dict-live-insert").checked = Boolean(view.dictation.live_insert);
   $("dict-context").checked = Boolean(view.dictation.screen_context);
   $("dict-context-excluded").value = (view.dictation.screen_context_excluded_apps ?? []).join(", ");
   updateContextExcludedVisibility();
@@ -266,6 +267,7 @@ function readGeneral(applying) {
       sounds: v("dict-sounds"),
       pause_media: v("dict-media"),
       voice_commands: v("dict-commands"),
+      live_insert: Boolean(v("dict-live-insert")),
       screen_context: Boolean(v("dict-context")),
       screen_context_excluded_apps: String(v("dict-context-excluded") ?? "")
         .split(",")

@@ -126,7 +126,8 @@ Un **clavier de dictée** ou une **bulle flottante** (au choix, ou les deux) : o
    **Prompts système** (même page, Avancé) : les consignes données au LLM pour le nettoyage et le Command Mode. Le prompt intégré est affiché en lecture seule ; **Créer une copie** en fait une version modifiable (nom et texte), choisie dans **Prompt utilisé** ; **Supprimer** revient au prompt intégré. Les prompts importés du PC apparaissent ici. **Enregistrer** : appliqué à la prochaine ouverture du clavier ou de la bulle.
 
 Au clavier :
-- **maintenir le micro** (au centre) pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ;
+- **maintenir le micro** (au centre) pour dicter, relâcher pour insérer ; **appui court** : mains libres (nouvel appui pour finir) ; le temps de traitement s'affiche ensuite (« ✓ 1,2 s ») ; pendant la dictée, les derniers mots reconnus s'affichent au-dessus du micro dès la première pause ;
+- **Réglages → Dictée → Insérer le texte au fil de la dictée** (désactivé par défaut) : en maintenant le micro comme en mains libres, et avec la bulle, chaque phrase est nettoyée puis insérée dans le champ dès la pause qui la suit (jamais sur un mot de passe) ; « annule la dernière dictée » efface la dernière phrase insérée ;
 - touche **traduction** (à gauche du micro) : mode traduction (le texte dicté est traduit dans la langue choisie dans **Réglages → Dictée**), allumé (touche claire) tant qu'on ne le coupe pas ;
 - **maintenir** la touche **consigne** (à droite du micro) : consigne appliquée au texte **sélectionné** (« rends ce texte plus formel », « traduis en anglais ») ; sans sélection, le texte demandé est rédigé ;
 - touche **clavier** (tout à gauche) : retour au clavier habituel ; effacer, espace et entrée pour les retouches.
@@ -199,6 +200,19 @@ Par défaut (désactivable dans **Réglages → Dictée et traduction**) :
 - la **musique et les vidéos** en cours (Spotify, YouTube dans le navigateur, lecteurs compatibles avec les touches multimédias) sont **mises en pause** pendant la dictée, puis relancées. Seul ce qui jouait est relancé.
 
 Limites : 5 minutes par dictée maintenue, 10 minutes en mains libres (la dictée est alors traitée automatiquement).
+
+### Voir le texte pendant une longue dictée
+
+Dès la première pause (après 3,5 s de parole environ), la pastille affiche les derniers mots reconnus, que la touche soit maintenue ou en mains libres : on voit ce qui est compris sans attendre la fin.
+
+Option **Insérer le texte au fil de la dictée** (désactivée par défaut, **Réglages → Dictée et traduction** ; `dictation.live_insert`) : en mains libres, chaque phrase est nettoyée par le LLM puis collée dès la pause qui la suit, au lieu de tout coller à la fin. On voit le texte s'écrire et on peut se reprendre.
+
+- le LLM reçoit la fin du texte déjà inséré pour enchaîner (majuscules, ponctuation) ; rien n'est jamais effacé ni réécrit. Une reprise à cheval sur deux phrases (« mardi… non, mercredi ») n'est pas corrigée ;
+- un appel au LLM par phrase (petits, et en grande partie servis par le cache du fournisseur) ;
+- « annule la dernière dictée » annule la dernière phrase insérée ; **Échap** arrête sans effacer ce qui est déjà inséré ;
+- le texte va là où se trouve le curseur : ne changez pas de fenêtre pendant la dictée ;
+- en **maintenant** la touche, le texte est collé au relâchement (le collage est impossible tant que la touche est tenue) : seul l'aperçu s'affiche pendant la dictée ;
+- l'historique garde une seule entrée par dictée, et **Réessayer** retraite l'audio complet d'un coup.
 
 ## Commandes vocales
 
@@ -393,7 +407,7 @@ Un menu à gauche découpe les réglages en sections ; une seule est affichée �
 
 - **Raccourcis** : touche de dictée, touche du Command Mode, appui minimal, mains libres ; raccourcis globaux (version brute, réessayer, traduction, réunion, nouvelles répliques, capture commentée). Chaque touche et chaque raccourci a un bouton **Détecter** : cliquer, puis appuyer sur la touche ou la combinaison voulue (Échap annule) ; les raccourcis actuels sont suspendus pendant la détection. Une lettre seule est refusée (elle empêcherait de taper).
 - **Reconnaissance locale** : micro (celui par défaut si le choisi est débranché), [modèle de transcription](#modèles-de-transcription) (Whisper, Parakeet, Vosk), carte graphique, [libération de la mémoire graphique](#libérer-la-mémoire-graphique).
-- **Dictée et traduction** : sons, pause de la musique et des vidéos, commandes vocales, langue du mode traduction.
+- **Dictée et traduction** : sons, pause de la musique et des vidéos, commandes vocales, insertion du texte au fil de la dictée, langue du mode traduction.
 - **Nettoyage par LLM** : activer ou non, profils, fournisseur, modèle, délai, **Tester ces réglages**, clé API de l'adresse saisie, profil de secours, tarif, paramètres avancés.
 - **Clés API et coût** : clés enregistrées (une par fournisseur : remplacer, supprimer ; jamais affichées, ni en entier ni en partie), consommation (requêtes, jetons, coût du jour, du mois, total).
 - **Réunions** : audio de la réunion, son du PC, écho, détection d'appel par service, compte rendu automatique et sa langue, conservation.
@@ -602,6 +616,7 @@ diarize = false        # distinguer les intervenants (modèles de 33 Mo téléch
 sounds = true          # sons de début et de fin
 pause_media = true     # pause de la musique et des vidéos pendant la dictée
 voice_commands = true  # « nouvelle ligne », « annule la dernière dictée »…
+live_insert = false    # mains libres : chaque phrase insérée dès la pause qui la suit
 
 [audio]
 device = ""          # nom du micro ; vide = micro par défaut de Windows

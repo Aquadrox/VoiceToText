@@ -217,6 +217,10 @@ pub struct DictationConfig {
     /// activée (noms d'exécutables ou de paquets, ex. `banque.exe`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub screen_context_excluded_apps: Vec<String>,
+    /// Insertion au fil de la dictée (désactivée par défaut) : dans une dictée
+    /// longue, chaque phrase est nettoyée puis insérée dès la pause qui la
+    /// suit, au lieu d'une seule insertion à l'arrêt.
+    pub live_insert: bool,
 }
 
 impl Default for DictationConfig {
@@ -227,6 +231,7 @@ impl Default for DictationConfig {
             voice_commands: true,
             screen_context: false,
             screen_context_excluded_apps: Vec::new(),
+            live_insert: false,
         }
     }
 }

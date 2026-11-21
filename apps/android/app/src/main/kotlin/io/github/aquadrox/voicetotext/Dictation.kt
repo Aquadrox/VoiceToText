@@ -30,6 +30,10 @@ object Dictation {
     var screenContext = false
         private set
 
+    /** Texte inséré phrase par phrase pendant la dictée (réglages ; faux par défaut). */
+    var liveInsert = false
+        private set
+
     val ready: Boolean
         get() = loaded >= 0 && !loading
 
@@ -67,6 +71,7 @@ object Dictation {
                 loading = false
                 language = settings?.optString("translation")?.ifEmpty { null } ?: language
                 screenContext = settings?.optBoolean("screen_context", false) ?: false
+                liveInsert = settings?.optBoolean("live_insert", false) ?: false
                 if (error.isEmpty()) loaded = version
                 val callbacks = waiting.toList()
                 waiting.clear()
@@ -144,13 +149,15 @@ object Dictation {
     }
 
     /**
-     * Envoie une tranche audio incrémentale à la session mains libres ;
-     * `onPreview` est rappelé sur le fil principal uniquement si l'aperçu a changé.
+     * Envoie une tranche audio incrémentale à la session en direct ; `onUpdate`
+     * est rappelé sur le fil principal si l'aperçu a changé ou s'il y a du
+     * texte à insérer (insertion au fil de la dictée). Les rappels arrivent
+     * dans l'ordre, avant celui de [liveFinish].
      */
     fun liveFeed(
         generation: Long,
         samples: FloatArray,
-        onPreview: (String) -> Unit,
+        onUpdate: (LiveFeedResult) -> Unit,
     ) {
         if (samples.isEmpty() || cancelledLiveGen.get() >= generation) return
         worker.execute {
@@ -161,9 +168,11 @@ object Dictation {
                 Log.w("VoiceToText", "Erreur prévisualisation en continu", e)
                 null
             }
-            if (parsed != null && parsed.changed && parsed.preview.isNotEmpty() && cancelledLiveGen.get() < generation) {
+            val useful = parsed != null &&
+                ((parsed.changed && parsed.preview.isNotEmpty()) || parsed.actions.isNotEmpty())
+            if (useful && cancelledLiveGen.get() < generation) {
                 main.post {
-                    if (cancelledLiveGen.get() < generation) onPreview(parsed.preview)
+                    if (cancelledLiveGen.get() < generation) onUpdate(parsed!!)
                 }
             }
         }
