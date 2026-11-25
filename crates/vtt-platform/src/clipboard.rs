@@ -105,6 +105,7 @@ impl<K: PartialEq> ClipboardSnapshot<K> {
         &self.entries
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn into_entries(self) -> Vec<ClipboardEntry<K>> {
         self.entries
     }
