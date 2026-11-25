@@ -485,6 +485,7 @@ fn clipboard_text() -> Option<String> {
 
 /// Met une image dans le presse-papier (capture commentée).
 pub(crate) fn set_clipboard_image(image: &vtt_core::annotation::Image) -> Result<(), String> {
+    crate::clipboard_linux::invalidate_pending();
     with_clipboard(|c| {
         c.set_image(arboard::ImageData {
             width: image.width as usize,
@@ -504,22 +505,9 @@ fn set_clipboard_text(text: &str) -> Result<(), String> {
     with_clipboard(|c| c.set_text(text))?.map_err(|e| format!("presse-papier : {e}"))
 }
 
-/// Remet `previous` dans le presse-papier un peu plus tard, si personne n'y
-/// a mis autre chose que `inserted` entre-temps.
-fn restore_clipboard_later(previous: Option<String>, inserted: String) {
-    let Some(previous) = previous else {
-        return;
-    };
-    thread::spawn(move || {
-        thread::sleep(CLIPBOARD_RESTORE_DELAY);
-        if clipboard_text().as_deref() == Some(inserted.as_str()) {
-            let _ = set_clipboard_text(&previous);
-        }
-    });
-}
-
 /// Place le texte dans le presse-papier, sans coller.
 pub fn copy_text(text: &str) -> Result<(), String> {
+    crate::clipboard_linux::invalidate_pending();
     set_clipboard_text(text)
 }
 
@@ -527,8 +515,9 @@ pub fn copy_text(text: &str) -> Result<(), String> {
 const COPY_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Texte sélectionné dans l'application active (Ctrl+C simulé), ou `None`
-/// s'il n'y a pas de sélection. Le contenu texte précédent du presse-papier
-/// est remis en place. Les touches de modification doivent être relâchées.
+/// s'il n'y a pas de sélection. L'ensemble des formats sûrs du presse-papier
+/// précédent (texte, HTML, RTF, images, fichiers) est remis en place. Les
+/// touches de modification doivent être relâchées.
 pub fn copy_selection() -> Option<String> {
     // Connexion à part : elle seule reçoit la notification XFixes.
     let (conn, screen) = connect().map_err(|e| log::warn!("{e}")).ok()?;
@@ -548,7 +537,7 @@ pub fn copy_selection() -> Option<String> {
     .check()
     .ok()?;
 
-    let previous = clipboard_text();
+    let previous = crate::clipboard_linux::capture();
     send_ctrl(keysym::C, key::C)
         .map_err(|e| log::warn!("{e}"))
         .ok()?;
@@ -567,22 +556,22 @@ pub fn copy_selection() -> Option<String> {
     // L'application peut écrire plusieurs formats à la suite : laisser finir.
     thread::sleep(Duration::from_millis(30));
     let selection = clipboard_text().filter(|s| !s.trim().is_empty());
-    let _ = match previous {
-        Some(previous) => set_clipboard_text(&previous),
-        None => with_clipboard(|c| {
+    crate::clipboard_linux::restore_captured(previous, || {
+        let _ = with_clipboard(|c| {
             let _ = c.clear();
-        }),
-    };
+        });
+    });
     selection
 }
 
 /// Insère le texte via le presse-papier et un Ctrl+V simulé, puis remet
-/// l'ancien contenu texte du presse-papier.
+/// l'ancien contenu complet du presse-papier (texte, HTML, RTF, images,
+/// fichiers).
 pub struct ClipboardPaster;
 
 impl TextSink for ClipboardPaster {
     fn insert(&self, text: &str) -> Result<(), Error> {
-        let previous = clipboard_text();
+        let previous = crate::clipboard_linux::capture_for_insert(clipboard_text);
         set_clipboard_text(text).map_err(Error::Sink)?;
         if let Err(e) = send_ctrl(keysym::V, key::V) {
             // Le texte reste dans le presse-papier : l'utilisateur peut coller à la main.
@@ -590,7 +579,14 @@ impl TextSink for ClipboardPaster {
                 "{e} : texte laissé dans le presse-papier"
             )));
         }
-        restore_clipboard_later(previous, text.to_owned());
+        if let Some(snapshot) = previous.into_snapshot() {
+            crate::clipboard_linux::schedule_restore(
+                snapshot,
+                text.to_owned(),
+                CLIPBOARD_RESTORE_DELAY,
+                clipboard_text,
+            );
+        }
         Ok(())
     }
 

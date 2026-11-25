@@ -598,9 +598,12 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 - ⬜ Index d'embeddings local en ONNX (modèle multilingue léger téléchargé à la demande, réutilisant ONNX Runtime déjà présent)
 - ⬜ Recherche hybride (mots-clés + sémantique) sur toutes les réunions et sélection de passages enrichie pour « Poser une question » au LLM
 
-### Restauration complète du presse-papier ⬜
+### Restauration complète du presse-papier (#88) ✅
 
-- ⬜ Sauvegarder et restaurer l'ensemble des formats du presse-papier (images, HTML, fichiers, texte riche) lors du collage d'une dictée sur Windows et Linux, au lieu du texte brut uniquement
+- ✅ Logique commune (`vtt-platform::clipboard`) : filtrage des formats sûrs (texte, HTML, RTF, images, fichiers, indicateurs de confidentialité), priorisation de capture (fichiers/texte/PNG avant les gros bitmaps non compressés), plafond mémoire (16 Mio par format, 32 Mio au total) et coordination `PendingRestore` (préserve le contenu d'origine même lors d'insertions rapides successives comme l'insertion au fil de la dictée)
+- ✅ Windows (`clipboard_windows.rs`) : sauvegarde et restauration Win32 des formats `HGLOBAL` sûrs (`CF_UNICODETEXT`, `CF_DIB`/`CF_DIBV5`, `CF_HDROP`, `HTML Format`, `Rich Text Format`, `PNG`, `Preferred DropEffect`, marqueurs d'historique Windows), synthèse `CF_DIB` si seule une poignée `CF_BITMAP` est présente, vérification atomique du numéro de séquence sous verrou avant restauration (`ClipboardPaster::insert` et `copy_selection`)
+- ✅ Linux (`clipboard_linux.rs`) : sauvegarde et restauration multi-formats sur Wayland (`wl-clipboard-rs`, `prepare_copy_multi` avec lecture bornée en délai et taille) et X11 (`x11rb`, `TARGETS`, `MULTIPLE`, transferts incrémentaux `INCR` pour les images > 64 Kio, serveur d'arrière-plan passif 0 % CPU au repos), validé sous `xvfb-run`
+- ⬜ À vérifier sur le terrain : copie d'une capture d'écran, de texte HTML/Word et de fichiers Explorateur avant une dictée ou un Command Mode sur Windows et sur Steam Deck (Wayland)
 
 ### Capture commentée : floutage rapide d'une zone sensible ⬜
 

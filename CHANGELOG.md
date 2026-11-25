@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.42.0 — 2026-11-25
+
+- [PC] Le presse-papier est désormais restauré en entier après une dictée ou un Command Mode, et plus seulement le texte brut : les images, le texte mis en forme (HTML, RTF) et les fichiers copiés restent intacts sur Windows comme sur Linux (X11 et Wayland).
+- [PC] Lors de dictées successives rapides ou de l'insertion au fil de la dictée, le contenu d'origine du presse-papier est conservé jusqu'à la fin sans jamais écraser ce que vous copiez entre-temps.
+
 ## 0.41.0 — 2026-11-21
 
 - Nouvelle option « Insérer le texte au fil de la dictée » (désactivée par défaut) : pendant une longue dictée, chaque phrase est nettoyée puis insérée dès que vous marquez une pause, au lieu de tout insérer à la fin. Vous voyez ce qui est écrit et pouvez vous reprendre ; « annule la dernière dictée » efface la dernière phrase insérée.

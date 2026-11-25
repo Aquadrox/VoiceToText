@@ -282,10 +282,11 @@ pub fn fullscreen_app_running() -> bool {
 const COPY_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Texte sélectionné dans l'application active (Ctrl+C simulé), ou `None`
-/// s'il n'y a pas de sélection. Le contenu texte précédent du presse-papier
-/// est remis en place. Les touches de modification doivent être relâchées.
+/// s'il n'y a pas de sélection. L'ensemble des formats sûrs du presse-papier
+/// précédent (texte, HTML, RTF, images, fichiers) est remis en place. Les
+/// touches de modification doivent être relâchées.
 pub fn copy_selection() -> Option<String> {
-    let previous = arboard::Clipboard::new().ok()?.get_text().ok();
+    let previous = crate::clipboard_windows::capture();
     let before = unsafe { GetClipboardSequenceNumber() };
     if !send_keys(&[
         (VK_CONTROL, false),
@@ -306,17 +307,17 @@ pub fn copy_selection() -> Option<String> {
     }
     // L'application peut écrire plusieurs formats à la suite : laisser finir.
     thread::sleep(Duration::from_millis(30));
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    let selection = clipboard.get_text().ok().filter(|s| !s.trim().is_empty());
-    let _ = match previous {
-        Some(previous) => clipboard.set_text(previous),
-        None => clipboard.clear(),
-    };
+    let selection = arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut c| c.get_text().ok())
+        .filter(|s| !s.trim().is_empty());
+    crate::clipboard_windows::restore_captured(previous);
     selection
 }
 
 /// Place le texte dans le presse-papier, sans coller.
 pub fn copy_text(text: &str) -> Result<(), String> {
+    crate::clipboard_windows::invalidate_pending();
     arboard::Clipboard::new()
         .and_then(|mut clipboard| clipboard.set_text(text))
         .map_err(|e| format!("presse-papier : {e}"))
@@ -340,18 +341,20 @@ pub fn play_sound(wav: &'static [u8]) {
 }
 
 /// Insère le texte via le presse-papier et un Ctrl+V simulé, puis remet
-/// l'ancien contenu texte du presse-papier.
+/// l'ancien contenu complet du presse-papier (texte, HTML, RTF, images,
+/// fichiers).
 pub struct ClipboardPaster;
 
 impl TextSink for ClipboardPaster {
     fn insert(&self, text: &str) -> Result<(), Error> {
+        let previous = crate::clipboard_windows::capture_for_insert();
         let mut clipboard =
             arboard::Clipboard::new().map_err(|e| Error::Sink(format!("presse-papier : {e}")))?;
-        let previous = clipboard.get_text().ok();
         clipboard
             .set_text(text)
             .map_err(|e| Error::Sink(format!("presse-papier : {e}")))?;
         drop(clipboard);
+        let seq_after_set = unsafe { GetClipboardSequenceNumber() };
 
         let pasted = send_keys(&[
             (VK_CONTROL, false),
@@ -368,18 +371,12 @@ impl TextSink for ClipboardPaster {
             ));
         }
 
-        if let Some(previous) = previous {
-            let inserted = text.to_owned();
-            thread::spawn(move || {
-                thread::sleep(CLIPBOARD_RESTORE_DELAY);
-                let Ok(mut clipboard) = arboard::Clipboard::new() else {
-                    return;
-                };
-                // Ne pas écraser ce que l'utilisateur aurait copié entre-temps.
-                if clipboard.get_text().ok().as_deref() == Some(inserted.as_str()) {
-                    let _ = clipboard.set_text(previous);
-                }
-            });
+        if let Some(snapshot) = previous.into_snapshot() {
+            crate::clipboard_windows::schedule_restore(
+                snapshot,
+                seq_after_set,
+                CLIPBOARD_RESTORE_DELAY,
+            );
         }
         Ok(())
     }
@@ -615,6 +612,7 @@ pub fn exclude_from_capture(hwnd: isize) {
 
 /// Colle une image dans l'application active (presse-papier + Ctrl+V).
 pub fn paste_image(image: &vtt_core::annotation::Image) -> Result<(), String> {
+    crate::clipboard_windows::invalidate_pending();
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("presse-papier : {e}"))?;
     clipboard
         .set_image(arboard::ImageData {
