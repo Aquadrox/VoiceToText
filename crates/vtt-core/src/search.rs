@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use crate::meeting::{Segment, timestamp};
+use crate::meeting::{MeetingReport, Segment, timestamp};
 
 /// Minuscule sans accent, caractère pour caractère (les positions restent
 /// alignées sur le texte d'origine).
@@ -91,6 +91,94 @@ pub fn find(segments: &[Segment], query: &str) -> Vec<Hit> {
             })
         })
         .collect()
+}
+
+/// Résultat de recherche dans un rapport complet.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReportHit {
+    pub section: &'static str,
+    pub start_ms: Option<u64>,
+    pub parts: Parts,
+}
+
+/// Cherche `query` (sans casse ni accents) dans toutes les sections d'un
+/// rapport complet : synthèse, points clés, chapitres, décisions, citations,
+/// analyse, questions-réponses et plan d'action.
+pub fn find_in_report(report: &MeetingReport, query: &str) -> Vec<ReportHit> {
+    let mut hits = Vec::new();
+    let mut push = |section: &'static str, start_ms: Option<u64>, text: &str| {
+        if let Some(parts) = highlight(text, query) {
+            hits.push(ReportHit {
+                section,
+                start_ms,
+                parts,
+            });
+        }
+    };
+
+    for paragraph in report
+        .synthesis
+        .split('\n')
+        .filter(|p| !p.trim().is_empty())
+    {
+        push("Synthèse", None, paragraph.trim());
+    }
+    for point in &report.key_points {
+        push("Point clé", point.at_ms, &point.text);
+    }
+    for chapter in &report.chapters {
+        let start = Some(chapter.start_ms);
+        push("Chapitre", start, &chapter.title);
+        if !chapter.summary.is_empty() {
+            push("Chapitre", start, &chapter.summary);
+        }
+        for point in &chapter.points {
+            push("Chapitre", point.at_ms.or(start), &point.text);
+        }
+        for decision in &chapter.decisions {
+            push("Décision", decision.at_ms.or(start), &decision.text);
+        }
+        for quote in &chapter.quotes {
+            push("Citation", quote.at_ms.or(start), &quote.text);
+        }
+    }
+    for (section, points) in [
+        ("Accord", &report.agreements),
+        ("Désaccord", &report.disagreements),
+        ("Risque", &report.risks),
+        ("Chiffre", &report.figures),
+        ("Question ouverte", &report.open_questions),
+    ] {
+        for point in points {
+            push(section, point.at_ms, &point.text);
+        }
+    }
+    for qa in &report.qa {
+        let combined = if qa.answer.is_empty() {
+            qa.question.clone()
+        } else {
+            format!("{} — {}", qa.question, qa.answer)
+        };
+        push("Question / Réponse", qa.at_ms, &combined);
+    }
+    for action in &report.actions {
+        let mut line = action.task.clone();
+        if !action.owner.is_empty() {
+            line.push_str(" (");
+            line.push_str(&action.owner);
+            if !action.due.is_empty() {
+                line.push_str(", ");
+                line.push_str(&action.due);
+            }
+            line.push(')');
+        } else if !action.due.is_empty() {
+            line.push_str(" (");
+            line.push_str(&action.due);
+            line.push(')');
+        }
+        push("Action", action.at_ms, &line);
+    }
+    hits
 }
 
 /// Mots vides ignorés pour choisir les passages d'une question.
@@ -254,5 +342,38 @@ mod tests {
             excerpts("P", &named, &keywords("budget"), &names),
             ["[P · 00:10] Anne : Le budget est validé."]
         );
+    }
+
+    #[test]
+    fn find_in_report_searches_synthesis_chapters_and_actions() {
+        let mut report = MeetingReport::from_json(
+            &serde_json::json!({
+                "synthese": "Validation du budget marketing pour la rentrée.",
+                "chapitres": [{
+                    "titre": "Lancement produit",
+                    "debut": "01:00",
+                    "resume": "Calendrier de mise en production.",
+                    "decisions": [{"texte": "Budget plafonné à 10 k€", "t": "01:30"}]
+                }],
+                "risques": [{"texte": "Délai serré sur les traductions", "t": "02:10"}],
+                "actions": [{"tache": "Envoyer le budget final", "responsable": "Julie", "echeance": "vendredi", "t": "03:00"}]
+            }),
+            5 * 60_000,
+        );
+        report.finish(5 * 60_000);
+
+        let hits = find_in_report(&report, "budget");
+        assert_eq!(hits.len(), 3);
+        assert_eq!(hits[0].section, "Synthèse");
+        assert_eq!(hits[0].start_ms, None);
+        assert_eq!(hits[1].section, "Décision");
+        assert_eq!(hits[1].start_ms, Some(90_000));
+        assert_eq!(hits[2].section, "Action");
+        assert_eq!(hits[2].start_ms, Some(180_000));
+
+        // Recherche sur le responsable d'une action, sans casse ni accents.
+        let julie = find_in_report(&report, "julie vendredi");
+        assert_eq!(julie.len(), 1);
+        assert_eq!(julie[0].section, "Action");
     }
 }

@@ -8,6 +8,12 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.43.0 — 2026-11-25
+
+- [PC] Onglet « Rapport complet » dans la page Réunions (parité Android) : faites rédiger par l'IA un rapport interactif structuré (synthèse, points clés, chapitres horodatés, accords, désaccords, risques, chiffres et plan d'action) avec sommaire, recherche interne, filtres, cases d'actions persistantes, réécoute audio et export en fichier HTML autonome ou copie Markdown.
+- [PC] La recherche globale de la page Réunions explore désormais aussi les rapports complets et ouvre directement l'onglet Rapport sur le passage trouvé.
+- [PC] Nouvelle section « Consignes de style du rapport complet » dans la page Prompts pour ajuster le ton et le niveau de détail du rapport sans casser son format JSON fixe.
+
 ## 0.42.0 — 2026-11-25
 
 - [PC] Le presse-papier est désormais restauré en entier après une dictée ou un Command Mode, et plus seulement le texte brut : les images, le texte mis en forme (HTML, RTF) et les fichiers copiés restent intacts sur Windows comme sur Linux (X11 et Wayland).

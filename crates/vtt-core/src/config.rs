@@ -265,6 +265,10 @@ pub struct MeetingsConfig {
     /// prompt intégré.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub conference_prompt: String,
+    /// Nom des consignes de style du rapport complet (voir `prompts`, usage
+    /// `rapport`) ; vide : consignes intégrées (format JSON toujours fixe).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub report_prompt: String,
     /// Réunions supprimées au-delà de ce nombre de jours ; 0 : jamais.
     pub keep_days: u32,
     /// Proposer d'enregistrer quand un appel est détecté.
@@ -328,6 +332,7 @@ impl Default for MeetingsConfig {
             auto_summary: true,
             summary_prompt: String::new(),
             conference_prompt: String::new(),
+            report_prompt: String::new(),
             keep_days: 0,
             detect: true,
             providers: Vec::new(),
@@ -502,6 +507,8 @@ pub enum PromptKind {
     CompteRendu,
     /// Compte rendu de conférence ou de fichier importé.
     Conference,
+    /// Consignes de style du rapport complet (format JSON fixe).
+    Rapport,
 }
 
 /// Prompt système enregistré sous un nom.
@@ -591,11 +598,12 @@ impl Config {
         })
     }
 
-    /// Les prompts de compte rendu choisis existent bien.
+    /// Les prompts de compte rendu et de rapport choisis existent bien.
     pub fn check_summary_ref(&self) -> Result<(), String> {
         for (kind, name) in [
             (PromptKind::CompteRendu, &self.meetings.summary_prompt),
             (PromptKind::Conference, &self.meetings.conference_prompt),
+            (PromptKind::Rapport, &self.meetings.report_prompt),
         ] {
             if !name.trim().is_empty() && self.prompt_text(kind, name).is_none() {
                 return Err(format!("prompt de compte rendu introuvable : « {name} »"));

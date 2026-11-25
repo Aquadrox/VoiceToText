@@ -19,6 +19,11 @@ let meetingSettingsFilled = false;
 let recordingStartedAt = null;
 /** Passage à mettre en évidence après un clic sur un résultat (ms). */
 let highlightAt = null;
+let activeMeetingTab = "transcript";
+let currentDetail = null;
+let pendingReportSearch = null;
+let reportFrameKey = "";
+let reportPlayingMs = -1;
 const KIND_LABELS = { reunion: "Réunion", conference: "Conférence", fichier: "Fichier" };
 
 /** Nom de la piste selon le type d'enregistrement (vide : une seule source). */
@@ -86,7 +91,8 @@ function renderMeetingList() {
           ? clock(meeting.duration_ms)
           : MEETING_STATUS[meeting.status];
     const kind = meeting.kind === "reunion" ? "" : `${KIND_LABELS[meeting.kind]} · `;
-    when.textContent = `${kind}${meetingDateFormat.format(new Date(meeting.started_at_ms))} · ${status}`;
+    const hasReport = meeting.has_report ? " · rapport" : "";
+    when.textContent = `${kind}${meetingDateFormat.format(new Date(meeting.started_at_ms))} · ${status}${hasReport}`;
     button.append(name, when);
     button.addEventListener("click", () => {
       selectedMeeting = meeting.id;
@@ -103,6 +109,7 @@ function renderMeetingList() {
 async function showMeetingDetail() {
   const article = $("meeting-detail");
   if (!selectedMeeting) {
+    currentDetail = null;
     article.hidden = true;
     return;
   }
@@ -114,11 +121,14 @@ async function showMeetingDetail() {
     showMeetingResult(String(e), true);
     return;
   }
+  currentDetail = detail;
   const { record } = detail;
   article.hidden = false;
   if (article.dataset.id !== record.id) {
     // Autre enregistrement : le lecteur repart de zéro.
     article.dataset.id = record.id;
+    reportFrameKey = "";
+    reportPlayingMs = -1;
     $("meeting-player").pause();
     $("meeting-player").hidden = true;
   }
@@ -167,6 +177,8 @@ async function showMeetingDetail() {
   }
   $("meeting-summary-error").hidden = !record.summary_error;
   $("meeting-summary-error").textContent = record.summary_error ? `Compte rendu impossible : ${record.summary_error}` : "";
+
+  renderReportSection(detail);
 
   renderSpeakers(detail);
   $("meeting-turns").classList.toggle("named", detail.speakers.length > 0);
@@ -503,8 +515,13 @@ async function runSearch() {
     button.type = "button";
     const where = document.createElement("span");
     where.className = "where";
-    where.textContent =
-      `${result.title} · ${meetingDateFormat.format(new Date(result.started_at_ms))} · ${clock(result.start_ms)}`;
+    if (result.source === "report") {
+      const time = result.start_ms != null ? ` · ${clock(result.start_ms)}` : "";
+      where.textContent = `${result.title} · Rapport (${result.section || "Rapport"})${time}`;
+    } else {
+      where.textContent =
+        `${result.title} · ${meetingDateFormat.format(new Date(result.started_at_ms))} · ${clock(result.start_ms ?? 0)}`;
+    }
     const text = document.createElement("span");
     for (const [part, marked] of result.parts) {
       if (marked) {
@@ -518,7 +535,14 @@ async function runSearch() {
     button.append(where, text);
     button.addEventListener("click", async () => {
       selectedMeeting = result.id;
-      highlightAt = result.start_ms;
+      if (result.source === "report") {
+        highlightAt = null;
+        pendingReportSearch = query;
+        setMeetingTab("report");
+      } else {
+        highlightAt = result.start_ms;
+        setMeetingTab("transcript");
+      }
       renderMeetingList();
       await showMeetingDetail();
     });
@@ -870,6 +894,210 @@ $("voicebook-clear")?.addEventListener("click", async () => {
   }
 });
 window.__TAURI__.event.listen("voicebook", () => showVoicebook());
+
+/* ---------- Rapport complet ---------- */
+
+function currentReportTheme() {
+  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+}
+
+function setMeetingTab(tab) {
+  activeMeetingTab = tab === "report" ? "report" : "transcript";
+  const transcriptBtn = $("meeting-tab-btn-transcript");
+  const reportBtn = $("meeting-tab-btn-report");
+  const transcriptPanel = $("meeting-panel-transcript");
+  const reportPanel = $("meeting-panel-report");
+  if (!transcriptBtn || !reportBtn || !transcriptPanel || !reportPanel) return;
+  const isReport = activeMeetingTab === "report";
+  transcriptBtn.setAttribute("aria-selected", String(!isReport));
+  transcriptBtn.setAttribute("aria-pressed", String(!isReport));
+  reportBtn.setAttribute("aria-selected", String(isReport));
+  reportBtn.setAttribute("aria-pressed", String(isReport));
+  transcriptPanel.hidden = isReport;
+  reportPanel.hidden = !isReport;
+  if (isReport && currentDetail?.record?.report) {
+    loadReportFrame(currentDetail);
+  }
+}
+
+function notifyReportPlaying(ms) {
+  reportPlayingMs = ms;
+  const frame = $("meeting-report-frame");
+  try {
+    frame?.contentWindow?.vttPlaying?.(ms);
+  } catch {
+    // Iframe pas encore prête.
+  }
+}
+
+async function playReportClip(id, startMs) {
+  const player = $("meeting-player");
+  if (!player) return;
+  try {
+    player.src = await invoke("meeting_clip", { id, startMs });
+    player.hidden = false;
+    await player.play();
+    notifyReportPlaying(startMs);
+  } catch (e) {
+    notifyReportPlaying(-1);
+    showMeetingResult(String(e), true);
+  }
+}
+
+function stopReportClip() {
+  const player = $("meeting-player");
+  if (player) player.pause();
+  notifyReportPlaying(-1);
+}
+
+async function setReportActionDone(id, index, done) {
+  try {
+    await invoke("set_meeting_report_action_done", { id, index, done });
+    if (currentDetail?.record?.id === id && currentDetail.record.report?.actions?.[index]) {
+      currentDetail.record.report.actions[index].done = done;
+      updateReportMeta(currentDetail.record.report);
+    }
+  } catch (e) {
+    showMeetingResult(String(e), true);
+  }
+}
+
+function updateReportMeta(report) {
+  const meta = $("meeting-report-meta");
+  if (!meta) return;
+  if (!report) {
+    meta.hidden = true;
+    return;
+  }
+  const parts = [];
+  if (report.at_ms) parts.push(meetingDateFormat.format(new Date(report.at_ms)));
+  if (report.model) parts.push(report.model);
+  if (report.cost != null) parts.push(formatCost(report.cost, report.currency));
+  if (report.chapters?.length) parts.push(`${report.chapters.length} chapitre(s)`);
+  if (report.actions?.length) {
+    const done = report.actions.filter((a) => a.done).length;
+    parts.push(`${done} / ${report.actions.length} action(s) faite(s)`);
+  }
+  meta.textContent = parts.join(" · ");
+  meta.hidden = parts.length === 0;
+}
+
+function attachReportBridge(frame, recordId) {
+  try {
+    const win = frame.contentWindow;
+    if (!win) return;
+    win.VTT = {
+      play: (ms) => playReportClip(recordId, ms),
+      stop: () => stopReportClip(),
+      setDone: (index, done) => setReportActionDone(recordId, index, done),
+    };
+    if (reportPlayingMs >= 0) win.vttPlaying?.(reportPlayingMs);
+    if (pendingReportSearch) {
+      const q = pendingReportSearch;
+      pendingReportSearch = null;
+      win.vttSearch?.(q);
+    }
+  } catch {
+    // Environnement de test ou iframe non initialisée.
+  }
+}
+
+async function loadReportFrame(detail) {
+  const frame = $("meeting-report-frame");
+  if (!frame || !detail?.record?.report) return;
+  const { record } = detail;
+  const theme = currentReportTheme();
+  const namesKey = (detail.speakers || []).map((s) => s.name).join("|");
+  const key = `${record.id}:${record.report.at_ms}:${detail.replay}:${theme}:${namesKey}`;
+  if (key === reportFrameKey && !frame.hidden) {
+    if (pendingReportSearch && typeof frame.contentWindow?.vttSearch === "function") {
+      const q = pendingReportSearch;
+      pendingReportSearch = null;
+      try {
+        frame.contentWindow.vttSearch(q);
+      } catch {
+        // Ignoré si l'iframe recharge.
+      }
+    }
+    return;
+  }
+  try {
+    const html = await invoke("meeting_report_html", { id: record.id, theme });
+    if (selectedMeeting !== record.id) return;
+    reportFrameKey = key;
+    frame.onload = () => attachReportBridge(frame, record.id);
+    frame.srcdoc = html;
+    frame.hidden = false;
+  } catch (e) {
+    frame.hidden = true;
+    showMeetingResult(String(e), true);
+  }
+}
+
+function renderReportSection(detail) {
+  const draft = $("meeting-report-draft");
+  if (!draft) return;
+  const { record } = detail;
+  const report = record.report || null;
+  draft.textContent = report ? "Refaire le rapport" : "Rédiger le rapport complet";
+  draft.disabled = detail.busy || record.segments.length === 0 || !meetingsView?.llm_enabled;
+  draft.title = meetingsView?.llm_enabled ? "" : "Nettoyage LLM désactivé dans les réglages";
+  $("meeting-report-copy").hidden = !report;
+  $("meeting-report-export").hidden = !report;
+  $("meeting-report-empty").hidden = Boolean(report);
+  updateReportMeta(report);
+  const errorEl = $("meeting-report-error");
+  errorEl.hidden = !record.report_error;
+  errorEl.textContent = record.report_error ? `Rapport impossible : ${record.report_error}` : "";
+  const frame = $("meeting-report-frame");
+  if (!report) {
+    reportFrameKey = "";
+    frame.hidden = true;
+    frame.srcdoc = "";
+  } else if (activeMeetingTab === "report") {
+    loadReportFrame(detail);
+  }
+}
+
+for (const btn of document.querySelectorAll?.("[data-meeting-tab]") ?? []) {
+  btn.addEventListener("click", () => setMeetingTab(btn.dataset.meetingTab));
+}
+
+$("meeting-report-draft")?.addEventListener("click", () =>
+  meetingAction($("meeting-report-draft"), async () => {
+    setMeetingTab("report");
+    showMeetingResult("Rédaction du rapport complet par le LLM…");
+    await invoke("draft_meeting_report", {
+      id: selectedMeeting,
+      language: $("meeting-summary-language").value,
+    });
+    reportFrameKey = "";
+    showMeetingResult("✓ Rapport complet rédigé.");
+  }),
+);
+
+$("meeting-report-copy")?.addEventListener("click", () =>
+  meetingAction($("meeting-report-copy"), async () => {
+    await invoke("copy_meeting", { id: selectedMeeting, part: "report" });
+    showMeetingResult("✓ Rapport complet copié (Markdown).");
+  }),
+);
+
+$("meeting-report-export")?.addEventListener("click", () =>
+  meetingAction($("meeting-report-export"), async () => {
+    const path = await invoke("export_meeting_report_html", { id: selectedMeeting });
+    if (path) showMeetingResult(`✓ Rapport HTML exporté : ${path}`);
+  }),
+);
+
+$("meeting-player")?.addEventListener("pause", () => notifyReportPlaying(-1));
+$("meeting-player")?.addEventListener("ended", () => notifyReportPlaying(-1));
+
+window.__TAURI__.event.listen("meeting-report-progress", (event) => {
+  const payload = event?.payload;
+  if (!payload || payload.id !== selectedMeeting || !isShown("reunions")) return;
+  showMeetingResult(`Rédaction du rapport complet (étape ${payload.step} / ${payload.total})…`);
+});
 
 // Transcription au fil de l'eau : la page suit les blocs transcrits.
 let meetingsRefresh = null;

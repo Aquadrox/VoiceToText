@@ -156,7 +156,7 @@
             </select>
           </details>
           <div class="search-bar">
-            <input id="meeting-search" type="search" placeholder="Rechercher dans toutes les transcriptions…" spellcheck="false" />
+            <input id="meeting-search" type="search" placeholder="Rechercher dans toutes les transcriptions et les rapports…" spellcheck="false" />
           </div>
           <ol id="search-results" class="search-results" hidden></ol>
           <p id="search-empty" class="muted small" hidden>Aucun passage trouvé.</p>
@@ -187,7 +187,7 @@
               <p id="meeting-notes" class="warning" hidden></p>
               <div class="row wrap">
                 <button id="meeting-summarize" class="primary">Rédiger le compte rendu</button>
-                <select id="meeting-summary-language" class="compact" aria-label="Langue du compte rendu"></select>
+                <select id="meeting-summary-language" class="compact" aria-label="Langue du compte rendu et du rapport"></select>
                 <button id="meeting-copy">Copier</button>
                 <button id="meeting-export">Exporter (.md)</button>
                 <button id="meeting-audio-me" hidden>Audio « Moi » (.wav)</button>
@@ -207,31 +207,53 @@
                 </div>
                 <div id="ask-answer" class="result" hidden></div>
               </div>
-              <div id="meeting-summary-block" hidden>
-                <h2>Compte rendu</h2>
-                <p id="meeting-summary-meta" class="muted small"></p>
-                <div id="meeting-summary" class="summary"></div>
+              <div id="meeting-tabs" class="segmented meeting-tabs" role="tablist" aria-label="Affichage de l'enregistrement">
+                <button id="meeting-tab-btn-transcript" type="button" role="tab" data-meeting-tab="transcript" aria-selected="true" aria-pressed="true">Compte rendu et transcription</button>
+                <button id="meeting-tab-btn-report" type="button" role="tab" data-meeting-tab="report" aria-selected="false" aria-pressed="false">Rapport complet</button>
               </div>
-              <p id="meeting-summary-error" class="warning" hidden></p>
-              <div id="meeting-speakers-block" hidden>
-                <h2>Intervenants</h2>
-                <p class="muted small">
-                  Voix distinguées sur ce PC. Qui se présente (« je m'appelle Marie ») ou figure
-                  dans votre carnet de voix est nommé d'office. Donnez ou corrigez un nom : il
-                  remplace « Intervenant N » dans la transcription, l'export et le prochain compte
-                  rendu.
-                </p>
-                <ul id="meeting-speakers" class="speakers"></ul>
-                <div class="row wrap">
-                  <label for="meeting-speaker-count" class="small">Nombre d'intervenants</label>
-                  <select id="meeting-speaker-count" class="compact"></select>
-                  <button id="meeting-forget-speakers">Ne plus distinguer</button>
+              <div id="meeting-panel-transcript" role="tabpanel" aria-labelledby="meeting-tab-btn-transcript">
+                <div id="meeting-summary-block" hidden>
+                  <h2>Compte rendu</h2>
+                  <p id="meeting-summary-meta" class="muted small"></p>
+                  <div id="meeting-summary" class="summary"></div>
+                </div>
+                <p id="meeting-summary-error" class="warning" hidden></p>
+                <div id="meeting-speakers-block" hidden>
+                  <h2>Intervenants</h2>
+                  <p class="muted small">
+                    Voix distinguées sur ce PC. Qui se présente (« je m'appelle Marie ») ou figure
+                    dans votre carnet de voix est nommé d'office. Donnez ou corrigez un nom : il
+                    remplace « Intervenant N » dans la transcription, l'export et le prochain compte
+                    rendu.
+                  </p>
+                  <ul id="meeting-speakers" class="speakers"></ul>
+                  <div class="row wrap">
+                    <label for="meeting-speaker-count" class="small">Nombre d'intervenants</label>
+                    <select id="meeting-speaker-count" class="compact"></select>
+                    <button id="meeting-forget-speakers">Ne plus distinguer</button>
+                  </div>
+                </div>
+                <div>
+                  <h2>Transcription</h2>
+                  <ol id="meeting-turns" class="turns"></ol>
+                  <p id="meeting-turns-empty" class="muted small" hidden></p>
                 </div>
               </div>
-              <div>
-                <h2>Transcription</h2>
-                <ol id="meeting-turns" class="turns"></ol>
-                <p id="meeting-turns-empty" class="muted small" hidden></p>
+              <div id="meeting-panel-report" role="tabpanel" aria-labelledby="meeting-tab-btn-report" hidden>
+                <div class="row wrap report-actions">
+                  <button id="meeting-report-draft" class="primary">Rédiger le rapport complet</button>
+                  <button id="meeting-report-copy" hidden>Copier le rapport (Markdown)</button>
+                  <button id="meeting-report-export" hidden>Exporter (.html)</button>
+                </div>
+                <p id="meeting-report-meta" class="muted small" hidden></p>
+                <p id="meeting-report-error" class="warning" hidden></p>
+                <p id="meeting-report-empty" class="muted small">
+                  Rédigez un rapport complet structuré par l'IA (synthèse, points clés, chapitres
+                  horodatés, accords, désaccords, risques, chiffres et plan d'action avec cases à
+                  cocher). Les consignes de style se personnalisent dans la page
+                  <a href="#prompts">Prompts</a>.
+                </p>
+                <iframe id="meeting-report-frame" class="report-frame" title="Rapport complet" sandbox="allow-scripts allow-same-origin" hidden></iframe>
               </div>
             </article>
           </div>

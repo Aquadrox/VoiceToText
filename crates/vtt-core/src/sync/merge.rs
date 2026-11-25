@@ -300,6 +300,7 @@ fn prompt_kind_order(kind: PromptKind) -> u8 {
         PromptKind::Commande => 1,
         PromptKind::CompteRendu => 2,
         PromptKind::Conference => 3,
+        PromptKind::Rapport => 4,
     }
 }
 

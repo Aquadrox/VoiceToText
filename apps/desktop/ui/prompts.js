@@ -28,6 +28,13 @@ const KINDS = [
     note: "Même format que le compte rendu de réunion (transcription horodatée entre <transcription> et </transcription>) ; utilisé pour les conférences et les fichiers audio / vidéo importés.",
     defaultKey: "conference",
   },
+  {
+    kind: "rapport",
+    active: "report_active",
+    title: "Consignes de style du rapport complet",
+    note: "Consignes éditoriales (ton, concision, niveau de détail, formulation des actions) ajoutées à la rédaction du rapport complet ; le format JSON reste fixe pour l'affichage interactif.",
+    defaultKey: "report",
+  },
 ];
 let promptsState = null;
 let promptsDirty = false;
@@ -150,6 +157,7 @@ $("prompts-save").addEventListener("click", async () => {
       commandActive: promptsState.command_active,
       summaryActive: promptsState.summary_active,
       conferenceActive: promptsState.conference_active,
+      reportActive: promptsState.report_active,
     });
     promptsDirty = false;
     status.className = "small muted";

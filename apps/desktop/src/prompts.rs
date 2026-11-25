@@ -7,11 +7,12 @@ use std::time::Instant;
 use serde::Serialize;
 use tauri::State;
 use vtt_core::config::{self, LlmConfig, PromptKind, PromptPreset};
+use vtt_core::meeting::{MeetingKind, MeetingRecord};
 use vtt_core::usage::Usage;
-use vtt_core::{Config, Directives, PostProcessor};
+use vtt_core::{Cleaned, Config, Directives, PostProcessor};
 use vtt_llm::{
     ApiKeyProvider, DEFAULT_CLEANUP_PROMPT, DEFAULT_COMMAND_PROMPT, DEFAULT_CONFERENCE_PROMPT,
-    DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
+    DEFAULT_REPORT_STYLE_PROMPT, DEFAULT_SUMMARY_PROMPT, LlmCleaner, Prompts,
 };
 
 use crate::controller::ControllerState;
@@ -43,6 +44,7 @@ pub struct Defaults {
     command: &'static str,
     summary: &'static str,
     conference: &'static str,
+    report: &'static str,
 }
 
 #[derive(Serialize)]
@@ -54,6 +56,7 @@ pub struct PromptsView {
     command_active: String,
     summary_active: String,
     conference_active: String,
+    report_active: String,
 }
 
 fn build_prompts_view(config: &Config) -> PromptsView {
@@ -64,11 +67,13 @@ fn build_prompts_view(config: &Config) -> PromptsView {
             command: DEFAULT_COMMAND_PROMPT,
             summary: DEFAULT_SUMMARY_PROMPT,
             conference: DEFAULT_CONFERENCE_PROMPT,
+            report: DEFAULT_REPORT_STYLE_PROMPT,
         },
         cleanup_active: config.llm.cleanup_prompt.clone(),
         command_active: config.llm.command_prompt.clone(),
         summary_active: config.meetings.summary_prompt.clone(),
         conference_active: config.meetings.conference_prompt.clone(),
+        report_active: config.meetings.report_prompt.clone(),
     }
 }
 
@@ -84,6 +89,7 @@ fn save_prompts_to_disk(
     command_active: &str,
     summary_active: &str,
     conference_active: &str,
+    report_active: &str,
 ) -> Result<Config, String> {
     let (mut updated, error) = paths.load_config();
     if let Some(error) = error {
@@ -96,6 +102,7 @@ fn save_prompts_to_disk(
     updated.llm.command_prompt = command_active.trim().to_owned();
     updated.meetings.summary_prompt = summary_active.trim().to_owned();
     updated.meetings.conference_prompt = conference_active.trim().to_owned();
+    updated.meetings.report_prompt = report_active.trim().to_owned();
     updated.check_prompt_refs(&updated.llm)?;
     updated.check_summary_ref()?;
     paths.write_config(&updated)?;
@@ -114,6 +121,7 @@ pub fn save_prompts(
     command_active: String,
     summary_active: String,
     conference_active: String,
+    report_active: Option<String>,
 ) -> Result<(), String> {
     let updated = save_prompts_to_disk(
         &paths,
@@ -122,6 +130,7 @@ pub fn save_prompts(
         &command_active,
         &summary_active,
         &conference_active,
+        report_active.as_deref().unwrap_or(""),
     )?;
     controller.apply(&updated);
     log::info!("{} prompt(s) enregistré(s)", updated.prompts.len());
@@ -159,6 +168,10 @@ fn prompts_override(kind: PromptKind, text: String) -> Prompts {
             conference: Some(text),
             ..Prompts::default()
         },
+        PromptKind::Rapport => Prompts {
+            report_style: Some(text),
+            ..Prompts::default()
+        },
     }
 }
 
@@ -192,6 +205,34 @@ fn run_prompt_test(
         PromptKind::Conference => (
             format!("Conférence : {SAMPLE_CONFERENCE_TITLE}\n{SAMPLE_CONFERENCE}"),
             cleaner.summarize(SAMPLE_CONFERENCE_TITLE, SAMPLE_CONFERENCE, None, true),
+        ),
+        PromptKind::Rapport => (
+            format!("Réunion : {SAMPLE_MEETING_TITLE}\n{SAMPLE_MEETING}"),
+            cleaner
+                .report(
+                    SAMPLE_MEETING_TITLE,
+                    SAMPLE_MEETING,
+                    25_000,
+                    None,
+                    false,
+                    &mut |_, _| {},
+                )
+                .map(|drafted| {
+                    let mut preview = MeetingRecord::new(
+                        "exemple".to_owned(),
+                        SAMPLE_MEETING_TITLE.to_owned(),
+                        0,
+                        MeetingKind::Reunion,
+                    );
+                    preview.duration_ms = 25_000;
+                    preview.report = Some(drafted.report);
+                    let rendered = preview.report_markdown("Exemple", true).unwrap_or_default();
+                    Cleaned {
+                        text: rendered,
+                        usage: drafted.usage,
+                        fallback: None,
+                    }
+                }),
         ),
     };
     let duration_ms = started.elapsed().as_millis();
@@ -303,13 +344,16 @@ mod tests {
         let mut config = Config::default();
         config.llm.cleanup_prompt = "Concis".into();
         config.meetings.summary_prompt = "Court".into();
+        config.meetings.report_prompt = "Exécutif".into();
         let view = build_prompts_view(&config);
         assert_eq!(view.defaults.cleanup, DEFAULT_CLEANUP_PROMPT);
         assert_eq!(view.defaults.command, DEFAULT_COMMAND_PROMPT);
         assert_eq!(view.defaults.summary, DEFAULT_SUMMARY_PROMPT);
         assert_eq!(view.defaults.conference, DEFAULT_CONFERENCE_PROMPT);
+        assert_eq!(view.defaults.report, DEFAULT_REPORT_STYLE_PROMPT);
         assert_eq!(view.cleanup_active, "Concis");
         assert_eq!(view.summary_active, "Court");
+        assert_eq!(view.report_active, "Exécutif");
         assert!(view.command_active.is_empty());
         assert!(view.conference_active.is_empty());
     }
@@ -329,25 +373,42 @@ mod tests {
                 kind: PromptKind::CompteRendu,
                 text: "Fais un résumé court.".into(),
             },
+            PromptPreset {
+                name: "Direction".into(),
+                kind: PromptKind::Rapport,
+                text: "Style direction exécutive.".into(),
+            },
         ];
 
-        let saved = save_prompts_to_disk(&paths, &presets, " Concis ", "", "Synthèse", "").unwrap();
-        assert_eq!(saved.prompts.len(), 2);
+        let saved = save_prompts_to_disk(
+            &paths,
+            &presets,
+            " Concis ",
+            "",
+            "Synthèse",
+            "",
+            "Direction",
+        )
+        .unwrap();
+        assert_eq!(saved.prompts.len(), 3);
         assert_eq!(saved.llm.cleanup_prompt, "Concis");
         assert_eq!(saved.meetings.summary_prompt, "Synthèse");
+        assert_eq!(saved.meetings.report_prompt, "Direction");
 
         let (reloaded, err) = paths.load_config();
         assert!(err.is_none());
         assert_eq!(reloaded.llm.cleanup_prompt, "Concis");
         assert_eq!(reloaded.meetings.summary_prompt, "Synthèse");
+        assert_eq!(reloaded.meetings.report_prompt, "Direction");
 
         // Référence vers un prompt inconnu refusée sans écraser config.toml.
-        assert!(save_prompts_to_disk(&paths, &presets, "Inconnu", "", "", "").is_err());
-        assert!(save_prompts_to_disk(&paths, &presets, "", "", "Inconnu", "").is_err());
+        assert!(save_prompts_to_disk(&paths, &presets, "Inconnu", "", "", "", "").is_err());
+        assert!(save_prompts_to_disk(&paths, &presets, "", "", "Inconnu", "", "").is_err());
+        assert!(save_prompts_to_disk(&paths, &presets, "", "", "", "", "Inconnu").is_err());
 
         // config.toml corrompu : refusé avant écriture.
         fs::write(&paths.config_file, "invalide = = =").unwrap();
-        assert!(save_prompts_to_disk(&paths, &presets, "Concis", "", "", "").is_err());
+        assert!(save_prompts_to_disk(&paths, &presets, "Concis", "", "", "", "").is_err());
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -359,10 +420,15 @@ mod tests {
         assert!(cleanup.command.is_none());
         assert!(cleanup.summary.is_none());
         assert!(cleanup.conference.is_none());
+        assert!(cleanup.report_style.is_none());
 
         let conference = prompts_override(PromptKind::Conference, "B".into());
         assert_eq!(conference.conference.as_deref(), Some("B"));
         assert!(conference.cleanup.is_none());
+
+        let report = prompts_override(PromptKind::Rapport, "C".into());
+        assert_eq!(report.report_style.as_deref(), Some("C"));
+        assert!(report.summary.is_none());
     }
 
     #[test]

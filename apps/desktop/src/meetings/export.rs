@@ -33,6 +33,24 @@ pub(super) fn markdown(record: &MeetingRecord) -> String {
     meeting::export_meeting_text(record, "markdown", &date, DESKTOP_EXPORT).unwrap_or_default()
 }
 
+pub(super) fn report_html(
+    record: &MeetingRecord,
+    app: bool,
+    replay: bool,
+    theme: Option<String>,
+) -> Result<String, String> {
+    let date = meeting_date(record);
+    let options = meeting::HtmlOptions {
+        app,
+        replay: app && replay,
+        theme: theme.filter(|t| t == "light" || t == "dark"),
+        tracks: true,
+    };
+    record
+        .report_html(&date, &options)
+        .ok_or_else(|| "aucun rapport complet rédigé pour cet enregistrement".to_owned())
+}
+
 pub(super) fn select_copy_text(record: &MeetingRecord, part: &str) -> String {
     let date = if part == "summary" || part == "transcript" {
         String::new()
