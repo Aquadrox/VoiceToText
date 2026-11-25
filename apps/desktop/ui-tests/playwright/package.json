@@ -1,0 +1,11 @@
+{
+  "name": "voicetotext-desktop-playwright-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ui.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.52.0"
+  }
+}

@@ -1,6 +1,7 @@
 /target
 *.bin
 /apps/desktop/gen
+node_modules/
 
 # Secrets : ne jamais committer
 .env

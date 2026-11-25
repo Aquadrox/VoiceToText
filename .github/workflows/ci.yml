@@ -80,6 +80,22 @@ jobs:
       - name: Tests interface PC (JS)
         if: steps.changes.outputs.code == 'true'
         run: node --test apps/desktop/ui-tests/*.test.mjs
+      - name: Node.js (Playwright)
+        if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/ui-tests/playwright/package-lock.json
+      - name: Tests interface PC (Playwright)
+        if: steps.changes.outputs.code == 'true'
+        working-directory: apps/desktop/ui-tests/playwright
+        run: |
+          npm ci
+          if [ ! -x /usr/bin/google-chrome ] && [ ! -x /usr/bin/chromium ] && [ ! -x /usr/bin/chromium-browser ]; then
+            npx playwright-core install chromium
+          fi
+          npm test
 
   windows:
     runs-on: windows-latest
@@ -331,7 +347,10 @@ jobs:
         run: cargo clippy -p vtt-android --all-targets -- -D warnings
       - if: steps.changes.outputs.android == 'true'
         run: cargo test -p vtt-android
-      - name: Tests Android (Kotlin)
+      - name: Moteur natif hôte (Robolectric)
+        if: steps.changes.outputs.android == 'true'
+        run: cargo build -p vtt-android
+      - name: Tests Android (Kotlin et Robolectric)
         if: steps.changes.outputs.android == 'true'
         working-directory: apps/android
         run: ./gradlew --no-daemon testClavierDebugUnitTest testBulleDebugUnitTest
