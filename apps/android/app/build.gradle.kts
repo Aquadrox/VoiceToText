@@ -81,6 +81,21 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Moteur Rust compilé pour Linux (`cargo build -p vtt-android`) :
+            // permet aux tests Robolectric de charger `libvtt_android.so` via JNI.
+            val rustDir = File(rootDir, "../../target/debug").canonicalPath
+            val existing = System.getProperty("java.library.path").orEmpty()
+            val libPath = if (existing.isEmpty()) rustDir else "$rustDir${File.pathSeparator}$existing"
+            it.systemProperty("java.library.path", libPath)
+            if (System.getProperty("robolectric.dependency.repo.url").isNullOrEmpty()) {
+                it.systemProperty(
+                    "robolectric.dependency.repo.url",
+                    "https://maven-central.storage-download.googleapis.com/maven2",
+                )
+            }
+        }
     }
 }
 
@@ -93,4 +108,5 @@ kotlin {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

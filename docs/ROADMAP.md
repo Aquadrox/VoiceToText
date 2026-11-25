@@ -590,7 +590,7 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 ### Consolidation technique (suite) ⬜
 
 - ⬜ Découper `crates/vtt-core/src/config.rs` et `apps/desktop/ui/app.css` en modules plus lisibles si nécessaire
-- ⬜ Pérenniser des tests de non-régression UI en CI (#91) : tests Playwright légers sur `apps/desktop/ui` (clair/sombre, réglages, réunions) et tests unitaires / Robolectric committés sur Android
+- ✅ Pérenniser des tests de non-régression UI en CI (#91) : suite Playwright sur `apps/desktop/ui` (`apps/desktop/ui-tests/playwright` : navigation complète clair/sombre à 980×720 et 720×480 sans débordement, 9 sections Réglages et contraste `<select>`, page Réunions + onglet Rapport complet + recherche globale, page Prompts, pastille flottante) et tests Robolectric Android (`UiScreensRobolectricTest.kt` avec vrai moteur `libvtt_android.so` via JNI, éditions `clavier` et `bulle`, clair/sombre, accueil/recherche réglages/réunions/écrans secondaires/clavier), exécutés automatiquement dans les jobs `linux` et `android` de `.github/workflows/ci.yml`
 
 ## Prochaines étapes — Ensuite ⬜
 
