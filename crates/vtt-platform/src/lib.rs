@@ -3,11 +3,14 @@
 
 pub mod audio;
 pub mod capture;
+mod clipboard;
 
 #[cfg(windows)]
 mod autostart_windows;
 #[cfg(windows)]
 pub use autostart_windows::{autostart_enabled, set_autostart};
+#[cfg(windows)]
+mod clipboard_windows;
 #[cfg(windows)]
 mod context_windows;
 #[cfg(windows)]
@@ -40,6 +43,8 @@ pub use windows::{
 mod autostart_linux;
 #[cfg(target_os = "linux")]
 pub use autostart_linux::{autostart_enabled, set_autostart};
+#[cfg(target_os = "linux")]
+mod clipboard_linux;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]

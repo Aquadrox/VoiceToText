@@ -28,6 +28,7 @@ windows = { version = "0.62", features = [
     "Win32_System_DataExchange",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_System_Variant",
@@ -53,6 +54,9 @@ libc = "0.2"
 serde_json.workspace = true
 # Trousseau de la session (KWallet, GNOME Keyring) via D-Bus, en Rust pur.
 secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }
+# Lecture et restauration multi-formats du presse-papier sous Wayland (déjà
+# embarqué par arboard, aucune nouvelle dépendance transitive).
+wl-clipboard-rs = "0.9"
 # Bus D-Bus de la session : contrôle des lecteurs (MPRIS).
 zbus = "5"
 # Protocole X11 en Rust pur : touches (XInput2), frappes simulées (XTest),
