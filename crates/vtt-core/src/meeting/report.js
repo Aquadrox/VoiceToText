@@ -5,7 +5,11 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var doc = $("doc");
-  var app = document.documentElement.dataset.mode === "app" && typeof window.VTT === "object";
+  function bridge() {
+    return document.documentElement.dataset.mode === "app" && typeof window.VTT === "object"
+      ? window.VTT
+      : null;
+  }
 
   // ---- Sommaire ----
   var toggle = $("toc-toggle");
@@ -211,9 +215,10 @@
       return;
     }
     var play = e.target.closest("button.play");
-    if (play && app) {
-      if (play.classList.contains("playing")) window.VTT.stop();
-      else window.VTT.play(Number(play.dataset.ms), Number(play.dataset.end));
+    var vtt = bridge();
+    if (play && vtt) {
+      if (play.classList.contains("playing")) vtt.stop();
+      else vtt.play(Number(play.dataset.ms), Number(play.dataset.end));
     }
   });
 
@@ -227,13 +232,20 @@
     });
   };
 
+  // Recherche déclenchée par l'application (clic sur un résultat global).
+  window.vttSearch = function (query) {
+    input.value = query || "";
+    search();
+  };
+
   // ---- Plan d'action ----
   var doneCount = $("done-count");
   doc.addEventListener("change", function (e) {
     var box = e.target;
     if (!box.matches(".action input[type=checkbox]")) return;
     box.closest(".action").classList.toggle("done", box.checked);
-    if (app) window.VTT.setDone(Number(box.dataset.index), box.checked);
+    var vtt = bridge();
+    if (vtt) vtt.setDone(Number(box.dataset.index), box.checked);
     if (doneCount) {
       var done = doc.querySelectorAll(".action input:checked").length;
       doneCount.textContent = done + " / " + doneCount.dataset.total + " faite(s)";

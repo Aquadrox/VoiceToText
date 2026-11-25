@@ -11,7 +11,7 @@ use vtt_core::usage::Usage;
 use vtt_core::{Cleaned, Directives, Error, PostProcessor};
 
 mod report;
-pub use report::{Drafted, MERGE_PROMPT, REPORT_PROMPT};
+pub use report::{DEFAULT_REPORT_STYLE_PROMPT, Drafted, MERGE_PROMPT, REPORT_PROMPT};
 
 /// Fournit la clé API au moment de l'appel : une clé saisie dans les
 /// réglages est prise en compte sans redémarrer.
@@ -216,6 +216,9 @@ pub struct Prompts {
     pub command: Option<String>,
     pub summary: Option<String>,
     pub conference: Option<String>,
+    /// Consignes éditoriales ajoutées à la rédaction du rapport complet
+    /// (le format JSON reste toujours fixe).
+    pub report_style: Option<String>,
 }
 
 pub struct LlmCleaner {
@@ -234,6 +237,7 @@ pub struct LlmCleaner {
     command_prompt: String,
     summary_prompt: String,
     conference_prompt: String,
+    report_style_prompt: Option<String>,
     /// Dictionnaire perso, rappelé dans les prompts du rapport.
     dictionary: Vec<String>,
     api_key: ApiKeyProvider,
@@ -284,6 +288,12 @@ impl LlmCleaner {
                     .unwrap_or(DEFAULT_CONFERENCE_PROMPT),
                 dictionary,
             ),
+            report_style_prompt: prompts
+                .report_style
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned),
             dictionary: dictionary.to_vec(),
             api_key,
             agent: agent(timeout),
@@ -1207,6 +1217,7 @@ mod tests {
             command: None,
             summary: None,
             conference: None,
+            report_style: None,
         };
         let custom = LlmCleaner::new(
             &config("https://api.deepseek.com"),

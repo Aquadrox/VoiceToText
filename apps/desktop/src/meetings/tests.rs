@@ -302,3 +302,53 @@ fn resolve_enroll_name_prefers_input_then_known_name_and_rejects_empty() {
         "Claire Dupont"
     );
 }
+
+#[test]
+fn search_records_includes_report_and_transcript_hits() {
+    use super::commands::search_records;
+    use super::export::report_html;
+    use vtt_core::meeting::MeetingReport;
+
+    let mut rec = record();
+    rec.segments.push(Segment {
+        track: Track::Moi,
+        start_ms: 15_000,
+        end_ms: 20_000,
+        text: "Le budget marketing est validé.".into(),
+        copied: false,
+        speaker: None,
+    });
+    let mut report = MeetingReport::from_json(
+        &serde_json::json!({
+            "synthese": "Validation du budget marketing pour le trimestre.",
+            "chapitres": [{"titre": "Budget", "debut": "00:00", "resume": "Décision validée."}],
+            "actions": [{"tache": "Finaliser le budget", "responsable": "Julie", "t": "00:15"}]
+        }),
+        60_000,
+    );
+    report.finish(60_000);
+    rec.report = Some(report);
+
+    let dir = temp_meeting_dir("search-report");
+    let hits = search_records(&[rec.clone()], &dir, "budget");
+    assert!(
+        hits.iter()
+            .any(|h| h.source == "report" && h.section == Some("Synthèse"))
+    );
+    assert!(
+        hits.iter()
+            .any(|h| h.source == "report" && h.section == Some("Action"))
+    );
+    assert!(
+        hits.iter()
+            .any(|h| h.source == "transcript" && h.start_ms == Some(15_000))
+    );
+
+    // Rendu HTML interactif (application) et autonome (export).
+    let interactive = report_html(&rec, true, true, Some("dark".into())).unwrap();
+    assert!(interactive.contains("data-mode=\"app\""));
+    assert!(interactive.contains("data-theme=\"dark\""));
+    let standalone = report_html(&rec, false, false, None).unwrap();
+    assert!(!standalone.contains("data-mode=\"app\""));
+    let _ = fs::remove_dir_all(&dir);
+}

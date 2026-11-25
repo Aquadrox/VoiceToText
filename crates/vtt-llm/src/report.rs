@@ -101,6 +101,13 @@ const MERGE_FORMAT: &str = r#"{
   "actions": [{"tache": "…", "responsable": "…", "echeance": "…", "priorite": "…", "t": "mm:ss"}]
 }"#;
 
+/// Consignes éditoriales intégrées pour la rédaction du rapport complet
+/// (personnalisables dans la page Prompts ; le format JSON reste toujours fixe).
+pub const DEFAULT_REPORT_STYLE_PROMPT: &str = "\
+Ton clair, professionnel et factuel. Privilégie des formulations concises et directement \
+actionnables : résumés structurés sans remplissage, décisions formulées nettement, et tâches du \
+plan d'action à l'infinitif.";
+
 /// Rapport rédigé, avant d'être daté et chiffré par l'appelant.
 pub struct Drafted {
     pub report: MeetingReport,
@@ -238,6 +245,10 @@ impl LlmCleaner {
         if !extra.is_empty() {
             system.push_str("\n\n");
             system.push_str(extra);
+        }
+        if let Some(style) = &self.report_style_prompt {
+            system.push_str("\n\nConsignes de style demandées par l'utilisateur (le format JSON et ses clés restent inchangés) :\n");
+            system.push_str(style);
         }
         if let Some(language) = language {
             system.push_str(&format!(
@@ -589,5 +600,37 @@ mod tests {
         assert_eq!(drafted.report.risks.len(), 2);
         // Deux chapitres au même début : réunis.
         assert_eq!(drafted.report.chapters.len(), 1);
+    }
+
+    #[test]
+    fn custom_report_style_is_appended_without_altering_json_schema() {
+        let (url, server) = serve(vec![
+            r#"{"synthese": "Synthèse brève.", "chapitres": [{"titre": "Point 1", "debut": "00:00"}]}"#
+                .into(),
+        ]);
+        let llm = LlmConfig {
+            base_url: url,
+            ..LlmConfig::default()
+        };
+        let prompts = Prompts {
+            report_style: Some("Style direction exécutive très synthétique.".into()),
+            ..Prompts::default()
+        };
+        let custom = LlmCleaner::new(&llm, &[], &prompts, Box::new(|| None));
+        let drafted = custom
+            .report(
+                "Comex",
+                "[00:00] Moi : On valide.\n",
+                60_000,
+                None,
+                false,
+                &mut |_, _| {},
+            )
+            .unwrap();
+        let bodies = server.join().unwrap();
+        let sys = system_message(&bodies[0]);
+        assert!(sys.contains("Style direction exécutive très synthétique."));
+        assert!(sys.contains("\"synthese\""));
+        assert_eq!(drafted.report.synthesis, "Synthèse brève.");
     }
 }

@@ -280,6 +280,67 @@ impl Meetings {
         }
     }
 
+    /// Rapport complet (synthèse, chapitres, analyse, plan d'action) par le
+    /// LLM actif ; remplace le précédent en gardant les actions déjà cochées.
+    pub fn draft_report(&self, id: &str, language: Option<String>) -> Result<(), String> {
+        let (record, _) = self.load(id)?;
+        if record.segments.is_empty() {
+            return Err("transcription vide : rien à analyser".into());
+        }
+        let config = self.config();
+        let cleaner = settings::summarizer(&config)
+            .ok_or("nettoyage LLM désactivé : activez-le dans les réglages")?;
+        let transcript = meeting::transcript_text(&record.segments(), &record.names(), true);
+        let language = language
+            .unwrap_or_else(|| config.meetings.summary_language.clone())
+            .trim()
+            .to_owned();
+        log::info!(
+            "rapport complet de la réunion {id} ({} caractères) via {}",
+            transcript.chars().count(),
+            config.llm.model
+        );
+        let mut on_progress = |done: usize, total: usize| {
+            let _ = self.app.emit(
+                "meeting-report-progress",
+                serde_json::json!({ "id": id, "step": done + 1, "total": total }),
+            );
+        };
+        match cleaner.report(
+            &record.title,
+            &transcript,
+            record.duration_ms,
+            Some(language.as_str()).filter(|l| !l.is_empty()),
+            record.conference_summary(),
+            &mut on_progress,
+        ) {
+            Ok(drafted) => {
+                let pricing = &config.llm.pricing;
+                let cost = drafted.usage.map(|u: Usage| pricing.cost(&u));
+                if let Some(usage) = &drafted.usage {
+                    costs::record(&self.app.state::<LedgerStore>(), None, usage, pricing);
+                }
+                let mut report = drafted.report;
+                report.at_ms = now_ms();
+                report.model = config.llm.model.clone();
+                report.cost = cost;
+                report.currency = pricing.currency.clone();
+                self.update(id, |r| {
+                    if let Some(previous) = &r.report {
+                        report.keep_done(previous);
+                    }
+                    r.report = Some(report);
+                    r.report_error = None;
+                })
+            }
+            Err(e) => {
+                let error = e.to_string();
+                self.update(id, |r| r.report_error = Some(error.clone()))?;
+                Err(error)
+            }
+        }
+    }
+
     /// Distingue les intervenants d'un enregistrement terminé : d'après
     /// l'analyse conservée, ou en relisant l'audio (dans un thread à part).
     pub(super) fn identify(self: &Arc<Self>, id: &str) -> Result<(), String> {

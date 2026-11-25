@@ -247,6 +247,7 @@ pub fn summarizer(config: &Config) -> Option<LlmCleaner> {
     let prompts = Prompts {
         summary: text(PromptKind::CompteRendu, &config.meetings.summary_prompt),
         conference: text(PromptKind::Conference, &config.meetings.conference_prompt),
+        report_style: text(PromptKind::Rapport, &config.meetings.report_prompt),
         ..Prompts::default()
     };
     Some(LlmCleaner::new(

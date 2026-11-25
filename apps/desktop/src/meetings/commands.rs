@@ -13,7 +13,9 @@ use vtt_core::meeting::{
 };
 use vtt_core::voicebook::{VoiceEntryView, VoiceRecognition};
 
-use super::export::{build_ask_context, clip_sample_range, file_name, markdown, select_copy_text};
+use super::export::{
+    build_ask_context, clip_sample_range, file_name, markdown, report_html, select_copy_text,
+};
 use super::storage::voice_source;
 use super::{MeetingState, MeetingsState, lock, now_ms};
 use crate::costs::{self, LedgerStore};
@@ -30,6 +32,7 @@ pub struct MeetingRow {
     status: MeetingStatus,
     segments: usize,
     has_summary: bool,
+    has_report: bool,
     audio_kept: bool,
     kind: MeetingKind,
     progress: Option<u8>,
@@ -79,6 +82,7 @@ pub fn meetings_view(
                 status: record.status,
                 segments: record.segments.len(),
                 has_summary: record.summary.is_some(),
+                has_report: record.report.is_some(),
                 kind: record.kind,
                 progress: record.progress,
                 identifying: record.identifying,
@@ -266,35 +270,62 @@ pub fn import_recording(
     meetings.import(path, output).map(Some)
 }
 
-/// Passage trouvé par la recherche.
-#[derive(Serialize)]
+/// Passage trouvé par la recherche (transcription ou rapport complet).
+#[derive(Debug, Serialize)]
 pub struct SearchResult {
-    id: String,
-    title: String,
-    kind: MeetingKind,
-    started_at_ms: u64,
-    start_ms: u64,
-    parts: vtt_core::search::Parts,
-    replay: bool,
+    pub id: String,
+    pub title: String,
+    pub kind: MeetingKind,
+    pub started_at_ms: u64,
+    pub start_ms: Option<u64>,
+    pub parts: vtt_core::search::Parts,
+    pub replay: bool,
+    /// `"transcript"` ou `"report"`.
+    pub source: &'static str,
+    /// Nom de la partie du rapport (`"Synthèse"`, `"Action"`…), `None` pour une transcription.
+    pub section: Option<&'static str>,
 }
 
 /// Au plus ce nombre de passages trouvés.
 const MAX_RESULTS: usize = 200;
 
-#[tauri::command(async)]
-pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec<SearchResult> {
+pub(super) fn search_records(
+    records: &[MeetingRecord],
+    root_dir: &Path,
+    query: &str,
+) -> Vec<SearchResult> {
     let mut results = Vec::new();
-    for record in meetings.all() {
-        let replay = record.replayable(&meetings.dir.join(&record.id));
-        for hit in vtt_core::search::find(&record.segments(), &query) {
+    for record in records {
+        let replay = record.replayable(&root_dir.join(&record.id));
+        if let Some(report) = &record.report {
+            for hit in vtt_core::search::find_in_report(report, query) {
+                results.push(SearchResult {
+                    id: record.id.clone(),
+                    title: record.title.clone(),
+                    kind: record.kind,
+                    started_at_ms: record.started_at_ms,
+                    start_ms: hit.start_ms,
+                    parts: hit.parts,
+                    replay,
+                    source: "report",
+                    section: Some(hit.section),
+                });
+                if results.len() >= MAX_RESULTS {
+                    return results;
+                }
+            }
+        }
+        for hit in vtt_core::search::find(&record.segments(), query) {
             results.push(SearchResult {
                 id: record.id.clone(),
                 title: record.title.clone(),
                 kind: record.kind,
                 started_at_ms: record.started_at_ms,
-                start_ms: hit.start_ms,
+                start_ms: Some(hit.start_ms),
                 parts: hit.parts,
                 replay,
+                source: "transcript",
+                section: None,
             });
             if results.len() >= MAX_RESULTS {
                 return results;
@@ -302,6 +333,11 @@ pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec
         }
     }
     results
+}
+
+#[tauri::command(async)]
+pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec<SearchResult> {
+    search_records(&meetings.all(), &meetings.dir, &query)
 }
 
 #[derive(Serialize)]
@@ -441,6 +477,45 @@ pub fn summarize_meeting(
     language: Option<String>,
 ) -> Result<(), String> {
     meetings.summarize(&id, language)
+}
+
+#[tauri::command(async)]
+pub fn draft_meeting_report(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    language: Option<String>,
+) -> Result<(), String> {
+    meetings.draft_report(&id, language)
+}
+
+#[tauri::command]
+pub fn meeting_report_html(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    theme: Option<String>,
+) -> Result<String, String> {
+    let (record, dir) = meetings.load(&id)?;
+    report_html(&record, true, record.replayable(&dir), theme)
+}
+
+#[tauri::command]
+pub fn set_meeting_report_action_done(
+    meetings: State<'_, MeetingsState>,
+    id: String,
+    index: usize,
+    done: bool,
+) -> Result<(), String> {
+    let mut found = false;
+    meetings.update(&id, |r| {
+        if let Some(action) = r.report.as_mut().and_then(|rep| rep.actions.get_mut(index)) {
+            action.done = done;
+            found = true;
+        }
+    })?;
+    if !found {
+        return Err("action introuvable dans le rapport".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -654,6 +729,31 @@ pub fn export_meeting(
     Ok(Some(path.display().to_string()))
 }
 
+/// Exporte le rapport complet en fichier HTML autonome (sommaire, recherche,
+/// filtres, sans aucune dépendance externe).
+#[tauri::command(async)]
+pub fn export_meeting_report_html(
+    app: AppHandle,
+    meetings: State<'_, MeetingsState>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (record, _) = meetings.load(&id)?;
+    let html = report_html(&record, false, false, None)?;
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Exporter le rapport complet (HTML)")
+        .add_filter("Page HTML", &["html"])
+        .set_file_name(file_name(&format!("{} - rapport", record.title), "html"))
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    fs::write(&path, html).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
 /// Exporte l'audio conservé d'une piste en WAV (déchiffré).
 #[tauri::command(async)]
 pub fn export_meeting_audio(
@@ -701,8 +801,10 @@ pub fn save_meeting_settings(
     }
     settings.validate()?;
     config.meetings = MeetingsConfig {
-        // Le prompt se choisit dans la page Prompts.
+        // Les prompts se choisissent dans la page Prompts.
         summary_prompt: config.meetings.summary_prompt.clone(),
+        conference_prompt: config.meetings.conference_prompt.clone(),
+        report_prompt: config.meetings.report_prompt.clone(),
         summary_language: settings.summary_language.trim().to_owned(),
         ..settings
     };
