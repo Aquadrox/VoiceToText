@@ -420,6 +420,32 @@ function fillMeetingSettings() {
     showSemantic();
   }
   $("meeting-detect").checked = settings.detect;
+  if ($("meeting-auto-stop")) {
+    const autoStop = settings.auto_stop ?? true;
+    $("meeting-auto-stop").checked = autoStop;
+    const delaySelect = $("meeting-auto-stop-delay");
+    if (delaySelect) {
+      const currentDelay = settings.auto_stop_delay_sec ?? 15;
+      const baseDelays = meetingsView.auto_stop_delays ?? [10, 15, 30, 60];
+      const delays = baseDelays.includes(currentDelay)
+        ? baseDelays
+        : [...baseDelays, currentDelay].sort((a, b) => a - b);
+      delaySelect.replaceChildren(...delays.map((s) => option(String(s), `${s} s`)));
+      delaySelect.value = String(currentDelay);
+      delaySelect.disabled = !autoStop;
+    }
+  }
+  if ($("meeting-auto-stop-silence")) {
+    const currentSilence = settings.auto_stop_silence_min ?? 0;
+    const baseSilence = meetingsView.auto_stop_silence_mins ?? [0, 2, 5, 10, 15];
+    const mins = baseSilence.includes(currentSilence)
+      ? baseSilence
+      : [...baseSilence, currentSilence].sort((a, b) => a - b);
+    $("meeting-auto-stop-silence").replaceChildren(
+      ...mins.map((m) => option(String(m), m === 0 ? "Désactivé" : `${m} min`)),
+    );
+    $("meeting-auto-stop-silence").value = String(currentSilence);
+  }
   const rows = meetingsView.providers.map((provider) => {
     const row = document.createElement("tr");
     const name = document.createElement("th");
@@ -749,6 +775,9 @@ SettingsUI.define("reunions", {
         summary_prompt: "",
         keep_days: Number($("meeting-keep").value),
         detect: $("meeting-detect").checked,
+        auto_stop: $("meeting-auto-stop") ? $("meeting-auto-stop").checked : true,
+        auto_stop_delay_sec: $("meeting-auto-stop-delay") ? Number($("meeting-auto-stop-delay").value) : 15,
+        auto_stop_silence_min: $("meeting-auto-stop-silence") ? Number($("meeting-auto-stop-silence").value) : 0,
         echo_filter: $("meeting-echo").checked,
         summary_language: $("meeting-language").value,
         diarize: $("meeting-diarize").checked,
@@ -771,6 +800,14 @@ SettingsUI.define("reunions", {
     return "✓ Appliqué (l'audio et le son du PC : dès la prochaine réunion).";
   },
 });
+
+if ($("meeting-auto-stop")) {
+  $("meeting-auto-stop").addEventListener("change", () => {
+    if ($("meeting-auto-stop-delay")) {
+      $("meeting-auto-stop-delay").disabled = !$("meeting-auto-stop").checked;
+    }
+  });
+}
 
 /** État des modèles des intervenants (section Réunions des réglages). */
 async function showVoices(view) {
@@ -1183,7 +1220,16 @@ window.__TAURI__.event.listen("meetings", () => {
   clearTimeout(meetingsRefresh);
   meetingsRefresh = setTimeout(showMeetings, 300);
 });
-window.__TAURI__.event.listen("meeting", () => isShown("reunions") && showMeetings());
+window.__TAURI__.event.listen("meeting", (event) => {
+  if (!isShown("reunions")) return;
+  const payload = event?.payload;
+  // Un décompte de fin d'appel ne change pas l'état recording : inutile de recharger la page.
+  if (payload && Boolean(payload.recording) === Boolean(meetingsView?.recording)) return;
+  showMeetings();
+});
+window.__TAURI__.event.listen("meeting-auto-stopped", (event) => {
+  if (isShown("reunions") && event?.payload) showMeetingResult(String(event.payload));
+});
 
 registerPage("reunions", {
   show: async () => {

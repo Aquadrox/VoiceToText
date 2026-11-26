@@ -14,7 +14,7 @@ mod tests;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -104,6 +104,16 @@ pub(super) struct Active {
     pub(super) session: Arc<Session>,
     pub(super) stop: mpsc::Sender<()>,
     pub(super) started: Instant,
+    pub(super) started_at_ms: u64,
+    pub(super) kind: MeetingKind,
+    /// Service d'appel qui a lancé l'enregistrement (`None` si lancé à la main).
+    pub(super) call_provider: Option<&'static Provider>,
+    /// Dernier instant (ms epoch) où du son non silencieux a été capté (micro ou PC).
+    pub(super) last_audio_ms: Arc<AtomicU64>,
+    /// Dernier instant (ms epoch) où le son du PC (« Eux ») était actif.
+    pub(super) last_system_audio_ms: Arc<AtomicU64>,
+    /// Compte à rebours avant arrêt auto (secondes ; 0 : aucun).
+    pub(super) stopping_in_sec: Arc<AtomicU32>,
 }
 
 pub struct Meetings {
@@ -131,6 +141,9 @@ pub struct MeetingState {
     pub(super) consent: bool,
     /// Conférence plutôt que réunion (libellé de la pastille).
     pub(super) conference: bool,
+    /// Secondes restantes avant arrêt automatique de fin d'appel (`None` si aucun).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) stopping_in_sec: Option<u32>,
 }
 
 impl Meetings {
@@ -217,6 +230,10 @@ impl Meetings {
 
     pub fn state(&self) -> MeetingState {
         let active = lock(&self.active);
+        let stopping_in_sec = active
+            .as_ref()
+            .map(|a| a.stopping_in_sec.load(Ordering::Relaxed))
+            .filter(|&s| s > 0);
         MeetingState {
             recording: active.is_some(),
             elapsed_ms: active
@@ -226,6 +243,7 @@ impl Meetings {
             conference: active
                 .as_ref()
                 .is_some_and(|a| lock(&a.session.record).kind == MeetingKind::Conference),
+            stopping_in_sec,
         }
     }
 }

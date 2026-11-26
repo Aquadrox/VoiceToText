@@ -281,7 +281,7 @@ Enregistrer un appel (Teams, Zoom, Meet, Discord…) et en tirer la transcriptio
 3. **Alt+Maj+N** colle dans l'application active ce qui a été dit depuis la dernière copie (« Moi : … / Eux : … »).
 4. **Alt+Maj+M** à nouveau pour arrêter : les derniers blocs sont transcrits, puis le **compte rendu** est rédigé par le LLM choisi (résumé, décisions, actions « qui : quoi », questions ouvertes). Prompt modifiable dans la page **Prompts** (« Compte rendu de réunion »), coût compté dans la consommation.
 
-**Détection d'appel** : quand Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype ou Webex utilise le micro (2 s), ou un navigateur (20 s, pour ne pas confondre avec un message vocal), une petite fenêtre en bas à droite propose **Enregistrer** / **Pas maintenant**, ou **…** → **Toujours enregistrer** / **Ne plus proposer** pour ce service. Sans réponse, elle se referme au bout de 20 s sans rien enregistrer ; le même appel n'est pas reproposé. Seul le nom du programme qui utilise le micro est lu. Choix par service et désactivation dans **Réglages → Réunions**.
+**Détection d'appel (début et fin)** : quand Teams, Zoom, Discord, Slack, WhatsApp, Signal, Telegram, Skype ou Webex utilise le micro (2 s), ou un navigateur (20 s, pour ne pas confondre avec un message vocal), une petite fenêtre en bas à droite propose **Enregistrer** / **Pas maintenant**, ou **…** → **Toujours enregistrer** / **Ne plus proposer** pour ce service. Sans réponse, elle se referme au bout de 20 s (ou aussitôt si l'appel se termine entre-temps) sans rien enregistrer ; le même appel n'est pas reproposé. Pendant une réunion, dès que l'application d'appel libère le micro, la pastille affiche un court délai de grâce (« fin 15 s », annulé si l'appel reprend ou si le son de l'appel parle encore), puis l'enregistrement s'arrête automatiquement (jamais pour les conférences). Pour les réunions en présentiel démarrées à la main, un arrêt après silence prolongé (2 à 15 min, désactivé par défaut) est aussi proposé. Seul le nom du programme qui utilise le micro est lu. Choix par service, délai et désactivation dans **Réglages → Réunions**.
 
 **Écho** (appel sur haut-parleurs, le micro réentend les autres) : les passages du micro qui ne font que suivre le son du PC sont écartés avant transcription, puis les répliques « Moi » qui répètent mot pour mot ce que « Eux » venaient de dire sont masquées. Au casque, rien n'est écarté. Désactivable.
 
@@ -606,6 +606,9 @@ auto_summary = true    # compte rendu par le LLM à la fin
 summary_prompt = ""    # prompt « compte_rendu » (page Prompts) ; "" = intégré
 keep_days = 0          # réunions supprimées au-delà ; 0 = jamais
 detect = true          # proposer d'enregistrer quand un appel commence
+auto_stop = true       # arrêter la réunion quand l'application d'appel libère le micro
+auto_stop_delay_sec = 15    # délai de grâce après fin d'appel (secondes, 5 à 300)
+auto_stop_silence_min = 0   # arrêt après N min de silence (0 = désactivé ; utile en présentiel)
 echo_filter = true     # écarter l'écho (haut-parleurs)
 summary_language = ""  # langue du compte rendu ; "" = celle de la réunion
 diarize = false        # distinguer les intervenants (modèles de 33 Mo téléchargés)

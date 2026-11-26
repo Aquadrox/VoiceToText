@@ -136,3 +136,36 @@ test("overlay affiche l'aperçu glissant uniquement en mode mains libres et l'ef
   assert.equal(preview.hidden, true);
   assert.equal(pill.classList.contains("has-preview"), false);
 });
+
+test("overlay affiche le décompte d'arrêt automatique de réunion puis la notification", async () => {
+  const { env, pill, label } = await setupOverlay();
+
+  // Réunion en cours avec décompte de fin d'appel.
+  env.emitTauri("meeting", {
+    recording: true,
+    conference: false,
+    elapsed_ms: 125_000,
+    consent: false,
+    stopping_in_sec: 12,
+  });
+  assert.equal(pill.dataset.state, "meeting");
+  assert.equal(label.textContent, "Réunion 02:05 · fin 12 s");
+
+  // Reprise d'appel : le décompte disparaît.
+  env.emitTauri("meeting", {
+    recording: true,
+    conference: false,
+    elapsed_ms: 128_000,
+    consent: false,
+    stopping_in_sec: null,
+  });
+  assert.equal(label.textContent, "Réunion 02:08");
+
+  // Arrêt automatique : passage au repos suivi du flash informatif pendant 4 s.
+  env.emitTauri("meeting", { recording: false, conference: false, elapsed_ms: 0, consent: false });
+  env.emitTauri("meeting-auto-stopped", "Fin de l'appel Teams : réunion arrêtée");
+  assert.equal(pill.dataset.state, "info");
+  assert.equal(label.textContent, "Fin de l'appel Teams : réunion arrêtée");
+  env.advanceTime(4000);
+  assert.equal(pill.dataset.state, "idle");
+});

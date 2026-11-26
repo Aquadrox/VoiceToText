@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.46.0 — 2026-11-26
+
+- [PC] Détection automatique de la fin d'une réunion : dès que l'application d'appel (Teams, Zoom, Discord, navigateur…) libère le micro, un court délai de grâce s'affiche dans la pastille (« Réunion 12:34 · fin 15 s ») pour tolérer une reconnexion ou un changement de micro, puis l'enregistrement s'arrête tout seul et lance la fin de la transcription et le compte rendu (activé par défaut ; réglable dans Réglages → Réunions, ne s'applique pas aux conférences).
+- [PC] Option d'arrêt après silence prolongé (2 à 15 min, désactivée par défaut) pour les réunions en présentiel démarrées à la main, et fermeture automatique de la fenêtre « Appel détecté » si l'appel se termine avant votre réponse.
+
 ## 0.45.0 — 2026-11-26
 
 - [PC] Floutage rapide de zones sensibles en capture commentée : pendant que vous tenez le raccourci pour dessiner, faites un clic gauche glissé pour masquer une zone (clés API, adresses mail, données personnelles) sur toutes les images capturées ; clic droit pour annuler la dernière zone.

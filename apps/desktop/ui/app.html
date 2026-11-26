@@ -858,6 +858,24 @@
                     Navigateurs : proposé après 20 s de micro (pas pour un message vocal). Sans
                     réponse, la proposition se referme au bout de 20 s sans rien enregistrer.
                   </p>
+                  <label class="option field">
+                    <input id="meeting-auto-stop" type="checkbox" />
+                    <span><strong>Arrêter automatiquement à la fin de l'appel</strong><small>Surveille le micro de l'application d'appel (Teams, Zoom, navigateur…) et arrête la réunion après un court délai de grâce pour tolérer une reconnexion. Ne s'applique pas aux conférences.</small></span>
+                  </label>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="meeting-auto-stop-delay">Délai après fin d'appel</label>
+                      <select id="meeting-auto-stop-delay"></select>
+                    </div>
+                    <div class="field">
+                      <label for="meeting-auto-stop-silence">Arrêt après silence prolongé</label>
+                      <select id="meeting-auto-stop-silence"></select>
+                    </div>
+                  </div>
+                  <p class="hint">
+                    L'arrêt après silence prolongé est utile pour les réunions en présentiel
+                    démarrées à la main (sans application d'appel).
+                  </p>
                 </div>
 
                 <div class="group">

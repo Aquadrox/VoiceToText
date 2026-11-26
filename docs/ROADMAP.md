@@ -614,6 +614,22 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 - ✅ Fenêtre rapide de floutage sur la planche (`review.html` / `review.js` / `review.css`) : ouverte avant collage et avant tout envoi d'images au LLM vision si `captures.review_before_paste` est activé (Réglages → Capture commentée), et accessible à tout moment via **Flouter la dernière capture commentée…** dans le menu de l'icône (`0.45.0`)
 - ⬜ À vérifier sur le terrain : tracé en direct sur écran HiDPI et fenêtre de révision avant envoi au LLM vision sur Windows et Linux
 
+### Réunions : détection automatique de la fin d'un enregistrement ✅
+
+- ✅ Cœur `vtt-core::calls` (`EndDetector`, `EndStatus`, `StopReason`, `Detector::unsnooze`) et configuration `meetings.auto_stop` (activé par défaut), `meetings.auto_stop_delay_sec` (15 s par défaut, 5 à 300 s) et `meetings.auto_stop_silence_min` (0 = désactivé par défaut, 2 à 15 min) : suivi de l'application d'appel d'origine ou rattachement automatique sur une réunion démarrée à la main, délai de grâce annulé sur reconnexion ou changement de micro, rallonge bornée (`2×`) tant que le son du PC (`Eux`) parle encore, garde contre la mise en veille, et arrêt optionnel après silence prolongé (jamais appliqué aux conférences)
+- ✅ Bureau (`apps/desktop`) : suivi de l'activité audio micro/PC dans `meetings/capture.rs`, décompte en direct dans la pastille flottante (`Réunion 12:34 · fin 15 s`), notification et note dans la fiche à l'arrêt automatique, réarmement immédiat de `Detector` pour l'appel suivant, fermeture automatique de la fenêtre « Appel détecté » si l'appel raccroche avant réponse, réglages dans **Réglages → Réunions → Détection d'appel** et tests Rust + UI JS + Playwright (`0.46.0`)
+- ⬜ À vérifier sur le terrain : raccrochage Teams / Zoom / Discord / Google Meet (navigateur) sur Windows et Linux, changement de micro pendant l'appel et enchaînement rapide de deux appels
+
+### Améliorations de la reconnaissance vocale (ASR) ⬜
+
+Pistes prioritaires retenues pour améliorer la fiabilité, la qualité audio et la portée du vocabulaire en reconnaissance vocale locale :
+
+- ⬜ **VAD neuronal local (Silero VAD ONNX)** : remplacer / compléter la détection de silence par simple seuil RMS en réutilisant ONNX Runtime déjà présent (modèle ~2 Mo, sans nouvelle dépendance) pour ignorer bruits ambiants, ventilateur, clavier et toux, réduire les hallucinations sur bruit de fond, rogner proprement début/fin des dictées, obtenir des coupures de tranches plus nettes (mains libres, insertion au fil de la dictée, réunions) et proposer en option l'arrêt automatique après silence en mode mains libres
+- ⬜ **Prétraitement audio du micro** : filtre passe-haut (~80 Hz) et normalisation douce de gain (AGC) en pur Rust avant l'ASR pour les micros faibles ou éloignés, avec débruitage neuronal léger optionnel (RNNoise / ONNX) pour les environnements bruyants
+- ⬜ **Vocabulaire universel et corrections phonétiques / floues (« entendu → écrit »)** : appliquer le dictionnaire personnel et une table de remplacements phonétiques/flous juste après la transcription afin que **Parakeet**, **Vosk** et le **mode sans LLM** profitent de la même précision sur les noms propres, sigles et jargon que Whisper + LLM
+- ⬜ **Modèles ASR locaux spécialisés français** : proposer dans le catalogue des variantes optimisées pour le français (ex. `whisper-large-v3-french-distil` au format GGUF vérifié SHA-256), plus rapides et plus fidèles en français courant et technique
+- ⬜ *(Voir aussi au backlog ci-dessous : bascule rapide / détection automatique de langue FR ↔ EN, délégation ASR Android → PC sur le Wi-Fi local, ASR cloud en option)*
+
 ## Backlog (plus tard)
 
 - Installeur signé (certificat de signature de code) : plus d'avertissement SmartScreen. Reporté tant que l'application n'a pas d'utilisateurs : les certificats sont payants, et SignPath Foundation (gratuit) exige un logiciel déjà diffusé et utilisé. Avertissement non bloquant en attendant (« Informations complémentaires » → « Exécuter quand même »).
