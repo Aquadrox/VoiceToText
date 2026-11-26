@@ -1,6 +1,7 @@
 // Encre de la capture commentée : pendant que le raccourci est tenu, la
-// souris dessine (sans clic). Les traits s'effacent à l'écran mais sont
-// envoyés à l'application, qui les dessine sur les captures.
+// souris dessine (sans clic) ; un clic-glisser gauche trace une zone sensible
+// à flouter / masquer (appliquée à toutes les images avant collage ou envoi
+// au LLM vision). Un clic droit retire la dernière zone masquée.
 const canvas = document.getElementById("ink");
 const context = canvas.getContext("2d");
 const INK = "rgb(230, 30, 60)";
@@ -10,6 +11,10 @@ const FADE_MS = 650;
 let strokes = [];
 let current = null;
 let drawing = false;
+/** Zones floutées validées pendant cette capture : [[x, y, w, h], …]. */
+let redactions = [];
+/** Zone floutée en cours de tracé : { start: [x, y], end: [x, y] } ou null. */
+let activeRedact = null;
 /** Tracé de la zone à capturer : { start: [x, y], end: [x, y] } ou null. */
 let zone = null;
 let choosingZone = false;
@@ -30,6 +35,22 @@ function finishStroke() {
   current.endedAt = performance.now();
   window.__TAURI__.core.invoke("annotate_stroke", { points: current.points }).catch(() => {});
   current = null;
+}
+
+function rectFromDrag(drag) {
+  const [x0, y0] = drag.start;
+  const [x1, y1] = drag.end;
+  return [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)];
+}
+
+function finishRedaction() {
+  if (!activeRedact) return;
+  const rect = rectFromDrag(activeRedact);
+  activeRedact = null;
+  if (rect[2] >= 6 && rect[3] >= 6) {
+    redactions.push(rect);
+    window.__TAURI__.core.invoke("annotate_redact", { rect }).catch(() => {});
+  }
 }
 
 // Zone : glisser pour tracer le rectangle ; Échap : tout l'écran.
@@ -53,14 +74,39 @@ window.__TAURI__.core
   .catch(() => {});
 
 document.addEventListener("mousedown", (event) => {
-  if (choosingZone) zone = { start: [event.clientX, event.clientY], end: [event.clientX, event.clientY] };
+  if (choosingZone) {
+    zone = { start: [event.clientX, event.clientY], end: [event.clientX, event.clientY] };
+    return;
+  }
+  if (drawing && event.button === 0) {
+    // Bascule proprement du trait libre vers le rectangle de floutage.
+    if (current) {
+      if (current.points.length < 5) {
+        strokes = strokes.filter((s) => s !== current);
+        current = null;
+      } else {
+        finishStroke();
+      }
+    }
+    activeRedact = { start: [event.clientX, event.clientY], end: [event.clientX, event.clientY] };
+  }
 });
 
 document.addEventListener("mouseup", () => {
-  if (!choosingZone || !zone) return;
-  const [x0, y0] = zone.start;
-  const [x1, y1] = zone.end;
-  endZone([Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]);
+  if (choosingZone && zone) {
+    endZone(rectFromDrag(zone));
+    return;
+  }
+  if (activeRedact) finishRedaction();
+});
+
+document.addEventListener("contextmenu", (event) => {
+  if (!drawing) return;
+  event.preventDefault();
+  if (redactions.length > 0) {
+    redactions.pop();
+    window.__TAURI__.core.invoke("annotate_undo_redact").catch(() => {});
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -70,11 +116,18 @@ document.addEventListener("keydown", (event) => {
 window.__TAURI__.event.listen("ink-draw", (event) => {
   drawing = Boolean(event.payload);
   document.body.classList.toggle("drawing", drawing);
-  if (!drawing) finishStroke();
+  if (!drawing) {
+    finishRedaction();
+    finishStroke();
+  }
 });
 
 document.addEventListener("mousemove", (event) => {
   if (choosingZone && zone) zone.end = [event.clientX, event.clientY];
+  if (activeRedact) {
+    activeRedact.end = [event.clientX, event.clientY];
+    return;
+  }
   if (!drawing) return;
   if (!current) {
     current = { points: [], endedAt: null };
@@ -83,8 +136,30 @@ document.addEventListener("mousemove", (event) => {
   current.points.push([event.clientX, event.clientY]);
 });
 
+function drawRedactBox([x, y, w, h], preview) {
+  context.save();
+  context.fillStyle = preview ? "rgba(24, 29, 39, 0.42)" : "rgba(24, 29, 39, 0.62)";
+  context.fillRect(x, y, w, h);
+  context.strokeStyle = preview ? INK : "rgba(255, 255, 255, 0.85)";
+  context.lineWidth = 2;
+  context.setLineDash([6, 4]);
+  context.strokeRect(x, y, w, h);
+  if (!preview && w >= 54 && h >= 22) {
+    context.setLineDash([]);
+    context.fillStyle = "rgba(255, 255, 255, 0.92)";
+    context.font = "600 12px 'Segoe UI', system-ui, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("Flouté", x + w / 2, y + h / 2);
+  }
+  context.restore();
+}
+
 function render(now) {
   context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  for (const rect of redactions) drawRedactBox(rect, false);
+  if (activeRedact) drawRedactBox(rectFromDrag(activeRedact), true);
+
   strokes = strokes.filter((s) => s.endedAt === null || now - s.endedAt < HOLD_MS + FADE_MS);
   context.lineCap = "round";
   context.lineJoin = "round";
@@ -101,14 +176,28 @@ function render(now) {
     context.stroke();
   }
   context.globalAlpha = 1;
+  if (drawing && !choosingZone) {
+    const label = "Bouger : dessiner · Clic gauche glissé : flouter · Clic droit : annuler";
+    context.save();
+    context.font = "600 13px 'Segoe UI', system-ui, sans-serif";
+    const width = context.measureText(label).width + 28;
+    const x = (window.innerWidth - width) / 2;
+    context.fillStyle = "rgba(24, 29, 39, 0.85)";
+    context.beginPath();
+    context.roundRect(x, 16, width, 30, 15);
+    context.fill();
+    context.fillStyle = "white";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(label, window.innerWidth / 2, 31);
+    context.restore();
+  }
   if (choosingZone) {
     // Écran voilé, zone tracée en clair.
     context.fillStyle = "rgba(0, 0, 0, 0.35)";
     context.fillRect(0, 0, window.innerWidth, window.innerHeight);
     if (zone) {
-      const [x0, y0] = zone.start;
-      const [x1, y1] = zone.end;
-      const [x, y, w, h] = [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)];
+      const [x, y, w, h] = rectFromDrag(zone);
       context.clearRect(x, y, w, h);
       context.strokeStyle = INK;
       context.lineWidth = 2;

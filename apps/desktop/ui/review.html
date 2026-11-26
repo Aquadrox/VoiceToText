@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoiceToText : flouter avant collage</title>
+    <link rel="stylesheet" href="review.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title-block">
+        <h1>Flouter les zones sensibles</h1>
+        <p id="review-hint" class="hint">
+          Tracez un rectangle sur une image pour masquer clés API, adresses mail ou données personnelles.
+        </p>
+      </div>
+      <div class="toolbar">
+        <div class="segmented" role="group" aria-label="Style de masquage">
+          <button type="button" data-style="flou" aria-pressed="true">Flou</button>
+          <button type="button" data-style="pixel" aria-pressed="false">Pixelliser</button>
+          <button type="button" data-style="plein" aria-pressed="false">Bandeau noir</button>
+        </div>
+        <button id="review-undo" type="button" disabled>Annuler le dernier</button>
+        <button id="review-clear" type="button" disabled>Tout effacer</button>
+        <span id="review-count" class="count">0 zone</span>
+      </div>
+    </header>
+
+    <div id="review-vision-banner" class="banner" hidden>
+      Aucune image n'a encore été envoyée au LLM vision : masquez ce qui est confidentiel avant de valider.
+    </div>
+
+    <main id="review-list" class="list" aria-label="Images capturées"></main>
+    <p id="review-error" class="error" hidden></p>
+
+    <footer class="bottombar">
+      <span class="shortcuts">Ctrl+Z : annuler · Entrée : valider · Échap : fermer sans coller</span>
+      <div class="actions">
+        <button id="review-cancel" type="button">Annuler</button>
+        <button id="review-apply" type="button" class="primary">Valider et coller</button>
+      </div>
+    </footer>
+
+    <script src="review.js"></script>
+  </body>
+</html>

@@ -132,7 +132,7 @@ function setAnnotate(state) {
   if (lastStatus.state !== "idle") return;
   if (starting && state.shortcut) {
     showIdle();
-    flash(`Tenir ${state.shortcut} : dessiner`, "info", 3000);
+    flash(`Tenir ${state.shortcut} : dessiner / flouter`, "info", 3000);
   } else {
     clearTimeout(errorTimer);
     showIdle();

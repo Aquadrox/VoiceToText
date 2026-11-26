@@ -382,6 +382,8 @@ export function defaultMockData() {
         clicks: true,
         vision: false,
         vision_profile: "",
+        review_before_paste: false,
+        redact_style: "flou",
       },
       autostart: false,
       microphones: ["Micro par défaut"],
@@ -397,11 +399,24 @@ export function defaultMockData() {
       capture_templates: [["explication", "Explication"]],
       wayland: false,
       platform: "linux",
-      version: "0.43.0",
+      version: "0.45.0",
     },
     current_status: { state: "idle" },
     meeting_state: { recording: false, elapsed_ms: 0 },
     annotate_state: { recording: false, elapsed_ms: 0 },
+    annotate_review_view: {
+      images: [
+        {
+          width: 320,
+          height: 180,
+          data_url:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+        },
+      ],
+      style: "flou",
+      vision_enabled: true,
+      is_reedit: false,
+    },
     translation_state: null,
     settings_view: {
       llm: {

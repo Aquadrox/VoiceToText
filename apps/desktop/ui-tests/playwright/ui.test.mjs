@@ -240,4 +240,54 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await context.close();
     }
   });
+
+  it("floute une zone sensible dans review.html avant envoi au LLM vision et collage", async () => {
+    const { context, page, errors } = await openUiPage(browser, server.baseUrl, {
+      pagePath: "/review.html",
+      viewport: { width: 900, height: 680 },
+    });
+    try {
+      await page.waitForSelector("#review-list canvas");
+      assert.equal(await page.locator("#review-vision-banner").isVisible(), true);
+      assert.match(await page.locator("#review-apply").textContent(), /envoyer au LLM/);
+
+      const canvas = page.locator("#review-list canvas").first();
+      const box = await canvas.boundingBox();
+      assert.ok(box && box.width > 50 && box.height > 30);
+
+      // Trace une première zone (style par défaut « flou »).
+      await page.mouse.move(box.x + 20, box.y + 20);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 120, box.y + 80);
+      await page.mouse.up();
+      assert.equal(await page.locator("#review-count").textContent(), "1 zone");
+
+      // Passe en style « plein », trace une seconde zone puis annule la dernière.
+      await page.locator('[data-style="plein"]').click();
+      await page.mouse.move(box.x + 140, box.y + 30);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 220, box.y + 90);
+      await page.mouse.up();
+      assert.equal(await page.locator("#review-count").textContent(), "2 zones");
+
+      await page.locator("#review-undo").click();
+      assert.equal(await page.locator("#review-count").textContent(), "1 zone");
+
+      await page.locator("#review-apply").click();
+      await page.waitForTimeout(60);
+
+      const calls = await page.evaluate(() => window.__VTT_CALLS__);
+      const applyCall = calls.find((c) => c.cmd === "annotate_review_apply");
+      assert.ok(applyCall, "annotate_review_apply doit être appelé");
+      assert.equal(applyCall.args.redactions.length, 1);
+      assert.equal(applyCall.args.redactions[0].image_index, 0);
+      assert.equal(applyCall.args.redactions[0].style, "flou");
+      assert.ok(applyCall.args.redactions[0].width > 10);
+      assert.ok(applyCall.args.redactions[0].height > 10);
+
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
 });

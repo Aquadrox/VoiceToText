@@ -137,6 +137,12 @@ pub fn validate_captures(captures: &CapturesConfig) -> Result<(), String> {
     if !CAPTURE_AREAS.contains(&captures.area.as_str()) {
         return Err(format!("zone de capture inconnue : {}", captures.area));
     }
+    if !vtt_core::config::CAPTURE_REDACT_STYLES.contains(&captures.redact_style.as_str()) {
+        return Err(format!(
+            "style de floutage inconnu : {}",
+            captures.redact_style
+        ));
+    }
     Ok(())
 }
 

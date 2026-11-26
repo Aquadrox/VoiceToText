@@ -134,6 +134,258 @@ impl Region {
     pub fn local(&self, (x, y): (f32, f32)) -> (f32, f32) {
         (x - self.x as f32, y - self.y as f32)
     }
+
+    /// Rectangle de masquage en coordonnées écran ramené dans la zone ;
+    /// `None` s'il ne recoupe pas la zone.
+    pub fn local_rect(&self, r: &Redaction) -> Option<Redaction> {
+        let rx0 = self.x;
+        let ry0 = self.y;
+        let rx1 = self.x.saturating_add(self.width);
+        let ry1 = self.y.saturating_add(self.height);
+        let x0 = r.x.max(rx0);
+        let y0 = r.y.max(ry0);
+        let x1 = r.x.saturating_add(r.width).min(rx1);
+        let y1 = r.y.saturating_add(r.height).min(ry1);
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+        Some(Redaction {
+            x: x0 - rx0,
+            y: y0 - ry0,
+            width: x1 - x0,
+            height: y1 - y0,
+            style: r.style,
+        })
+    }
+}
+
+/// Style de masquage d'une zone sensible (clés API, mails, données perso).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RedactStyle {
+    /// Flou fort irréversible (sous-échantillonnage + 3 passes de flou).
+    #[default]
+    #[serde(alias = "flou")]
+    Blur,
+    /// Mosaïque grossière (blocs moyens).
+    #[serde(alias = "pixel")]
+    Pixel,
+    /// Bandeau opaque couleur encre (zéro information résiduelle).
+    #[serde(alias = "plein")]
+    Solid,
+}
+
+impl RedactStyle {
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "pixel" | "pixelliser" => Self::Pixel,
+            "plein" | "solid" | "noir" => Self::Solid,
+            _ => Self::Blur,
+        }
+    }
+}
+
+/// Zone sensible à masquer sur une capture, en pixels de l'image ou de l'écran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Redaction {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub style: RedactStyle,
+}
+
+/// Couleur du bandeau opaque (encre de l'identité VoiceToText).
+const REDACT_SOLID: [u8; 4] = [24, 29, 39, 255];
+
+/// Applique les zones de masquage sur `image` avant annotation, enregistrement,
+/// collage ou envoi au LLM vision. Bornée strictement à chaque rectangle.
+pub fn apply_redactions(image: &mut Image, redactions: &[Redaction]) {
+    if image.width == 0 || image.height == 0 {
+        return;
+    }
+    for r in redactions {
+        let x0 = r.x.min(image.width);
+        let y0 = r.y.min(image.height);
+        let x1 = r.x.saturating_add(r.width).min(image.width);
+        let y1 = r.y.saturating_add(r.height).min(image.height);
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        match r.style {
+            RedactStyle::Solid => {
+                image.fill_rect(
+                    i64::from(x0),
+                    i64::from(y0),
+                    i64::from(x1 - x0),
+                    i64::from(y1 - y0),
+                    REDACT_SOLID,
+                );
+            }
+            RedactStyle::Pixel => pixelate_rect(image, x0, y0, x1, y1),
+            RedactStyle::Blur => blur_rect(image, x0, y0, x1, y1),
+        }
+    }
+}
+
+fn pixelate_rect(image: &mut Image, x0: u32, y0: u32, x1: u32, y1: u32) {
+    let w = x1 - x0;
+    let h = y1 - y0;
+    let block = (w.min(h) / 4).clamp(10, 24);
+    let mut by = y0;
+    while by < y1 {
+        let by1 = (by + block).min(y1);
+        let mut bx = x0;
+        while bx < x1 {
+            let bx1 = (bx + block).min(x1);
+            let mut sum = [0u64; 4];
+            let mut count = 0u64;
+            for y in by..by1 {
+                for x in bx..bx1 {
+                    let px = image.get(x, y);
+                    for c in 0..4 {
+                        sum[c] += u64::from(px[c]);
+                    }
+                    count += 1;
+                }
+            }
+            let avg = sum.map(|s| (s / count.max(1)) as u8);
+            for y in by..by1 {
+                for x in bx..bx1 {
+                    image.put(i64::from(x), i64::from(y), avg);
+                }
+            }
+            bx = bx1;
+        }
+        by = by1;
+    }
+}
+
+/// Flou fort irréversible : d'abord une moyenne par gros blocs (détruit les
+/// glyphes fins), puis 3 passes de flou séparable (approximation gaussienne)
+/// strictement confinées au rectangle `[x0..x1, y0..y1]`.
+fn blur_rect(image: &mut Image, x0: u32, y0: u32, x1: u32, y1: u32) {
+    let w = (x1 - x0) as usize;
+    let h = (y1 - y0) as usize;
+    // Pré-moyennage grossier pour empêcher toute reconstruction de caractères.
+    let cell = (w.min(h) / 6).clamp(6, 14) as u32;
+    let mut by = y0;
+    while by < y1 {
+        let by1 = (by + cell).min(y1);
+        let mut bx = x0;
+        while bx < x1 {
+            let bx1 = (bx + cell).min(x1);
+            let mut sum = [0u64; 4];
+            let mut count = 0u64;
+            for y in by..by1 {
+                for x in bx..bx1 {
+                    let px = image.get(x, y);
+                    for c in 0..4 {
+                        sum[c] += u64::from(px[c]);
+                    }
+                    count += 1;
+                }
+            }
+            let avg = sum.map(|s| (s / count.max(1)) as u8);
+            for y in by..by1 {
+                for x in bx..bx1 {
+                    image.put(i64::from(x), i64::from(y), avg);
+                }
+            }
+            bx = bx1;
+        }
+        by = by1;
+    }
+
+    let radius = (w.min(h) / 4).clamp(6, 18);
+    let mut buf = vec![[0u8; 4]; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            buf[y * w + x] = image.get(x0 + x as u32, y0 + y as u32);
+        }
+    }
+    let mut tmp = vec![[0u8; 4]; w * h];
+
+    for _ in 0..3 {
+        // Passe horizontale.
+        for y in 0..h {
+            let row = y * w;
+            let mut sum = [0u32; 4];
+            let first = buf[row];
+            let last = buf[row + w - 1];
+            for dx in -(radius as isize)..=(radius as isize) {
+                let px = if dx < 0 {
+                    first
+                } else if (dx as usize) >= w {
+                    last
+                } else {
+                    buf[row + dx as usize]
+                };
+                for c in 0..4 {
+                    sum[c] += u32::from(px[c]);
+                }
+            }
+            let span = (2 * radius + 1) as u32;
+            for x in 0..w {
+                tmp[row + x] = sum.map(|s| (s / span) as u8);
+                let out_x = x as isize - radius as isize;
+                let in_x = x + radius + 1;
+                let out_px = if out_x < 0 {
+                    first
+                } else {
+                    buf[row + out_x as usize]
+                };
+                let in_px = if in_x >= w { last } else { buf[row + in_x] };
+                for c in 0..4 {
+                    sum[c] = sum[c] + u32::from(in_px[c]) - u32::from(out_px[c]);
+                }
+            }
+        }
+        // Passe verticale.
+        for x in 0..w {
+            let mut sum = [0u32; 4];
+            let first = tmp[x];
+            let last = tmp[(h - 1) * w + x];
+            for dy in -(radius as isize)..=(radius as isize) {
+                let px = if dy < 0 {
+                    first
+                } else if (dy as usize) >= h {
+                    last
+                } else {
+                    tmp[dy as usize * w + x]
+                };
+                for c in 0..4 {
+                    sum[c] += u32::from(px[c]);
+                }
+            }
+            let span = (2 * radius + 1) as u32;
+            for y in 0..h {
+                buf[y * w + x] = sum.map(|s| (s / span) as u8);
+                let out_y = y as isize - radius as isize;
+                let in_y = y + radius + 1;
+                let out_px = if out_y < 0 {
+                    first
+                } else {
+                    tmp[out_y as usize * w + x]
+                };
+                let in_px = if in_y >= h { last } else { tmp[in_y * w + x] };
+                for c in 0..4 {
+                    sum[c] = sum[c] + u32::from(in_px[c]) - u32::from(out_px[c]);
+                }
+            }
+        }
+    }
+
+    for y in 0..h {
+        for x in 0..w {
+            image.put(
+                i64::from(x0 + x as u32),
+                i64::from(y0 + y as u32),
+                buf[y * w + x],
+            );
+        }
+    }
 }
 
 /// Clic pendant la capture, en pixels de l'écran.
@@ -470,5 +722,122 @@ mod tests {
         assert_eq!((clipped.width, clipped.height), (20, 10));
         let single = contact_sheet(&[Image::new(800, 600, [1, 2, 3, 255])]).unwrap();
         assert_eq!(single.width, 800 + 24);
+    }
+
+    #[test]
+    fn redactions_blur_pixel_solid_preserve_outside_and_destroy_inside() {
+        // Damier noir/blanc très contrasté (simule du texte fin / clé API).
+        let mut base = Image::new(80, 60, [255, 255, 255, 255]);
+        for y in 0..60u32 {
+            for x in 0..80u32 {
+                if (x + y) % 2 == 0 {
+                    base.put(i64::from(x), i64::from(y), [0, 0, 0, 255]);
+                }
+            }
+        }
+
+        // 1. Masque plein : couleur encre exacte dedans, damier intact dehors.
+        let mut solid = base.clone();
+        apply_redactions(
+            &mut solid,
+            &[Redaction {
+                x: 10,
+                y: 10,
+                width: 40,
+                height: 30,
+                style: RedactStyle::Solid,
+            }],
+        );
+        assert_eq!(solid.get(25, 25), REDACT_SOLID);
+        assert_eq!(solid.get(9, 10), base.get(9, 10));
+        assert_eq!(solid.get(50, 25), base.get(50, 25));
+
+        // 2. Pixellisation : chaque bloc moyen tourne autour de 127 (plus de noir pur ni blanc pur).
+        let mut pixel = base.clone();
+        apply_redactions(
+            &mut pixel,
+            &[Redaction {
+                x: 10,
+                y: 10,
+                width: 40,
+                height: 30,
+                style: RedactStyle::Pixel,
+            }],
+        );
+        let p = pixel.get(25, 25)[0];
+        assert!((110..=145).contains(&p), "moyenne attendue ~127, reçu {p}");
+        assert_eq!(pixel.get(5, 5), base.get(5, 5));
+
+        // 3. Flou fort : les contrastes fins disparaissent complètement à l'intérieur.
+        let mut blur = base.clone();
+        apply_redactions(
+            &mut blur,
+            &[Redaction {
+                x: 10,
+                y: 10,
+                width: 40,
+                height: 30,
+                style: RedactStyle::Blur,
+            }],
+        );
+        let b = blur.get(25, 25)[0];
+        assert!((110..=145).contains(&b), "flou attendu ~127, reçu {b}");
+        assert_eq!(blur.get(0, 0), base.get(0, 0));
+        assert_eq!(blur.get(79, 59), base.get(79, 59));
+
+        // 4. Rectangles hors cadre / vides ignorés sans panique.
+        apply_redactions(
+            &mut blur,
+            &[
+                Redaction {
+                    x: 200,
+                    y: 200,
+                    width: 20,
+                    height: 20,
+                    style: RedactStyle::Blur,
+                },
+                Redaction {
+                    x: 10,
+                    y: 10,
+                    width: 0,
+                    height: 20,
+                    style: RedactStyle::Solid,
+                },
+            ],
+        );
+
+        // 5. Region::local_rect : translation et découpage propre.
+        let region = Region {
+            x: 100,
+            y: 50,
+            width: 200,
+            height: 100,
+        };
+        assert_eq!(
+            region.local_rect(&Redaction {
+                x: 80,
+                y: 60,
+                width: 50,
+                height: 40,
+                style: RedactStyle::Pixel,
+            }),
+            Some(Redaction {
+                x: 0,
+                y: 10,
+                width: 30,
+                height: 40,
+                style: RedactStyle::Pixel,
+            })
+        );
+        assert_eq!(
+            region.local_rect(&Redaction {
+                x: 0,
+                y: 0,
+                width: 50,
+                height: 50,
+                style: RedactStyle::Blur,
+            }),
+            None
+        );
     }
 }
