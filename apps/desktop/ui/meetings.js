@@ -415,6 +415,10 @@ function fillMeetingSettings() {
   $("meeting-echo").checked = settings.echo_filter;
   $("meeting-diarize").checked = settings.diarize;
   showVoices();
+  if ($("meeting-semantic")) {
+    $("meeting-semantic").checked = Boolean(settings.semantic_search);
+    showSemantic();
+  }
   $("meeting-detect").checked = settings.detect;
   const rows = meetingsView.providers.map((provider) => {
     const row = document.createElement("tr");
@@ -522,6 +526,15 @@ async function runSearch() {
       where.textContent =
         `${result.title} · ${meetingDateFormat.format(new Date(result.started_at_ms))} · ${clock(result.start_ms ?? 0)}`;
     }
+    if (result.match_kind === "semantic" || result.match_kind === "hybrid") {
+      const badge = document.createElement("span");
+      badge.className = `search-badge ${result.match_kind}`;
+      badge.textContent = result.match_kind === "hybrid" ? "Exact + sens" : "Sens proche";
+      if (typeof result.semantic_score === "number") {
+        badge.title = `Similarité sémantique : ${Math.round(result.semantic_score * 100)} %`;
+      }
+      where.append(badge);
+    }
     const text = document.createElement("span");
     for (const [part, marked] of result.parts) {
       if (marked) {
@@ -570,8 +583,9 @@ $("ask-send").addEventListener("click", async () => {
       question,
       id: $("ask-scope").value === "one" ? selectedMeeting : null,
     });
+    const sem = result.semantic ? " · recherche sémantique" : "";
     const cost = result.cost != null ? ` · ${formatCost(result.cost, result.currency)}` : "";
-    answer.textContent = `${result.text}\n\n(${result.sources} enregistrement(s) consulté(s)${cost})`;
+    answer.textContent = `${result.text}\n\n(${result.sources} enregistrement(s) consulté(s)${sem}${cost})`;
   } catch (e) {
     answer.classList.add("error");
     answer.textContent = String(e);
@@ -738,6 +752,7 @@ SettingsUI.define("reunions", {
         echo_filter: $("meeting-echo").checked,
         summary_language: $("meeting-language").value,
         diarize: $("meeting-diarize").checked,
+        semantic_search: $("meeting-semantic") ? $("meeting-semantic").checked : false,
         providers: [...document.querySelectorAll("[data-provider]")]
           .filter((select) => select.value !== "demander")
           .map((select) => ({ key: select.dataset.provider, policy: select.value })),
@@ -748,6 +763,10 @@ SettingsUI.define("reunions", {
     const voices = await invoke("voices_view").catch(() => null);
     if ($("meeting-diarize").checked && voices && !voices.installed) {
       return "✓ Appliqué ; téléchargement des modèles des intervenants en cours.";
+    }
+    const sem = await invoke("semantic_view").catch(() => null);
+    if ($("meeting-semantic")?.checked && sem && !sem.installed) {
+      return "✓ Appliqué ; téléchargement du modèle de recherche sémantique en cours.";
     }
     return "✓ Appliqué (l'audio et le son du PC : dès la prochaine réunion).";
   },
@@ -786,6 +805,64 @@ $("meeting-diarize-download").addEventListener("click", async () => {
 });
 $("meeting-diarize").addEventListener("change", () => showVoices());
 window.__TAURI__.event.listen("voices", (event) => showVoices(event.payload));
+
+/** État du modèle et de l'index de recherche sémantique locale (Réglages → Réunions). */
+async function showSemantic(view) {
+  const checkbox = $("meeting-semantic");
+  const status = $("meeting-semantic-status");
+  const dlButton = $("meeting-semantic-download");
+  const reindexButton = $("meeting-semantic-reindex");
+  if (!checkbox || !status || !dlButton || !reindexButton) return;
+  try {
+    view ??= await invoke("semantic_view");
+  } catch {
+    return;
+  }
+  dlButton.hidden = true;
+  reindexButton.hidden = true;
+  if (view.downloading) {
+    status.textContent = `Téléchargement du modèle : ${view.percent} %`;
+  } else if (view.installed) {
+    if (view.indexing) {
+      status.textContent = `Modèle installé · indexation en cours (${view.indexed_meetings} / ${view.total_meetings} réunions)…`;
+    } else if (view.total_meetings > 0) {
+      status.textContent = `Modèle installé · ${view.indexed_meetings} / ${view.total_meetings} réunions indexées.`;
+      reindexButton.hidden = false;
+    } else {
+      status.textContent = "Modèle installé.";
+    }
+  } else if (view.error) {
+    status.textContent = `Téléchargement impossible : ${view.error}`;
+    dlButton.textContent = "Réessayer";
+    dlButton.hidden = false;
+  } else {
+    status.textContent = `${view.missing_mb} Mo à télécharger à l'activation (vérifiés avant usage).`;
+    dlButton.textContent = "Télécharger le modèle";
+    dlButton.hidden = !checkbox.checked;
+  }
+}
+if ($("meeting-semantic-download")) {
+  $("meeting-semantic-download").addEventListener("click", async () => {
+    try {
+      await invoke("download_semantic");
+    } finally {
+      await showSemantic();
+    }
+  });
+}
+if ($("meeting-semantic-reindex")) {
+  $("meeting-semantic-reindex").addEventListener("click", async () => {
+    try {
+      await invoke("reindex_semantic");
+    } finally {
+      await showSemantic();
+    }
+  });
+}
+if ($("meeting-semantic")) {
+  $("meeting-semantic").addEventListener("change", () => showSemantic());
+}
+window.__TAURI__.event.listen("semantic", (event) => showSemantic(event.payload));
 
 /** Résultat d'une action sur le carnet de voix local (Réglages → Réunions). */
 function showVoicebookResult(text, isError = false) {

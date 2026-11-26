@@ -1277,9 +1277,28 @@ ol.entries li + li {
 }
 
 .search-results .where {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.search-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface-2, var(--bg));
+  color: var(--fg);
+}
+
+.search-badge.hybrid {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 mark {

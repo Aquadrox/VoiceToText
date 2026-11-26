@@ -11,15 +11,18 @@ use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig, TRANSLAT
 use vtt_core::meeting::{
     self, DEFAULT_EXCERPT_CHARS, MeetingKind, MeetingRecord, MeetingStatus, Output, Track,
 };
+use vtt_core::semantic::{self, MatchKind};
 use vtt_core::voicebook::{VoiceEntryView, VoiceRecognition};
 
 use super::export::{
-    build_ask_context, clip_sample_range, file_name, markdown, report_html, select_copy_text,
+    build_ask_context_semantic, clip_sample_range, file_name, markdown, report_html,
+    select_copy_text,
 };
 use super::storage::voice_source;
 use super::{MeetingState, MeetingsState, lock, now_ms};
 use crate::costs::{self, LedgerStore};
 use crate::paths::Paths;
+use crate::semantic::{self as desktop_semantic, SemanticState, SemanticView};
 use crate::settings::{self, SharedConfig};
 use crate::speakers::{self, VoicesState};
 
@@ -283,61 +286,93 @@ pub struct SearchResult {
     /// `"transcript"` ou `"report"`.
     pub source: &'static str,
     /// Nom de la partie du rapport (`"Synthèse"`, `"Action"`…), `None` pour une transcription.
-    pub section: Option<&'static str>,
+    pub section: Option<String>,
+    /// Origine du résultat : `"keyword"`, `"hybrid"` ou `"semantic"`.
+    pub match_kind: MatchKind,
+    /// Similarité sémantique (0..=1) quand le sens a contribué au résultat.
+    pub semantic_score: Option<f32>,
 }
 
 /// Au plus ce nombre de passages trouvés.
 const MAX_RESULTS: usize = 200;
 
+#[cfg(test)]
 pub(super) fn search_records(
     records: &[MeetingRecord],
     root_dir: &Path,
     query: &str,
 ) -> Vec<SearchResult> {
-    let mut results = Vec::new();
-    for record in records {
-        let replay = record.replayable(&root_dir.join(&record.id));
-        if let Some(report) = &record.report {
-            for hit in vtt_core::search::find_in_report(report, query) {
-                results.push(SearchResult {
-                    id: record.id.clone(),
-                    title: record.title.clone(),
-                    kind: record.kind,
-                    started_at_ms: record.started_at_ms,
-                    start_ms: hit.start_ms,
-                    parts: hit.parts,
-                    replay,
-                    source: "report",
-                    section: Some(hit.section),
-                });
-                if results.len() >= MAX_RESULTS {
-                    return results;
-                }
-            }
+    search_records_hybrid(records, &[], root_dir, query, None)
+}
+
+pub(super) fn search_records_hybrid(
+    records: &[MeetingRecord],
+    indices: &[Option<semantic::MeetingIndex>],
+    root_dir: &Path,
+    query: &str,
+    query_vec: Option<&[f32]>,
+) -> Vec<SearchResult> {
+    let refs: Vec<Option<&semantic::MeetingIndex>> = indices.iter().map(Option::as_ref).collect();
+    let replay_flags: Vec<bool> = records
+        .iter()
+        .map(|r| r.replayable(&root_dir.join(&r.id)))
+        .collect();
+    semantic::hybrid_search(
+        records,
+        &refs,
+        query,
+        query_vec,
+        semantic::DEFAULT_SEMANTIC_THRESHOLD,
+        MAX_RESULTS,
+    )
+    .into_iter()
+    .map(|hit| {
+        let record = &records[hit.meeting_idx];
+        SearchResult {
+            id: record.id.clone(),
+            title: record.title.clone(),
+            kind: record.kind,
+            started_at_ms: record.started_at_ms,
+            start_ms: hit.start_ms,
+            parts: hit.parts,
+            replay: replay_flags[hit.meeting_idx],
+            source: if hit.is_report {
+                "report"
+            } else {
+                "transcript"
+            },
+            section: hit.section,
+            match_kind: hit.match_kind,
+            semantic_score: hit.semantic_score,
         }
-        for hit in vtt_core::search::find(&record.segments(), query) {
-            results.push(SearchResult {
-                id: record.id.clone(),
-                title: record.title.clone(),
-                kind: record.kind,
-                started_at_ms: record.started_at_ms,
-                start_ms: Some(hit.start_ms),
-                parts: hit.parts,
-                replay,
-                source: "transcript",
-                section: None,
-            });
-            if results.len() >= MAX_RESULTS {
-                return results;
-            }
-        }
-    }
-    results
+    })
+    .collect()
 }
 
 #[tauri::command(async)]
-pub fn search_meetings(meetings: State<'_, MeetingsState>, query: String) -> Vec<SearchResult> {
-    search_records(&meetings.all(), &meetings.dir, &query)
+pub fn search_meetings(
+    meetings: State<'_, MeetingsState>,
+    semantic: State<'_, SemanticState>,
+    query: String,
+) -> Vec<SearchResult> {
+    let records = meetings.all();
+    let use_semantic = meetings.config().meetings.semantic_search && semantic.installed();
+    if use_semantic {
+        let indices = semantic.indices_for(&records, false);
+        match semantic.embed_query(&query) {
+            Ok(qvec) => {
+                return search_records_hybrid(
+                    &records,
+                    &indices,
+                    &meetings.dir,
+                    &query,
+                    Some(&qvec),
+                );
+            }
+            Err(e) => log::warn!("recherche sémantique (repli mots-clés) : {e}"),
+        }
+    }
+    search_records_hybrid(&records, &[], &meetings.dir, &query, None)
 }
 
 #[derive(Serialize)]
@@ -347,12 +382,15 @@ pub struct Answer {
     currency: String,
     /// Enregistrements consultés.
     sources: usize,
+    /// La recherche sémantique locale a contribué à choisir les passages.
+    semantic: bool,
 }
 
 /// Question au LLM sur un enregistrement (`id`) ou sur tous.
 #[tauri::command(async)]
 pub fn ask_meetings(
     meetings: State<'_, MeetingsState>,
+    semantic: State<'_, SemanticState>,
     question: String,
     id: Option<String>,
 ) -> Result<Answer, String> {
@@ -367,20 +405,42 @@ pub fn ask_meetings(
         Some(id) => vec![meetings.load(id)?.0],
         None => meetings.all(),
     };
-    let (context, sources) = build_ask_context(&records, question, id.is_some());
-    if context.is_empty() {
+    let use_semantic = config.meetings.semantic_search && semantic.installed();
+    let (indices, query_vec) = if use_semantic {
+        let idx = semantic.indices_for(&records, true);
+        let qv = match semantic.embed_query(question) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log::warn!("question RAG sémantique (repli lexical) : {e}");
+                None
+            }
+        };
+        (idx, qv)
+    } else {
+        (Vec::new(), None)
+    };
+    let rag = build_ask_context_semantic(
+        &records,
+        &indices,
+        question,
+        query_vec.as_deref(),
+        id.is_some(),
+    );
+    if rag.context.is_empty() {
         return Err(
-            "aucun passage ne correspond aux mots de la question : reformulez avec les mots \
-             employés pendant l'enregistrement"
+            "aucun passage ne correspond à la question : reformulez avec d'autres mots \
+             ou activez la recherche sémantique locale dans Réglages → Réunions"
                 .into(),
         );
     }
     log::info!(
-        "question sur {sources} enregistrement(s), {} caractères de contexte",
-        context.len()
+        "question sur {} enregistrement(s), {} caractères de contexte (sémantique={})",
+        rag.sources,
+        rag.context.len(),
+        rag.used_semantic
     );
     let cleaned = cleaner
-        .answer(question, &context)
+        .answer(question, &rag.context)
         .map_err(|e| e.to_string())?;
     let pricing = &config.llm.pricing;
     if let Some(usage) = &cleaned.usage {
@@ -390,7 +450,8 @@ pub fn ask_meetings(
         text: cleaned.text,
         cost: cleaned.usage.map(|u| pricing.cost(&u)),
         currency: pricing.currency.clone(),
-        sources,
+        sources: rag.sources,
+        semantic: rag.used_semantic,
     })
 }
 
@@ -577,6 +638,33 @@ pub fn download_voices(voices: State<'_, VoicesState>) {
     voices.download();
 }
 
+#[tauri::command]
+pub fn semantic_view(
+    meetings: State<'_, MeetingsState>,
+    semantic: State<'_, SemanticState>,
+) -> SemanticView {
+    if semantic.installed() {
+        semantic.refresh_counts(&meetings.all());
+    }
+    semantic.view()
+}
+
+#[tauri::command]
+pub fn download_semantic(meetings: State<'_, MeetingsState>, semantic: State<'_, SemanticState>) {
+    let meetings = std::sync::Arc::clone(&meetings);
+    semantic.download(move || meetings.all());
+}
+
+#[tauri::command]
+pub fn reindex_semantic(meetings: State<'_, MeetingsState>, semantic: State<'_, SemanticState>) {
+    desktop_semantic::clear_disk_indices(&meetings.dir);
+    for record in meetings.all() {
+        semantic.remove_cached(&record.id);
+    }
+    let records = meetings.all();
+    semantic.sync_all(records);
+}
+
 /// Détermine le nom à mémoriser dans le carnet pour un intervenant : celui
 /// saisi/transmis s'il n'est pas vide, sinon le nom déjà connu sur la fiche.
 pub(super) fn resolve_enroll_name(
@@ -668,12 +756,17 @@ pub fn clear_voicebook(meetings: State<'_, MeetingsState>) {
 }
 
 #[tauri::command]
-pub fn delete_meeting(meetings: State<'_, MeetingsState>, id: String) -> Result<(), String> {
+pub fn delete_meeting(
+    meetings: State<'_, MeetingsState>,
+    semantic: State<'_, SemanticState>,
+    id: String,
+) -> Result<(), String> {
     if meetings.busy(&id) || meetings.load(&id).is_ok_and(|(r, _)| r.identifying) {
         return Err("réunion en cours de traitement : attendez la fin".into());
     }
     let dir = meetings.meeting_dir(&id)?;
     fs::remove_dir_all(&dir).map_err(|e| format!("suppression : {e}"))?;
+    semantic.remove_cached(&id);
     log::info!("réunion {id} supprimée");
     let _ = meetings.app.emit("meetings", ());
     Ok(())
@@ -812,6 +905,13 @@ pub fn save_meeting_settings(
     crate::app_settings::apply(&app, &paths, &config);
     if config.meetings.diarize {
         app.state::<VoicesState>().download();
+    }
+    let semantic = app.state::<SemanticState>();
+    if config.meetings.semantic_search {
+        let meetings_clone = std::sync::Arc::clone(&meetings);
+        semantic.download(move || meetings_clone.all());
+    } else {
+        semantic.unload();
     }
     // Durée de conservation raccourcie : appliquée tout de suite.
     meetings.recover();

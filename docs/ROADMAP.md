@@ -594,10 +594,11 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 
 ## Prochaines étapes — Ensuite ⬜
 
-### Recherche sémantique locale + RAG amélioré ⬜
+### Recherche sémantique locale + RAG amélioré (#89) ✅
 
-- ⬜ Index d'embeddings local en ONNX (modèle multilingue léger téléchargé à la demande, réutilisant ONNX Runtime déjà présent)
-- ⬜ Recherche hybride (mots-clés + sémantique) sur toutes les réunions et sélection de passages enrichie pour « Poser une question » au LLM
+- ✅ Index d'embeddings local en ONNX (`vtt-core::semantic` + `vtt-asr::TextEmbedder` + `apps/desktop/src/semantic.rs`) : modèle multilingue léger `intfloat/multilingual-e5-small` (MIT, ONNX quantifié 8 bits, révision Hugging Face figée, taille et SHA-256 vérifiés, réutilisant ONNX Runtime déjà présent), tokenizer Unigram pur Rust, index binaire compact Q15 (`semantique.bin`) par réunion invalidé automatiquement par empreinte de contenu, téléchargement opt-in et indexation incrémentale en arrière-plan depuis **Réglages → Réunions**
+- ✅ Recherche hybride (mots-clés exacts + sémantique fusionnés par RRF avec badges « Exact + sens » / « Sens proche ») sur toutes les transcriptions et les rapports complets, et RAG amélioré pour « Poser une question » (BM25-lite + sémantique RRF, diversité inter-réunions, expansion des répliques voisines sans doublons, inclusion du rapport complet et prise en charge des sigles courts), validé sur le vrai modèle ONNX en français (`0.44.0`)
+- ⬜ À vérifier sur le terrain : réactivité et pertinence de la recherche sémantique et des questions multi-réunions sur une vraie bibliothèque d'enregistrements PC
 
 ### Restauration complète du presse-papier (#88) ✅
 

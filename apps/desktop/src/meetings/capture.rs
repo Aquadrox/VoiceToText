@@ -130,7 +130,7 @@ impl Session {
     }
 
     fn complete(&self, voices: Option<Result<diarize::Analysis, String>>) {
-        let (id, audio, title, kind, output) = {
+        let (id, audio, title, kind, output, completed) = {
             let mut record = lock(&self.record);
             if record.status == MeetingStatus::Terminee {
                 return;
@@ -159,12 +159,14 @@ impl Session {
             record.status = MeetingStatus::Terminee;
             record.progress = None;
             record.save(&self.dir);
+            let completed = record.clone();
             (
                 record.id.clone(),
                 record.audio,
                 record.title.clone(),
                 record.kind,
                 record.output,
+                completed,
             )
         };
         if audio == MeetingAudio::Temporaire {
@@ -173,6 +175,11 @@ impl Session {
         log::info!("réunion {id} transcrite");
         if let Some(meetings) = self.app.try_state::<MeetingsState>() {
             meetings.finished(&id, &title, kind, output);
+            if meetings.config().meetings.semantic_search
+                && let Some(semantic) = self.app.try_state::<crate::semantic::SemanticState>()
+            {
+                semantic.index_meeting(completed);
+            }
         }
         let _ = self.app.emit("meetings", ());
     }

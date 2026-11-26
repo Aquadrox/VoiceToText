@@ -11,7 +11,7 @@ default = ["parakeet", "vosk"]
 # Accélération GPU via Vulkan (pilote NVIDIA/AMD/Intel, rien à embarquer).
 vulkan = ["whisper-rs/vulkan", "dep:libloading"]
 # Moteurs supplémentaires, sur PC comme sur le téléphone.
-parakeet = ["dep:parakeet-rs"]
+parakeet = ["dep:parakeet-rs", "dep:serde_json"]
 vosk = ["dep:libloading", "dep:serde_json"]
 
 [dependencies]

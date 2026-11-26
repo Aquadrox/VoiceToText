@@ -29,7 +29,7 @@ pub fn fold(text: &str) -> String {
 }
 
 /// Mots recherchés (au moins deux caractères).
-fn terms(query: &str) -> Vec<String> {
+pub(crate) fn terms(query: &str) -> Vec<String> {
     fold(query)
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.chars().count() >= 2)
@@ -40,17 +40,14 @@ fn terms(query: &str) -> Vec<String> {
 /// Texte découpé pour l'affichage : (morceau, surligné).
 pub type Parts = Vec<(String, bool)>;
 
-/// Le segment contient tous les mots recherchés : texte découpé avec les
-/// occurrences surlignées. `None` sinon.
-pub fn highlight(text: &str, query: &str) -> Option<Parts> {
-    let terms = terms(query);
+fn mark_parts(text: &str, terms: &[String], require_all: bool) -> Option<Parts> {
     if terms.is_empty() {
         return None;
     }
     let chars: Vec<char> = text.chars().collect();
     let folded: Vec<char> = chars.iter().map(|&c| fold_char(c)).collect();
     let mut marked = vec![false; chars.len()];
-    for term in &terms {
+    for term in terms {
         let needle: Vec<char> = term.chars().collect();
         let mut found = false;
         for start in 0..folded.len().saturating_sub(needle.len() - 1) {
@@ -59,7 +56,7 @@ pub fn highlight(text: &str, query: &str) -> Option<Parts> {
                 marked[start..start + needle.len()].fill(true);
             }
         }
-        if !found {
+        if require_all && !found {
             return None;
         }
     }
@@ -71,6 +68,19 @@ pub fn highlight(text: &str, query: &str) -> Option<Parts> {
         }
     }
     Some(parts)
+}
+
+/// Le segment contient tous les mots recherchés : texte découpé avec les
+/// occurrences surlignées. `None` sinon.
+pub fn highlight(text: &str, query: &str) -> Option<Parts> {
+    mark_parts(text, &terms(query), true)
+}
+
+/// Découpe `text` en surlignant les mots de `query` présents, même si tous ne
+/// figurent pas dans `text` (utile pour les résultats sémantiques).
+pub fn highlight_partial(text: &str, query: &str) -> Parts {
+    let t = terms(query);
+    mark_parts(text, &t, false).unwrap_or_else(|| vec![(text.to_owned(), false)])
 }
 
 /// Résultat de recherche dans une transcription.

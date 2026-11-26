@@ -76,22 +76,30 @@ impl Meetings {
         id: &str,
         change: impl FnOnce(&mut MeetingRecord),
     ) -> Result<(), String> {
-        if let Some(session) = lock(&self.sessions).get(id) {
+        let updated = if let Some(session) = lock(&self.sessions).get(id) {
             let mut record = lock(&session.record);
             change(&mut record);
             record.save(&session.dir);
+            None
         } else {
             let dir = self.meeting_dir(id)?;
             let mut record = MeetingRecord::load(&dir)?;
             change(&mut record);
             record.save(&dir);
-        }
+            Some(record)
+        };
         let _ = self.app.emit("meetings", ());
+        if let Some(record) = updated
+            && self.config().meetings.semantic_search
+            && let Some(semantic) = self.app.try_state::<crate::semantic::SemanticState>()
+        {
+            semantic.index_meeting(record);
+        }
         Ok(())
     }
 
     /// Tous les enregistrements (en cours compris), les plus récents d'abord.
-    pub(super) fn all(&self) -> Vec<MeetingRecord> {
+    pub(crate) fn all(&self) -> Vec<MeetingRecord> {
         let mut records: Vec<MeetingRecord> = fs::read_dir(&self.dir)
             .into_iter()
             .flatten()

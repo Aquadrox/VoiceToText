@@ -20,6 +20,7 @@ mod paths;
 mod prompts;
 mod raw_paste;
 mod retry;
+mod semantic;
 mod settings;
 mod shortcuts;
 mod speakers;
@@ -150,6 +151,9 @@ fn main() {
             meetings::forget_speakers,
             meetings::voices_view,
             meetings::download_voices,
+            meetings::semantic_view,
+            meetings::download_semantic,
+            meetings::reindex_semantic,
             meetings::voicebook_view,
             meetings::enroll_speaker_voice,
             meetings::rename_voicebook_entry,
@@ -223,6 +227,16 @@ fn main() {
                 tray_items.meeting,
             );
             app.manage(Arc::clone(&meetings));
+            let semantic = semantic::Semantic::new(
+                app.handle().clone(),
+                paths.models_dir.clone(),
+                paths.meetings_dir.clone(),
+            );
+            app.manage(Arc::clone(&semantic));
+            if config.meetings.semantic_search {
+                let meetings_for_semantic = Arc::clone(&meetings);
+                semantic.download(move || meetings_for_semantic.all());
+            }
             let annotator = Annotator::new(
                 app.handle().clone(),
                 paths.captures_dir.clone(),

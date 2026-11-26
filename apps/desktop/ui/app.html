@@ -813,6 +813,19 @@
                   <div id="voicebook-result" class="result" hidden></div>
                 </div>
 
+                <div class="group">
+                  <h3>Recherche sémantique locale</h3>
+                  <label class="option field">
+                    <input id="meeting-semantic" type="checkbox" />
+                    <span><strong>Activer la recherche par le sens (ONNX local)</strong><small>Retrouve un passage même avec d'autres mots (synonymes, reformulations) dans toutes les réunions et leurs rapports, et enrichit « Poser une question ». Modèle multilingue léger exécuté sur ce PC : rien n'est envoyé.</small></span>
+                  </label>
+                  <p id="meeting-semantic-status" class="hint"></p>
+                  <div class="row" data-untracked>
+                    <button id="meeting-semantic-download" type="button" hidden>Télécharger le modèle</button>
+                    <button id="meeting-semantic-reindex" type="button" hidden>Réindexer les réunions</button>
+                  </div>
+                </div>
+
                 <div class="group field">
                   <h3>Audio de la réunion</h3>
                   <label class="choice">
@@ -1086,6 +1099,10 @@
                     modèle de segmentation de pyannote.audio (Hervé Bredin, CNRS, MIT) ; empreintes
                     vocales WeSpeaker ResNet34-LM (CC BY 4.0) ; conversions ONNX de sherpa-onnx
                     (k2-fsa, Apache 2.0).
+                  </p>
+                  <p class="hint">
+                    Recherche sémantique locale : modèle multilingue intfloat/multilingual-e5-small
+                    (Microsoft, MIT), conversion ONNX quantifiée par Xenova, exécuté via ONNX Runtime.
                   </p>
                 </div>
 
