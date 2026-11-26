@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use vtt_core::annotation::{self, Click, Image, Region, Stroke};
+use vtt_core::annotation::{self, Click, Image, RedactStyle, Redaction, Region, Stroke};
 use vtt_core::config::CAPTURE_RAW_TEMPLATE;
 use vtt_core::{AudioClip, TextSink, Word};
 use vtt_llm::CAPTURE_TEMPLATES;
@@ -43,6 +43,7 @@ const HOLD_TO_DRAW: Duration = Duration::from_millis(250);
 /// Délai entre le collage de la planche et celui du texte.
 const PASTE_GAP: Duration = Duration::from_millis(400);
 const INK_LABEL: &str = "ink";
+const REVIEW_LABEL: &str = "capture-review";
 /// Images envoyées au LLM (description) : au plus cette largeur.
 const VISION_WIDTH: u32 = 1280;
 
@@ -101,6 +102,9 @@ struct Recording {
     started: Instant,
     frames: Arc<Mutex<Vec<Frame>>>,
     strokes: Arc<Mutex<Vec<Stroke>>>,
+    /// Zones sensibles masquées à l'écran (pixels physiques) : appliquées à
+    /// toutes les images retenues avant collage ou envoi au LLM vision.
+    redactions: Arc<Mutex<Vec<Redaction>>>,
     stop_frames: Arc<AtomicBool>,
     /// Pixels physiques par pixel CSS de la fenêtre d'encre.
     scale: f64,
@@ -122,11 +126,25 @@ struct Keys {
     drawing: bool,
 }
 
-/// Dernière capture produite (collable de nouveau).
+/// Dernière capture produite (collable ou refloutable de nouveau).
 #[derive(Clone)]
 struct Produced {
     sheet: Option<Image>,
+    images: Vec<Image>,
+    narration: String,
     text: String,
+}
+
+/// Capture en attente de vérification / floutage dans `review.html` (avant
+/// collage et avant tout envoi d'images au LLM vision).
+struct PendingReview {
+    images: Vec<Image>,
+    narration: String,
+    /// Présent si on refloute la dernière capture : on garde son texte sans
+    /// rappeler le LLM.
+    existing_text: Option<String>,
+    vision_enabled: bool,
+    style: String,
 }
 
 pub struct Annotator {
@@ -137,6 +155,7 @@ pub struct Annotator {
     processing: AtomicBool,
     keys: Mutex<Keys>,
     last: Mutex<Option<Produced>>,
+    review: Mutex<Option<PendingReview>>,
 }
 
 pub type AnnotatorState = Arc<Annotator>;
@@ -162,6 +181,7 @@ impl Annotator {
             processing: AtomicBool::new(false),
             keys: Mutex::new(Keys::default()),
             last: Mutex::new(None),
+            review: Mutex::new(None),
         })
     }
 
@@ -288,6 +308,7 @@ impl Annotator {
             started,
             frames,
             strokes: Arc::default(),
+            redactions: Arc::default(),
             stop_frames,
             scale,
             region,
@@ -319,7 +340,8 @@ impl Annotator {
         Ok(())
     }
 
-    /// Clics de la souris pendant la capture (hors tracé de la zone).
+    /// Clics de la souris pendant la capture (hors tracé de la zone et hors
+    /// dessin/floutage touche tenue).
     fn record_clicks(
         self: &Arc<Self>,
         started: Instant,
@@ -339,7 +361,8 @@ impl Annotator {
                 let choosing = lock(&annotator.recording)
                     .as_ref()
                     .is_none_or(|r| r.choosing_zone);
-                if !choosing {
+                let drawing = lock(&annotator.keys).drawing;
+                if !choosing && !drawing {
                     lock(&clicks).push(Click {
                         x: x as f32,
                         y: y as f32,
@@ -445,6 +468,35 @@ impl Annotator {
         });
     }
 
+    /// Zone sensible tracée à l'écran (pixels CSS : x, y, largeur, hauteur).
+    fn add_redaction(&self, rect: (f64, f64, f64, f64)) {
+        let (x, y, w, h) = rect;
+        if w < 4.0 || h < 4.0 {
+            return;
+        }
+        let style = RedactStyle::parse(&self.config().captures.redact_style);
+        let recording = lock(&self.recording);
+        let Some(recording) = recording.as_ref() else {
+            return;
+        };
+        let scale = recording.scale;
+        lock(&recording.redactions).push(Redaction {
+            x: (x.max(0.0) * scale) as u32,
+            y: (y.max(0.0) * scale) as u32,
+            width: (w * scale).round().max(1.0) as u32,
+            height: (h * scale).round().max(1.0) as u32,
+            style,
+        });
+    }
+
+    /// Retire la dernière zone sensible tracée à l'écran pendant la capture.
+    fn undo_redaction(&self) {
+        let recording = lock(&self.recording);
+        if let Some(recording) = recording.as_ref() {
+            lock(&recording.redactions).pop();
+        }
+    }
+
     /// Arrête la capture et lance le traitement (transcription, images,
     /// texte, collage) en arrière-plan.
     fn stop(self: &Arc<Self>) {
@@ -458,21 +510,24 @@ impl Annotator {
         let mic = recording.capture.stop().mic;
         let frames = std::mem::take(&mut *lock(&recording.frames));
         let strokes = std::mem::take(&mut *lock(&recording.strokes));
+        let redactions = std::mem::take(&mut *lock(&recording.redactions));
         let clicks = std::mem::take(&mut *lock(&recording.clicks));
         let region = recording.region;
         self.processing.store(true, Ordering::SeqCst);
         self.emit_state();
         self.reporter().set(Status::Processing);
         log::info!(
-            "capture commentée : {} s, {} écran(s), {} trait(s)",
+            "capture commentée : {} s, {} écran(s), {} trait(s), {} zone(s) masquée(s)",
             duration_ms / 1000,
             frames.len(),
-            strokes.len()
+            strokes.len(),
+            redactions.len()
         );
         let annotator = Arc::clone(self);
         thread::spawn(move || {
             let marks = Marks {
                 strokes,
+                redactions,
                 clicks,
                 region,
             };
@@ -509,6 +564,7 @@ impl Annotator {
     ) -> Result<(), String> {
         let Marks {
             strokes,
+            redactions,
             clicks,
             region,
         } = marks;
@@ -516,6 +572,10 @@ impl Annotator {
         let moments = annotation::key_moments(&words, &strokes, &clicks, duration_ms);
         // Coordonnées ramenées dans la fenêtre ou la zone capturée.
         let local = |point: (f32, f32)| region.map_or(point, |r| r.local(point));
+        let local_redactions: Vec<Redaction> = match &region {
+            Some(r) => redactions.iter().filter_map(|b| r.local_rect(b)).collect(),
+            None => redactions,
+        };
         let times: Vec<u64> = frames.iter().map(|f| f.at_ms).collect();
         let mut images = Vec::new();
         let mut previous = 0;
@@ -527,6 +587,8 @@ impl Annotator {
             if let Some(region) = &region {
                 image = image.crop(region);
             }
+            // Masquage des zones sensibles AVANT annotations, sauvegarde ou envoi LLM.
+            annotation::apply_redactions(&mut image, &local_redactions);
             // Traits et clics depuis l'image précédente.
             let window = |at: u64| at > previous && at <= moment + 500;
             let drawn: Vec<Stroke> = strokes
@@ -544,21 +606,51 @@ impl Annotator {
             images.push(image);
             previous = moment + 500;
         }
-        let sheet = annotation::contact_sheet(&images);
         let narration = annotation::transcript_with_markers(&words, &moments);
-        let text = self.format(&narration, &images);
+        let config = self.config();
+        if config.captures.review_before_paste && !images.is_empty() {
+            *lock(&self.review) = Some(PendingReview {
+                images,
+                narration,
+                existing_text: None,
+                vision_enabled: config.captures.vision,
+                style: config.captures.redact_style,
+            });
+            self.open_review_window();
+            log::info!("capture commentée : fenêtre de floutage ouverte avant collage/LLM");
+            return Ok(());
+        }
+        self.finalize_capture(images, narration, None)
+    }
+
+    fn finalize_capture(
+        &self,
+        images: Vec<Image>,
+        narration: String,
+        existing_text: Option<String>,
+    ) -> Result<(), String> {
+        let sheet = annotation::contact_sheet(&images);
+        let text = match existing_text {
+            Some(text) => text,
+            None => self.format(&narration, &images),
+        };
         if let Some(sheet) = &sheet {
             self.keep(sheet, &images, &text);
         }
-        let result = Produced { sheet, text };
+        let count = images.len();
+        let result = Produced {
+            sheet,
+            images,
+            narration,
+            text,
+        };
         *lock(&self.last) = Some(result.clone());
         paste(&result)?;
         log::info!(
-            "capture commentée collée : {} image(s), {} caractères",
-            images.len(),
+            "capture commentée collée : {count} image(s), {} caractères",
             result.text.chars().count()
         );
-        let _ = self.app.emit("annotate-done", images.len());
+        let _ = self.app.emit("annotate-done", count);
         Ok(())
     }
 
@@ -679,13 +771,170 @@ impl Annotator {
                 .set(Status::Error(format!("capture commentée : {e}")));
         }
     }
+
+    /// Ouvre la fenêtre de floutage sur la dernière capture commentée (pour
+    /// masquer une zone après coup et recoller la planche corrigée).
+    pub fn open_last_review(&self) {
+        let last = lock(&self.last).clone();
+        let Some(last) = last else {
+            self.reporter().set(Status::Error(
+                "aucune capture commentée depuis le démarrage".into(),
+            ));
+            return;
+        };
+        if last.images.is_empty() {
+            self.reporter().set(Status::Error(
+                "la dernière capture ne contient aucune image à flouter".into(),
+            ));
+            return;
+        }
+        let config = self.config();
+        *lock(&self.review) = Some(PendingReview {
+            images: last.images,
+            narration: last.narration,
+            existing_text: Some(last.text),
+            vision_enabled: false,
+            style: config.captures.redact_style,
+        });
+        self.open_review_window();
+    }
+
+    fn open_review_window(&self) {
+        if let Some(existing) = self.app.get_webview_window(REVIEW_LABEL) {
+            let _ = existing.show();
+            let _ = existing.set_focus();
+            let _ = self.app.emit_to(REVIEW_LABEL, "review-reload", ());
+            return;
+        }
+        let built = WebviewWindowBuilder::new(
+            &self.app,
+            REVIEW_LABEL,
+            WebviewUrl::App("review.html".into()),
+        )
+        .title("VoiceToText : flouter avant collage")
+        .inner_size(960.0, 700.0)
+        .min_inner_size(640.0, 480.0)
+        .center()
+        .always_on_top(true)
+        .build();
+        if let Err(e) = built {
+            log::warn!("fenêtre de floutage : {e}");
+        }
+    }
+
+    fn close_review_window(&self) {
+        if let Some(win) = self.app.get_webview_window(REVIEW_LABEL) {
+            let _ = win.close();
+        }
+    }
+
+    fn review_view(&self) -> Result<ReviewView, String> {
+        let slot = lock(&self.review);
+        let pending = slot
+            .as_ref()
+            .ok_or_else(|| "aucune capture en attente de vérification".to_owned())?;
+        let mut images = Vec::with_capacity(pending.images.len());
+        for img in &pending.images {
+            let png = encode_png(img)?;
+            images.push(ReviewImage {
+                width: img.width,
+                height: img.height,
+                data_url: vtt_llm::png_data_url(&png),
+            });
+        }
+        Ok(ReviewView {
+            images,
+            style: pending.style.clone(),
+            vision_enabled: pending.vision_enabled,
+            is_reedit: pending.existing_text.is_some(),
+        })
+    }
+
+    fn apply_review(self: &Arc<Self>, redactions: Vec<ImageRedaction>) -> Result<(), String> {
+        let pending = lock(&self.review)
+            .take()
+            .ok_or_else(|| "aucune capture en attente de vérification".to_owned())?;
+        self.close_review_window();
+        let mut images = pending.images;
+        apply_image_redactions(&mut images, &redactions);
+        let annotator = Arc::clone(self);
+        self.processing.store(true, Ordering::SeqCst);
+        self.reporter().set(Status::Processing);
+        thread::spawn(move || {
+            // Laisse la fenêtre cible reprendre le focus après fermeture de `review.html`.
+            thread::sleep(Duration::from_millis(160));
+            let result =
+                annotator.finalize_capture(images, pending.narration, pending.existing_text);
+            annotator.processing.store(false, Ordering::SeqCst);
+            match result {
+                Ok(()) => annotator.reporter().set(Status::Idle),
+                Err(e) => annotator
+                    .reporter()
+                    .set(Status::Error(format!("capture commentée : {e}"))),
+            }
+        });
+        Ok(())
+    }
+
+    fn cancel_review(&self) {
+        lock(&self.review).take();
+        self.close_review_window();
+        self.reporter().set(Status::Idle);
+    }
 }
 
-/// Traits, clics et zone d'une capture.
+/// Traits, zones masquées, clics et zone d'une capture.
 struct Marks {
     strokes: Vec<Stroke>,
+    redactions: Vec<Redaction>,
     clicks: Vec<Click>,
     region: Option<Region>,
+}
+
+/// Image envoyée à la fenêtre de révision / floutage (`review.html`).
+#[derive(Serialize)]
+pub struct ReviewImage {
+    pub width: u32,
+    pub height: u32,
+    pub data_url: String,
+}
+
+/// Données affichées par la fenêtre de révision / floutage (`review.html`).
+#[derive(Serialize)]
+pub struct ReviewView {
+    pub images: Vec<ReviewImage>,
+    pub style: String,
+    pub vision_enabled: bool,
+    pub is_reedit: bool,
+}
+
+/// Rectangle de masquage tracé dans la fenêtre de révision (`review.html`),
+/// en pixels natifs de l'image `image_index`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImageRedaction {
+    pub image_index: usize,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub style: String,
+}
+
+fn apply_image_redactions(images: &mut [Image], redactions: &[ImageRedaction]) {
+    for r in redactions {
+        if let Some(img) = images.get_mut(r.image_index) {
+            annotation::apply_redactions(
+                img,
+                &[Redaction {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                    style: RedactStyle::parse(&r.style),
+                }],
+            );
+        }
+    }
 }
 
 /// Client du profil choisi pour la description des images, s'il y en a un.
@@ -772,7 +1021,7 @@ fn spawn_frames(
     });
 }
 
-/// Raccourci : appui (démarrer, arrêter), maintien (dessiner).
+/// Raccourci : appui (démarrer, arrêter), maintien (dessiner / flouter).
 pub fn register(app: &AppHandle, shortcut: &str, annotator: AnnotatorState) -> Result<(), String> {
     let shortcut = shortcut.trim();
     if shortcut.is_empty() {
@@ -818,6 +1067,40 @@ pub fn annotate_zone(annotator: State<'_, AnnotatorState>, zone: Option<(f64, f6
     annotator.set_zone(zone);
 }
 
+/// Zone sensible floutée / masquée à l'écran (pixels CSS : x, y, largeur, hauteur).
+#[tauri::command]
+pub fn annotate_redact(annotator: State<'_, AnnotatorState>, rect: (f64, f64, f64, f64)) {
+    annotator.add_redaction(rect);
+}
+
+/// Annule la dernière zone sensible tracée à l'écran.
+#[tauri::command]
+pub fn annotate_undo_redact(annotator: State<'_, AnnotatorState>) {
+    annotator.undo_redaction();
+}
+
+/// Images en attente de floutage dans `review.html`.
+#[tauri::command]
+pub fn annotate_review_view(annotator: State<'_, AnnotatorState>) -> Result<ReviewView, String> {
+    annotator.review_view()
+}
+
+/// Valide les zones masquées dans `review.html`, lance le LLM vision si actif
+/// et colle la planche + le texte.
+#[tauri::command]
+pub fn annotate_review_apply(
+    annotator: State<'_, AnnotatorState>,
+    redactions: Vec<ImageRedaction>,
+) -> Result<(), String> {
+    annotator.inner().apply_review(redactions)
+}
+
+/// Annule la vérification sans rien envoyer au LLM ni coller.
+#[tauri::command]
+pub fn annotate_review_cancel(annotator: State<'_, AnnotatorState>) {
+    annotator.cancel_review();
+}
+
 /// Démarre ou arrête depuis le menu de l'icône.
 pub fn toggle(annotator: &AnnotatorState) {
     if lock(&annotator.recording).is_some() {
@@ -841,5 +1124,43 @@ mod tests {
         let before = fingerprint(&image);
         image.rgba[0] = 200;
         assert_ne!(fingerprint(&image), before, "premier pixel échantillonné");
+    }
+
+    #[test]
+    fn apply_image_redactions_targets_only_requested_image_and_bounds() {
+        let mut imgs = vec![
+            Image::new(40, 40, [250, 250, 250, 255]),
+            Image::new(40, 40, [250, 250, 250, 255]),
+        ];
+        apply_image_redactions(
+            &mut imgs,
+            &[
+                ImageRedaction {
+                    image_index: 1,
+                    x: 5,
+                    y: 5,
+                    width: 20,
+                    height: 20,
+                    style: "plein".into(),
+                },
+                // Indice hors bornes ignoré proprement.
+                ImageRedaction {
+                    image_index: 99,
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                    style: "flou".into(),
+                },
+            ],
+        );
+        // Image 0 intacte, image 1 masquée dans la zone seulement.
+        assert_eq!(imgs[0].rgba[0], 250);
+        let center_idx = ((15 * 40 + 15) * 4) as usize;
+        assert_eq!(
+            &imgs[1].rgba[center_idx..center_idx + 4],
+            &[24, 29, 39, 255]
+        );
+        assert_eq!(imgs[1].rgba[0], 250);
     }
 }

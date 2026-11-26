@@ -887,8 +887,9 @@
                     <h2>Capture commentée</h2>
                     <p class="muted small">
                       Raccourci <strong data-shortcut="hk-annotate"></strong> : parlez en montrant
-                      l'écran, tenez le raccourci pour dessiner. Un nouvel appui arrête : images des
-                      moments clés et texte collés dans l'application active.
+                      l'écran, tenez le raccourci pour dessiner (clic gauche glissé pour flouter une
+                      zone sensible). Un nouvel appui arrête : images des moments clés et texte
+                      collés dans l'application active.
                     </p>
                   </div>
                   <div class="apply-state"></div>
@@ -918,7 +919,26 @@
                     <div class="field">
                       <label for="capture-keep">Garder les captures sur le disque</label>
                       <select id="capture-keep"></select>
-                      <p class="hint">Non : seule la dernière reste en mémoire (menu de l'icône → Coller la dernière capture commentée).</p>
+                      <p class="hint">Non : seule la dernière reste en mémoire (menu de l'icône → Coller ou Flouter la dernière capture commentée).</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="group">
+                  <h3>Floutage des zones sensibles</h3>
+                  <label class="option field">
+                    <input id="capture-review" type="checkbox" />
+                    <span><strong>Vérifier et flouter les images avant collage ou envoi au LLM</strong><small>Ouvre une fenêtre rapide à la fin de la capture pour masquer clés API, adresses mail ou données personnelles avant le collage et avant tout envoi au LLM vision.</small></span>
+                  </label>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="capture-redact-style">Style de masquage</label>
+                      <select id="capture-redact-style">
+                        <option value="flou">Flou fort</option>
+                        <option value="pixel">Pixelliser (mosaïque)</option>
+                        <option value="plein">Bandeau noir opaque</option>
+                      </select>
+                      <p class="hint">Utilisé en direct (clic gauche glissé en tenant le raccourci ; clic droit pour annuler) et par défaut dans la fenêtre de floutage.</p>
                     </div>
                   </div>
                 </div>
@@ -931,7 +951,7 @@
                   </label>
                   <p id="capture-vision-warning" class="warning" hidden>
                     Les images annotées sont alors envoyées au fournisseur LLM : elles quittent le PC.
-                    Évitez avec des informations confidentielles à l'écran.
+                    Activez « Vérifier et flouter » ci-dessus ou floutez à l'écran si des informations confidentielles sont visibles.
                   </p>
                   <div class="field">
                     <label for="capture-vision-profile">Fournisseur pour les images</label>

@@ -72,6 +72,13 @@ pub fn build(
         true,
         None::<&str>,
     )?;
+    let annotate_redact = MenuItem::with_id(
+        app,
+        "annotate_redact",
+        "Flouter la dernière capture commentée…",
+        true,
+        None::<&str>,
+    )?;
     let settings = MenuItem::with_id(app, "settings", "Réglages…", true, None::<&str>)?;
     let config = MenuItem::with_id(
         app,
@@ -105,6 +112,7 @@ pub fn build(
             &meetings,
             &annotate,
             &annotate_paste,
+            &annotate_redact,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &config,
@@ -147,6 +155,11 @@ pub fn build(
                 if let Some(annotator) = app.try_state::<AnnotatorState>() {
                     let annotator = std::sync::Arc::clone(&annotator);
                     std::thread::spawn(move || annotator.paste_last());
+                }
+            }
+            "annotate_redact" => {
+                if let Some(annotator) = app.try_state::<AnnotatorState>() {
+                    annotator.open_last_review();
                 }
             }
             "settings" => main_window::open(app, Page::Settings),

@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.45.0 — 2026-11-26
+
+- [PC] Floutage rapide de zones sensibles en capture commentée : pendant que vous tenez le raccourci pour dessiner, faites un clic gauche glissé pour masquer une zone (clés API, adresses mail, données personnelles) sur toutes les images capturées ; clic droit pour annuler la dernière zone.
+- [PC] Nouvelle option « Vérifier et flouter les images avant collage ou envoi au LLM » (Réglages → Capture commentée) et entrée « Flouter la dernière capture commentée… » dans le menu de l'icône : tracez des rectangles sur la planche (Flou fort, Pixelliser ou Bandeau noir) avant le collage et avant tout envoi d'images au LLM vision.
+
 ## 0.44.0 — 2026-11-26
 
 - [PC] Recherche sémantique locale (opt-in dans Réglages → Réunions) : un modèle multilingue léger exécuté sur votre PC (ONNX Runtime, rien n'est envoyé) retrouve vos passages de réunions et de rapports même avec des synonymes ou d'autres formulations, en combinant mots-clés exacts et proximité de sens.

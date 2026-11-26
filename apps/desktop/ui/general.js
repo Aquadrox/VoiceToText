@@ -115,6 +115,12 @@ function fillGeneral(view) {
   $("capture-keep").value = String(view.captures.keep_days);
   $("capture-area").value = view.captures.area;
   $("capture-clicks").checked = view.captures.clicks;
+  if ($("capture-review")) {
+    $("capture-review").checked = Boolean(view.captures.review_before_paste);
+  }
+  if ($("capture-redact-style")) {
+    $("capture-redact-style").value = view.captures.redact_style || "flou";
+  }
   $("capture-vision").checked = view.captures.vision;
   const profiles = view.llm_profiles.includes(view.captures.vision_profile) || !view.captures.vision_profile
     ? view.llm_profiles
@@ -282,6 +288,8 @@ function readGeneral(applying) {
       clicks: v("capture-clicks"),
       vision: v("capture-vision"),
       vision_profile: v("capture-vision-profile"),
+      review_before_paste: $("capture-review") ? Boolean(v("capture-review")) : false,
+      redact_style: $("capture-redact-style") ? v("capture-redact-style") : "flou",
     },
   };
 }

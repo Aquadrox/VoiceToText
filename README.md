@@ -596,6 +596,8 @@ area = "ecran"            # "ecran", "fenetre" (active) ou "zone" (tracée)
 clicks = true             # clics = moments clés
 vision = false            # envoyer les images au LLM pour les décrire
 vision_profile = ""       # profil LLM pour les images ; "" = fournisseur actif
+review_before_paste = false # ouvrir la fenêtre de floutage avant collage ou envoi au LLM vision
+redact_style = "flou"     # "flou", "pixel" (mosaïque) ou "plein" (bandeau noir)
 
 [meetings]
 audio = "temporaire"   # "memoire", "temporaire" (chiffré, supprimé à la fin) ou "conserve"

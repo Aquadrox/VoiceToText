@@ -368,6 +368,11 @@ pub struct CapturesConfig {
     pub vision: bool,
     /// Profil LLM pour la description des images ; vide : fournisseur actif.
     pub vision_profile: String,
+    /// Ouvrir la fenêtre rapide de vérification / floutage avant collage ou
+    /// envoi au LLM vision.
+    pub review_before_paste: bool,
+    /// Style de masquage des zones sensibles : « flou », « pixel » ou « plein ».
+    pub redact_style: String,
 }
 
 impl Default for CapturesConfig {
@@ -379,12 +384,16 @@ impl Default for CapturesConfig {
             clicks: true,
             vision: false,
             vision_profile: String::new(),
+            review_before_paste: false,
+            redact_style: "flou".into(),
         }
     }
 }
 
 /// Zones de capture proposées.
 pub const CAPTURE_AREAS: &[&str] = &["ecran", "fenetre", "zone"];
+/// Styles de floutage / masquage proposés.
+pub const CAPTURE_REDACT_STYLES: &[&str] = &["flou", "pixel", "plein"];
 
 /// Modèle « narration seule » (sans LLM).
 pub const CAPTURE_RAW_TEMPLATE: &str = "brut";

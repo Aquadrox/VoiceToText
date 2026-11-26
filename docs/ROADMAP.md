@@ -607,9 +607,12 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 - ✅ Linux (`clipboard_linux.rs`) : sauvegarde et restauration multi-formats sur Wayland (`wl-clipboard-rs`, `prepare_copy_multi` avec lecture bornée en délai et taille) et X11 (`x11rb`, `TARGETS`, `MULTIPLE`, transferts incrémentaux `INCR` pour les images > 64 Kio, serveur d'arrière-plan passif 0 % CPU au repos), validé sous `xvfb-run`
 - ⬜ À vérifier sur le terrain : copie d'une capture d'écran, de texte HTML/Word et de fichiers Explorateur avant une dictée ou un Command Mode sur Windows et sur Steam Deck (Wayland)
 
-### Capture commentée : floutage rapide d'une zone sensible ⬜
+### Capture commentée : floutage rapide d'une zone sensible (#87) ✅
 
-- ⬜ Outil rapide de floutage / masquage d'une zone sur l'écran ou sur la planche avant collage ou envoi au LLM vision (masquer clés, mails, données personnelles)
+- ✅ Masquage irréversible dans `vtt-core::annotation` (`RedactStyle::Blur` flou fort multi-passes, `Pixel` mosaïque, `Solid` bandeau opaque couleur encre, `Region::local_rect` et `apply_redactions`) appliqué avant annotation, sauvegarde disque, collage ou envoi au LLM vision
+- ✅ Floutage en direct à l'écran (`ink.js` : clic gauche glissé en tenant le raccourci pour tracer un rectangle masqué persistant sur la capture, clic droit pour annuler, clics ignorés pendant le tracé)
+- ✅ Fenêtre rapide de floutage sur la planche (`review.html` / `review.js` / `review.css`) : ouverte avant collage et avant tout envoi d'images au LLM vision si `captures.review_before_paste` est activé (Réglages → Capture commentée), et accessible à tout moment via **Flouter la dernière capture commentée…** dans le menu de l'icône (`0.45.0`)
+- ⬜ À vérifier sur le terrain : tracé en direct sur écran HiDPI et fenêtre de révision avant envoi au LLM vision sur Windows et Linux
 
 ## Backlog (plus tard)
 
