@@ -166,12 +166,20 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await page.locator("#meeting-tab-btn-transcript").click();
       await page.locator("#meeting-search").fill("budget");
       await page.waitForSelector("#search-results:not([hidden]) button");
+      const badges = await page.locator("#search-results .search-badge").allTextContents();
+      assert.deepEqual(badges, ["Exact + sens", "Sens proche"]);
       await page.locator("#search-results button").first().click();
       await page.waitForTimeout(100);
 
       assert.equal(await page.locator("#meeting-panel-report").isVisible(), true);
       const hitText = await frame.locator("mark.hit").first().textContent();
       assert.equal(hitText?.toLowerCase(), "budget");
+
+      // Question au LLM avec RAG sémantique.
+      await page.locator("#ask-question").fill("Quelles dépenses ont été validées ?");
+      await page.locator("#ask-send").click();
+      await page.waitForSelector("#ask-answer:not([hidden])");
+      assert.match(await page.locator("#ask-answer").textContent(), /recherche sémantique/);
 
       assert.deepEqual(errors, []);
     } finally {

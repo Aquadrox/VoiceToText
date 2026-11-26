@@ -73,45 +73,34 @@ pub(super) fn clip_sample_range(start_ms: u64) -> (usize, usize) {
 
 /// Rassemble les extraits pertinents (ou la transcription entière pour un seul
 /// enregistrement si elle tient sous `MAX_CONTEXT_CHARS`) et le nombre de
-/// sources retenues.
+/// sources retenues (sans index sémantique).
+#[cfg(test)]
 pub(super) fn build_ask_context(
     records: &[MeetingRecord],
     question: &str,
     single_record: bool,
 ) -> (String, usize) {
-    let keywords = vtt_core::search::keywords(question);
-    let mut context = String::new();
-    let mut sources = 0;
-    for record in records {
-        let segments = record.segments();
-        let mut lines =
-            vtt_core::search::excerpts(&record.title, &segments, &keywords, &record.names());
-        // Un seul enregistrement : tout, s'il tient.
-        if single_record {
-            let all = vtt_core::search::excerpts(
-                &record.title,
-                &segments,
-                &[String::new()],
-                &record.names(),
-            );
-            if all.iter().map(String::len).sum::<usize>() <= MAX_CONTEXT_CHARS {
-                lines = all;
-            }
-        }
-        if lines.is_empty() {
-            continue;
-        }
-        sources += 1;
-        for line in lines {
-            if context.len() + line.len() > MAX_CONTEXT_CHARS {
-                break;
-            }
-            context.push_str(&line);
-            context.push('\n');
-        }
-        if context.len() >= MAX_CONTEXT_CHARS {
-            break;
-        }
-    }
-    (context, sources)
+    let rag = build_ask_context_semantic(records, &[], question, None, single_record);
+    (rag.context, rag.sources)
+}
+
+/// Version RAG hybride (classement lexical BM25-lite + sémantique RRF +
+/// diversité inter-réunions + inclusion du rapport complet).
+pub(super) fn build_ask_context_semantic(
+    records: &[MeetingRecord],
+    indices: &[Option<vtt_core::semantic::MeetingIndex>],
+    question: &str,
+    query_vec: Option<&[f32]>,
+    single_record: bool,
+) -> vtt_core::semantic::RagContext {
+    let refs: Vec<Option<&vtt_core::semantic::MeetingIndex>> =
+        indices.iter().map(Option::as_ref).collect();
+    vtt_core::semantic::build_rag_context(
+        records,
+        &refs,
+        question,
+        query_vec,
+        single_record,
+        MAX_CONTEXT_CHARS,
+    )
 }

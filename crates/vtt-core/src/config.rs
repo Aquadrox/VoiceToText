@@ -283,6 +283,10 @@ pub struct MeetingsConfig {
     /// Distinguer les intervenants (« Intervenant 1, 2… ») dans la piste
     /// « Eux » et les conférences ; modèles téléchargés à l'activation.
     pub diarize: bool,
+    /// Recherche sémantique locale (modèle d'embeddings ONNX multilingue
+    /// téléchargé à la demande) : recherche hybride et sélection enrichie
+    /// des passages pour « Poser une question ».
+    pub semantic_search: bool,
 }
 
 /// Choix de l'utilisateur pour un service d'appel.
@@ -339,6 +343,7 @@ impl Default for MeetingsConfig {
             echo_filter: true,
             summary_language: String::new(),
             diarize: false,
+            semantic_search: false,
         }
     }
 }

@@ -19,6 +19,7 @@ pub mod live;
 pub mod meeting;
 pub mod pipeline;
 pub mod search;
+pub mod semantic;
 pub mod suggest;
 pub mod sync;
 pub mod text;

@@ -4,6 +4,8 @@
 #[cfg(feature = "parakeet")]
 mod diarize;
 #[cfg(feature = "parakeet")]
+mod embed;
+#[cfg(feature = "parakeet")]
 mod parakeet;
 #[cfg(feature = "vosk")]
 mod vosk;
@@ -12,6 +14,8 @@ mod vulkan_probe;
 
 #[cfg(feature = "parakeet")]
 pub use diarize::Diarizer;
+#[cfg(feature = "parakeet")]
+pub use embed::TextEmbedder;
 #[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetTranscriber;
 #[cfg(feature = "vosk")]

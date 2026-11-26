@@ -270,6 +270,97 @@ pub fn ensure_diarization(
     diarization_local(dir).ok_or_else(|| "modèles de la diarisation incomplets".to_owned())
 }
 
+/// Modèle d'embeddings multilingue pour la recherche sémantique locale et le
+/// RAG sur les réunions : `intfloat/multilingual-e5-small` (MIT), export ONNX
+/// quantifié 8 bits (Xenova) à une révision figée de Hugging Face. Partage
+/// ONNX Runtime avec Parakeet et la diarisation.
+const SEMANTIC_DIR: &str = "semantique-e5-small-1";
+static SEMANTIC: Content = Content::Files(&[
+    (
+        "model.onnx",
+        Remote {
+            url: "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/onnx/model_quantized.onnx",
+            size: 118_308_185,
+            sha256: "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+        },
+    ),
+    (
+        "tokenizer.json",
+        Remote {
+            url: "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/tokenizer.json",
+            size: 17_082_730,
+            sha256: "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+        },
+    ),
+]);
+
+/// Modèle d'embeddings prêt à charger.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticModels {
+    pub model: PathBuf,
+    pub tokenizer: PathBuf,
+    pub runtime: PathBuf,
+}
+
+/// Modèle d'embeddings présent et complet.
+pub fn semantic_local(dir: &Path) -> Option<SemanticModels> {
+    let models = dir.join(SEMANTIC_DIR);
+    if !complete(&models) {
+        return None;
+    }
+    Some(SemanticModels {
+        model: models.join("model.onnx"),
+        tokenizer: models.join("tokenizer.json"),
+        runtime: local_runtime(dir, &ONNX_RUNTIME)?,
+    })
+}
+
+/// Ce qu'il reste à télécharger pour la recherche sémantique (Mo).
+pub fn semantic_missing_mb(dir: &Path) -> u64 {
+    let models = if complete(&dir.join(SEMANTIC_DIR)) {
+        0
+    } else {
+        SEMANTIC.size()
+    };
+    let runtime = if local_runtime(dir, &ONNX_RUNTIME).is_some() {
+        0
+    } else {
+        ONNX_RUNTIME.content.size()
+    };
+    (models + runtime).div_ceil(1_000_000)
+}
+
+/// Renvoie le modèle d'embeddings local, en téléchargeant ce qui manque.
+pub fn ensure_semantic(dir: &Path, mut progress: impl FnMut(u8)) -> Result<SemanticModels, String> {
+    if let Some(models) = semantic_local(dir) {
+        return Ok(models);
+    }
+    let models_missing = !complete(&dir.join(SEMANTIC_DIR));
+    let runtime_missing = local_runtime(dir, &ONNX_RUNTIME).is_none();
+    let mut progress = Progress {
+        total: if models_missing { SEMANTIC.size() } else { 0 }
+            + if runtime_missing {
+                ONNX_RUNTIME.content.size()
+            } else {
+                0
+            },
+        done: 0,
+        last: u8::MAX,
+        report: &mut progress,
+    };
+    if runtime_missing {
+        install_dir(
+            &dir.join(ONNX_RUNTIME.dir),
+            &ONNX_RUNTIME.content,
+            &mut progress,
+        )?;
+    }
+    if models_missing {
+        install_dir(&dir.join(SEMANTIC_DIR), &SEMANTIC, &mut progress)?;
+    }
+    semantic_local(dir).ok_or_else(|| "modèle de recherche sémantique incomplet".to_owned())
+}
+
 /// Modèles proposés dans les réglages ; tailles et SHA-256 relevés sur
 /// Hugging Face, GitHub et alphacephei.com (le téléchargement est vérifié
 /// avec).
@@ -867,6 +958,100 @@ mod tests {
             .unwrap();
         assert!(turns.is_empty());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn semantic_models_require_model_and_runtime() {
+        let dir = temp_dir("semantic-local");
+        assert!(semantic_local(&dir).is_none());
+        let expected_all = (SEMANTIC.size() + ONNX_RUNTIME.content.size()).div_ceil(1_000_000);
+        assert_eq!(semantic_missing_mb(&dir), expected_all);
+
+        fs::create_dir_all(dir.join(SEMANTIC_DIR)).unwrap();
+        fs::write(dir.join(SEMANTIC_DIR).join(COMPLETE), b"").unwrap();
+        assert!(semantic_local(&dir).is_none());
+        assert_eq!(
+            semantic_missing_mb(&dir),
+            ONNX_RUNTIME.content.size().div_ceil(1_000_000)
+        );
+
+        fs::create_dir_all(dir.join(ONNX_RUNTIME.dir)).unwrap();
+        fs::write(dir.join(ONNX_RUNTIME.dir).join(COMPLETE), b"").unwrap();
+        let models = semantic_local(&dir).unwrap();
+        assert_eq!(models.model, dir.join(SEMANTIC_DIR).join("model.onnx"));
+        assert_eq!(
+            models.tokenizer,
+            dir.join(SEMANTIC_DIR).join("tokenizer.json")
+        );
+        assert_eq!(
+            models.runtime,
+            dir.join(ONNX_RUNTIME.dir).join(ONNX_RUNTIME.library)
+        );
+        assert_eq!(semantic_missing_mb(&dir), 0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Vrai téléchargement du modèle d'embeddings multilingue (~135 Mo + ONNX
+    /// Runtime), chargement ONNX et vérification sur des phrases françaises :
+    /// `cargo test -p voicetotext -- --ignored --nocapture semantic_download_and_embed_french`.
+    #[test]
+    #[ignore]
+    fn semantic_download_and_embed_french() {
+        use vtt_core::semantic::{Embedder, cosine_q15, quantize_unit};
+
+        let (dir, cleanup) = match std::env::var("VTT_MODELS_DIR") {
+            Ok(existing) => (PathBuf::from(existing), false),
+            Err(_) => (temp_dir("semantic-download"), true),
+        };
+        let models = if let Some(local) = semantic_local(&dir) {
+            local
+        } else {
+            let mut last = 0;
+            let m = ensure_semantic(&dir, |p| last = p).unwrap();
+            assert_eq!(last, 100);
+            m
+        };
+        assert_eq!(semantic_local(&dir), Some(models.clone()));
+
+        let mut embedder =
+            vtt_asr::TextEmbedder::load(&models.model, &models.tokenizer, &models.runtime, 2)
+                .unwrap();
+
+        let passages = [
+            "Le budget de la campagne marketing est validé à cinq mille euros.",
+            "Nous avons un retard de deux semaines sur la mise en production.",
+            "Julie doit envoyer les maquettes Figma avant vendredi soir.",
+            "La météo annonce de la pluie pour tout le week-end en Bretagne.",
+        ];
+        let vecs = embedder.embed_passages(&passages).unwrap();
+        assert_eq!(vecs.len(), passages.len());
+        assert_eq!(vecs[0].len(), 384);
+        let q15s: Vec<Vec<i16>> = vecs.iter().map(|v| quantize_unit(v)).collect();
+
+        for (query, expected_idx) in [
+            ("Quelles dépenses financières ont été approuvées ?", 0usize),
+            ("Problème de délai sur la livraison", 1usize),
+            ("Qui s'occupe du design ?", 2usize),
+        ] {
+            let qv = embedder.embed_query(query).unwrap();
+            let scores: Vec<f32> = q15s.iter().map(|p| cosine_q15(&qv, p)).collect();
+            println!("query={query:?} -> scores={scores:.4?}");
+            let (best_idx, best_score) = scores
+                .iter()
+                .copied()
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .unwrap();
+            assert_eq!(best_idx, expected_idx, "query={query:?} scores={scores:?}");
+            let unrelated = scores[3];
+            assert!(
+                best_score > unrelated + 0.025,
+                "best={best_score} unrelated={unrelated}"
+            );
+        }
+        if cleanup {
+            fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     #[test]

@@ -333,11 +333,11 @@ fn search_records_includes_report_and_transcript_hits() {
     let hits = search_records(&[rec.clone()], &dir, "budget");
     assert!(
         hits.iter()
-            .any(|h| h.source == "report" && h.section == Some("Synthèse"))
+            .any(|h| h.source == "report" && h.section.as_deref() == Some("Synthèse"))
     );
     assert!(
         hits.iter()
-            .any(|h| h.source == "report" && h.section == Some("Action"))
+            .any(|h| h.source == "report" && h.section.as_deref() == Some("Action"))
     );
     assert!(
         hits.iter()

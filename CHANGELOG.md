@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.44.0 — 2026-11-26
+
+- [PC] Recherche sémantique locale (opt-in dans Réglages → Réunions) : un modèle multilingue léger exécuté sur votre PC (ONNX Runtime, rien n'est envoyé) retrouve vos passages de réunions et de rapports même avec des synonymes ou d'autres formulations, en combinant mots-clés exacts et proximité de sens.
+- [PC] Sélection des passages améliorée pour « Poser une question » (RAG hybride) : classement par pertinence sur toutes les réunions et leurs rapports complets, meilleure diversité entre réunions, prise en charge des sigles courts et recherche par le sens lorsqu'elle est activée.
+
 ## 0.43.0 — 2026-11-25
 
 - [PC] Onglet « Rapport complet » dans la page Réunions (parité Android) : faites rédiger par l'IA un rapport interactif structuré (synthèse, points clés, chapitres horodatés, accords, désaccords, risques, chiffres et plan d'action) avec sommaire, recherche interne, filtres, cases d'actions persistantes, réécoute audio et export en fichier HTML autonome ou copie Markdown.
