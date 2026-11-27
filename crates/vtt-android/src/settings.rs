@@ -67,6 +67,7 @@ struct View<'a> {
     dictionary: usize,
     snippets: usize,
     voice_commands: bool,
+    audio_enhance: bool,
     screen_context: bool,
     screen_context_excluded_apps: &'a [String],
     live_insert: bool,
@@ -100,6 +101,7 @@ pub fn view(toml: &str, models_dir: &Path) -> Result<String, String> {
         dictionary: config.dictionary.len(),
         snippets: config.snippets.len(),
         voice_commands: config.dictation.voice_commands,
+        audio_enhance: config.audio.enhance,
         screen_context: config.dictation.screen_context,
         screen_context_excluded_apps: &config.dictation.screen_context_excluded_apps,
         live_insert: config.dictation.live_insert,
@@ -123,6 +125,9 @@ pub struct Update {
     pub llm_model: String,
     pub model: String,
     pub voice_commands: bool,
+    /// Prétraitement audio du micro ; absent : inchangé.
+    #[serde(default)]
+    pub audio_enhance: Option<bool>,
     #[serde(default)]
     pub screen_context: Option<bool>,
     #[serde(default)]
@@ -161,6 +166,9 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     translation.validate()?;
     config.asr.model = update.model.clone();
     config.dictation.voice_commands = update.voice_commands;
+    if let Some(enabled) = update.audio_enhance {
+        config.audio.enhance = enabled;
+    }
     if let Some(enabled) = update.screen_context {
         config.dictation.screen_context = enabled;
     }
@@ -339,6 +347,7 @@ mod tests {
             llm_model: "deepseek-flash".into(),
             model: model.into(),
             voice_commands: true,
+            audio_enhance: None,
             screen_context: None,
             screen_context_excluded_apps: None,
             live_insert: None,
@@ -600,5 +609,21 @@ mod tests {
         )
         .unwrap();
         assert!(parse(&kept).unwrap().0.dictation.live_insert);
+    }
+
+    #[test]
+    fn audio_enhance_is_on_by_default_and_kept_when_absent() {
+        let json = view("", Path::new("/nulle-part")).unwrap();
+        assert!(json.contains("\"audio_enhance\":true"), "{json}");
+        let mut req = update_with(models::DEFAULT_MODEL, "https://api.deepseek.com");
+        req.audio_enhance = Some(false);
+        let saved = update("", &req).unwrap();
+        assert!(!parse(&saved).unwrap().0.audio.enhance);
+        let kept = update(
+            &saved,
+            &update_with(models::DEFAULT_MODEL, "https://api.deepseek.com"),
+        )
+        .unwrap();
+        assert!(!parse(&kept).unwrap().0.audio.enhance);
     }
 }

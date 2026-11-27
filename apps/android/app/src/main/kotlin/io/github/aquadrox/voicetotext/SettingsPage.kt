@@ -54,6 +54,7 @@ object SettingsIndex {
     val entries = listOf(
         Entry(Section.DICTATION, "model", "Modèle de transcription", "whisper parakeet télécharger précision vitesse voix reconnaissance"),
         Entry(Section.DICTATION, "microphone", "Micro utilisé", "micro externe casque écouteurs usb bluetooth filaire jack matériel entrée audio choisir changer tester"),
+        Entry(Section.DICTATION, "audio_enhance", "Améliorer le son du micro", "filtre passe-haut bruit sourd volume faible agc gain normalisation audio"),
         Entry(Section.DICTATION, "keyboard", "Clavier VoiceToText", "activer choisir changer de clavier méthode de saisie"),
         Entry(Section.DICTATION, "translation", "Langue de traduction", "traduire anglais espagnol allemand mode traduction langue"),
         Entry(Section.DICTATION, "voice_commands", "Commandes vocales", "nouvelle ligne annuler la dernière dictée commande épeler lettres"),
@@ -140,6 +141,7 @@ object Config {
             .put("llm_model", llm.getString("model"))
             .put("model", view.getString("model"))
             .put("voice_commands", view.getBoolean("voice_commands"))
+            .put("audio_enhance", view.optBoolean("audio_enhance", true))
             .put("screen_context", view.optBoolean("screen_context", false))
             .put("live_insert", view.optBoolean("live_insert", false))
             .put("screen_context_excluded_apps", view.optJSONArray("screen_context_excluded_apps") ?: JSONArray())

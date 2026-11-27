@@ -187,6 +187,7 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
         engine
             .pipeline
             .set_voice_commands(config.dictation.voice_commands);
+        engine.pipeline.set_audio_enhance(config.audio.enhance);
         engine.history = history;
         engine.ledger = ledger;
         engine.pricing = config.llm.pricing.clone();
@@ -203,7 +204,8 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
     let pipeline = Pipeline::new(transcriber, cleaner(&config), Box::new(Collect))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
-        .with_voice_commands(config.dictation.voice_commands);
+        .with_voice_commands(config.dictation.voice_commands)
+        .with_audio_enhance(config.audio.enhance);
     *engine = Some(Engine {
         pipeline,
         model: config.asr.model.clone(),

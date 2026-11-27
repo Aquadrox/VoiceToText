@@ -8,6 +8,10 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.47.0 — 2026-11-27
+
+- Prétraitement audio local du micro avant transcription (activé par défaut ; réglable dans PC : Réglages → Reconnaissance locale, Android : Réglages → Dictée) : filtre passe-haut 80 Hz qui élimine bruits sourds, bourdonnement secteur et décalage continu avant la détection de silence (moins d'hallucinations), et normalisation douce du niveau pour mieux comprendre les micros faibles ou éloignés sans amplifier le silence ni écrêter les pics.
+
 ## 0.46.0 — 2026-11-26
 
 - [PC] Détection automatique de la fin d'une réunion : dès que l'application d'appel (Teams, Zoom, Discord, navigateur…) libère le micro, un court délai de grâce s'affiche dans la pastille (« Réunion 12:34 · fin 15 s ») pour tolérer une reconnexion ou un changement de micro, puis l'enregistrement s'arrête tout seul et lance la fin de la transcription et le compte rendu (activé par défaut ; réglable dans Réglages → Réunions, ne s'applique pas aux conférences).

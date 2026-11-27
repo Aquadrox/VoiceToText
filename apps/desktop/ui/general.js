@@ -143,6 +143,9 @@ function fillGeneral(view) {
   }
   $("audio-device").replaceChildren(option("", "Micro par défaut du système"), ...microphones);
   $("audio-device").value = configured;
+  if ($("audio-enhance")) {
+    $("audio-enhance").checked = view.audio.enhance ?? true;
+  }
 
   // Un groupe par moteur ; un modèle placé à la main reste proposé.
   const groups = ENGINES.map(({ id, label }) => {
@@ -261,7 +264,10 @@ function readGeneral(applying) {
       hands_free: v("hk-handsfree"),
       system_shortcut: v("hk-system"),
     },
-    audio: { device: v("audio-device") },
+    audio: {
+      device: v("audio-device"),
+      enhance: $("audio-enhance") ? Boolean(v("audio-enhance")) : true,
+    },
     asr: {
       model: v("asr-model"),
       use_gpu: v("asr-gpu"),

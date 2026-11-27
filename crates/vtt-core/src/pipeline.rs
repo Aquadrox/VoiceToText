@@ -397,6 +397,9 @@ pub struct Pipeline {
     styles: Vec<Style>,
     /// Commandes vocales (mise en page, annulation) reconnues.
     voice_commands: bool,
+    /// Prétraitement audio avant la détection de silence et l'ASR
+    /// (passe-haut 80 Hz + normalisation douce du niveau de parole).
+    audio_enhance: bool,
     /// Durée de la dernière transcription (zone de test des réglages) ; 0 si
     /// le clip a été écarté avant l'ASR.
     last_asr_ms: AtomicU64,
@@ -415,6 +418,7 @@ impl Pipeline {
             snippets: Vec::new(),
             styles: Vec::new(),
             voice_commands: false,
+            audio_enhance: false,
             last_asr_ms: AtomicU64::new(0),
         }
     }
@@ -432,6 +436,15 @@ impl Pipeline {
 
     pub fn set_voice_commands(&mut self, enabled: bool) {
         self.voice_commands = enabled;
+    }
+
+    pub fn with_audio_enhance(mut self, enabled: bool) -> Self {
+        self.audio_enhance = enabled;
+        self
+    }
+
+    pub fn set_audio_enhance(&mut self, enabled: bool) {
+        self.audio_enhance = enabled;
     }
 
     /// Remplace le modèle de transcription (changement de modèle dans les
@@ -507,6 +520,16 @@ impl Pipeline {
         self.transcribe_with_hints(clip, &[])
     }
 
+    fn prepare_clip<'a>(&self, clip: &'a AudioClip) -> std::borrow::Cow<'a, AudioClip> {
+        if self.audio_enhance {
+            std::borrow::Cow::Owned(AudioClip {
+                samples: audio::preprocess_for_asr(&clip.samples, SAMPLE_RATE),
+            })
+        } else {
+            std::borrow::Cow::Borrowed(clip)
+        }
+    }
+
     fn transcribe_with_hints(
         &self,
         clip: &AudioClip,
@@ -517,16 +540,17 @@ impl Pipeline {
             log::info!("ignoré : enregistrement de {} ms", clip.duration_ms());
             return Ok(None);
         }
-        if audio::is_silent(&clip.samples, SAMPLE_RATE, SILENCE_RMS) {
-            log::info!("ignoré : silence ({} ms)", clip.duration_ms());
+        let prepared = self.prepare_clip(clip);
+        if audio::is_silent(&prepared.samples, SAMPLE_RATE, SILENCE_RMS) {
+            log::info!("ignoré : silence ({} ms)", prepared.duration_ms());
             return Ok(None);
         }
 
         let started = Instant::now();
         let transcribed = if hints.is_empty() {
-            self.transcriber.transcribe(clip)?
+            self.transcriber.transcribe(&prepared)?
         } else {
-            self.transcriber.transcribe_with_hints(clip, hints)?
+            self.transcriber.transcribe_with_hints(&prepared, hints)?
         };
         let asr_ms = started.elapsed().as_millis();
         self.last_asr_ms
@@ -545,10 +569,11 @@ impl Pipeline {
     /// Mots horodatés de tout le clip (capture commentée) ; vide pour un
     /// silence.
     pub fn transcribe_words(&self, clip: &AudioClip) -> Result<Vec<Word>, Error> {
-        if audio::is_silent(&clip.samples, SAMPLE_RATE, SILENCE_RMS) {
+        let prepared = self.prepare_clip(clip);
+        if audio::is_silent(&prepared.samples, SAMPLE_RATE, SILENCE_RMS) {
             return Ok(Vec::new());
         }
-        let words = self.transcriber.transcribe_words(clip)?;
+        let words = self.transcriber.transcribe_words(&prepared)?;
         let text: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
         if text::strip_hallucinations(&text.join(" ")).is_empty() {
             return Ok(Vec::new());
@@ -1871,5 +1896,59 @@ mod tests {
             panic!("dictée insérée attendue");
         };
         assert_eq!(translated.as_deref(), Some("anglais"));
+    }
+
+    #[test]
+    fn audio_enhance_filters_dc_hum_before_asr_and_boosts_quiet_speech() {
+        struct InspectAsr(Arc<Mutex<Vec<f32>>>);
+        impl Transcriber for InspectAsr {
+            fn transcribe(&self, clip: &AudioClip) -> Result<String, Error> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(audio::rms(&clip.samples[4000..]));
+                Ok("bonjour".into())
+            }
+        }
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Recorder::default();
+        let mut p = Pipeline::new(
+            Box::new(InspectAsr(Arc::clone(&seen))),
+            None,
+            Box::new(sink.clone()),
+        )
+        .with_audio_enhance(true);
+
+        // Décalage continu pur : filtré avant is_silent, l'ASR n'est même pas appelé.
+        let dc_only = AudioClip {
+            samples: vec![0.05; SAMPLE_RATE as usize],
+        };
+        assert_eq!(p.run(&dc_only, &no_target()).unwrap(), Outcome::Skipped);
+        assert!(seen.lock().unwrap().is_empty());
+
+        // Voix faible 440 Hz (~0,014 RMS) : remontée vers ~0,09 RMS avant l'ASR.
+        let quiet_speech = AudioClip {
+            samples: (0..SAMPLE_RATE as usize)
+                .map(|i| {
+                    0.02 * (i as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin()
+                })
+                .collect(),
+        };
+        assert!(matches!(
+            p.run(&quiet_speech, &no_target()).unwrap(),
+            Outcome::Inserted { .. }
+        ));
+        let boosted = seen.lock().unwrap()[0];
+        assert!(boosted > 0.07 && boosted < 0.11, "RMS reçu : {boosted}");
+
+        // Désactivé à chaud : le niveau brut est transmis tel quel.
+        p.set_audio_enhance(false);
+        assert!(matches!(
+            p.run(&quiet_speech, &no_target()).unwrap(),
+            Outcome::Inserted { .. }
+        ));
+        let raw_level = seen.lock().unwrap()[1];
+        assert!(raw_level < 0.02, "RMS brut attendu : {raw_level}");
     }
 }
