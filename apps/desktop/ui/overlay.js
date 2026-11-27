@@ -7,6 +7,7 @@ const LABELS = { listening: "Écoute…", processing: "Transcription…" };
 const SHORT = { handsfree: "Mains libres · Échap annule", command: "Commande…" };
 const ERROR_VISIBLE_MS = 5000;
 const INFO_VISIBLE_MS = 1500;
+const AUTO_STOP_VISIBLE_MS = 4000;
 const CONSENT_VISIBLE_MS = 5000;
 let errorTimer;
 
@@ -25,6 +26,8 @@ let lastStatus = { state: "idle" };
 /** Début de la réunion enregistrée (horloge locale), sinon `null`. */
 let meetingStartedAt = null;
 let meetingLabel = "Réunion";
+/** Décompte avant arrêt automatique de la réunion (secondes), sinon `null`. */
+let meetingStoppingInSec = null;
 /** Capture commentée en cours : début (horloge locale) et dessin. */
 let annotateStartedAt = null;
 let annotateDrawing = false;
@@ -66,7 +69,8 @@ function showIdle() {
     return;
   }
   pill.dataset.state = "meeting";
-  label.textContent = `${meetingLabel} ${elapsed(meetingStartedAt)}`;
+  const base = `${meetingLabel} ${elapsed(meetingStartedAt)}`;
+  label.textContent = meetingStoppingInSec != null ? `${base} · fin ${meetingStoppingInSec} s` : base;
   setPreview("");
 }
 setInterval(() => pill.dataset.state === "meeting" && showIdle(), 1000);
@@ -113,6 +117,7 @@ window.__TAURI__.event.listen("translation", (event) => {
 function setMeeting(state) {
   meetingStartedAt = state.recording ? Date.now() - state.elapsed_ms : null;
   meetingLabel = state.conference ? "Conférence" : "Réunion";
+  meetingStoppingInSec = state.recording && state.stopping_in_sec != null ? state.stopping_in_sec : null;
   if (lastStatus.state !== "idle") return;
   if (state.consent) {
     showIdle();
@@ -144,6 +149,9 @@ window.__TAURI__.event.listen("annotate-done", (event) => {
 });
 window.__TAURI__.event.listen("meeting-error", (event) => {
   if (lastStatus.state === "idle") flash(String(event.payload), "error", ERROR_VISIBLE_MS);
+});
+window.__TAURI__.event.listen("meeting-auto-stopped", (event) => {
+  if (lastStatus.state === "idle") flash(String(event.payload), "info", AUTO_STOP_VISIBLE_MS);
 });
 
 // Niveau du micro (0 à 1) pendant l'enregistrement : barres plus hautes au centre.

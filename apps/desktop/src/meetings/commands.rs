@@ -7,7 +7,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use vtt_core::calls::{self, Policy};
-use vtt_core::config::{MEETING_KEEP_DAYS, MeetingAudio, MeetingsConfig, TRANSLATION_LANGUAGES};
+use vtt_core::config::{
+    MEETING_AUTO_STOP_DELAYS, MEETING_AUTO_STOP_SILENCE_MIN, MEETING_KEEP_DAYS, MeetingAudio,
+    MeetingsConfig, TRANSLATION_LANGUAGES,
+};
 use vtt_core::meeting::{
     self, DEFAULT_EXCERPT_CHARS, MeetingKind, MeetingRecord, MeetingStatus, Output, Track,
 };
@@ -49,6 +52,8 @@ pub struct MeetingsView {
     meetings: Vec<MeetingRow>,
     settings: MeetingsConfig,
     keep_days: &'static [u32],
+    auto_stop_delays: &'static [u32],
+    auto_stop_silence_mins: &'static [u32],
     llm_enabled: bool,
     /// Services d'appel reconnus et le choix pour chacun.
     providers: Vec<ProviderView>,
@@ -102,6 +107,8 @@ pub fn meetings_view(
         meetings: rows,
         settings: config.meetings.clone(),
         keep_days: MEETING_KEEP_DAYS,
+        auto_stop_delays: MEETING_AUTO_STOP_DELAYS,
+        auto_stop_silence_mins: MEETING_AUTO_STOP_SILENCE_MIN,
         llm_enabled: config.llm.enabled,
         providers: calls::providers()
             .map(|p| ProviderView {

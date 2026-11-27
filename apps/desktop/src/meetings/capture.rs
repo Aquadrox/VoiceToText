@@ -5,19 +5,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
-use vtt_core::TextSink;
-use vtt_core::calls::{Decision, Detector, Policy, Provider};
+use vtt_core::calls::{
+    self, Decision, Detector, EndDetector, EndStatus, Policy, Provider, StopReason,
+};
 use vtt_core::config::MeetingAudio;
-use vtt_core::diarize;
 use vtt_core::meeting::{
     self, Chunk, Chunker, MeetingKind, MeetingRecord, MeetingStatus, Output, Segment, Track,
 };
+use vtt_core::{SAMPLE_RATE, TextSink, audio, diarize};
 use vtt_platform::ClipboardPaster;
 use vtt_platform::capture::{Capture, Tracks};
 
@@ -33,6 +34,11 @@ const TICK: Duration = Duration::from_secs(1);
 const SAVE_EVERY: Duration = Duration::from_secs(10);
 /// Relevé des programmes qui utilisent le micro (détection d'appel).
 const DETECT_EVERY: Duration = Duration::from_secs(1);
+/// Seuil RMS au-dessus duquel une piste est considérée active (parole/son).
+const ACTIVITY_RMS_THRESHOLD: f32 = 0.008;
+/// Si l'appel proposé disparaît du micro autant de temps sans réponse, on ferme
+/// la proposition.
+const OFFER_GONE_MS: u64 = 5_000;
 /// Proposition sans réponse : refermée (jamais d'enregistrement par défaut).
 const OFFER_TIMEOUT: Duration = Duration::from_secs(20);
 const OFFER_LABEL: &str = "offer";
@@ -191,7 +197,27 @@ impl Meetings {
     pub fn start(self: &Arc<Self>, call: Option<&str>) -> Result<String, String> {
         let kind = call.map_or_else(|| "Réunion".to_owned(), |label| format!("Appel {label}"));
         let system = self.config().meetings.system_audio;
-        self.start_recording(MeetingKind::Reunion, &kind, true, system, Output::LesDeux)
+        self.start_recording(
+            MeetingKind::Reunion,
+            &kind,
+            true,
+            system,
+            Output::LesDeux,
+            None,
+        )
+    }
+
+    fn start_call(self: &Arc<Self>, provider: &'static Provider) -> Result<String, String> {
+        let label = format!("Appel {}", provider.label);
+        let system = self.config().meetings.system_audio;
+        self.start_recording(
+            MeetingKind::Reunion,
+            &label,
+            true,
+            system,
+            Output::LesDeux,
+            Some(provider),
+        )
     }
 
     /// Démarre l'enregistrement d'une conférence (micro, son du PC ou les
@@ -205,7 +231,14 @@ impl Meetings {
         if !mic && !system {
             return Err("choisissez le micro, le son du PC, ou les deux".into());
         }
-        self.start_recording(MeetingKind::Conference, "Conférence", mic, system, output)
+        self.start_recording(
+            MeetingKind::Conference,
+            "Conférence",
+            mic,
+            system,
+            output,
+            None,
+        )
     }
 
     fn start_recording(
@@ -215,6 +248,7 @@ impl Meetings {
         mic: bool,
         system_audio: bool,
         output: Output,
+        call_provider: Option<&'static Provider>,
     ) -> Result<String, String> {
         let mut active = lock(&self.active);
         if active.is_some() {
@@ -255,17 +289,28 @@ impl Meetings {
         );
         let session = self.new_session(dir, record);
         lock(&self.sessions).insert(id.clone(), Arc::clone(&session));
+        let last_audio_ms = Arc::new(AtomicU64::new(started_at_ms));
+        let last_system_audio_ms = Arc::new(AtomicU64::new(0));
+        let stopping_in_sec = Arc::new(AtomicU32::new(0));
         let (stop_tx, stop_rx) = mpsc::channel();
         let meetings = Arc::clone(self);
         let recorder = Arc::clone(&session);
+        let audio_ts = Arc::clone(&last_audio_ms);
+        let system_ts = Arc::clone(&last_system_audio_ms);
         thread::Builder::new()
             .name("meeting".into())
-            .spawn(move || meetings.record(recorder, capture, stop_rx))
+            .spawn(move || meetings.record(recorder, capture, stop_rx, audio_ts, system_ts))
             .map_err(|e| format!("thread de réunion : {e}"))?;
         *active = Some(Active {
             session,
             stop: stop_tx,
             started: Instant::now(),
+            started_at_ms,
+            kind,
+            call_provider,
+            last_audio_ms,
+            last_system_audio_ms,
+            stopping_in_sec,
         });
         drop(active);
         set_recording(true);
@@ -285,6 +330,35 @@ impl Meetings {
         Ok(())
     }
 
+    /// Arrêt automatique déclenché par [`EndDetector`] : consigne la raison
+    /// dans la fiche, arrête l'enregistrement et prévient l'interface.
+    fn stop_auto(&self, reason: &StopReason) {
+        let (note, toast) = match reason {
+            StopReason::CallEnded(provider) => (
+                format!(
+                    "Enregistrement arrêté automatiquement (fin de l'appel {}).",
+                    provider.label
+                ),
+                format!("Fin de l'appel {} : réunion arrêtée", provider.label),
+            ),
+            StopReason::Silence(mins) => (
+                format!("Enregistrement arrêté automatiquement (silence de {mins} min)."),
+                format!("Silence ({mins} min) : réunion arrêtée"),
+            ),
+        };
+        if let Some(active) = lock(&self.active).as_ref() {
+            let mut record = lock(&active.session.record);
+            record.notes.push(note.clone());
+            record.save(&active.session.dir);
+        }
+        if let Err(e) = self.stop() {
+            log::debug!("arrêt automatique ignoré ({e})");
+            return;
+        }
+        log::info!("{note}");
+        let _ = self.app.emit("meeting-auto-stopped", toast);
+    }
+
     pub fn toggle(self: &Arc<Self>) {
         let result = if lock(&self.active).is_some() {
             self.stop()
@@ -297,25 +371,138 @@ impl Meetings {
         }
     }
 
-    /// Détection d'appel : chaque seconde, les programmes qui utilisent le
-    /// micro ; un appel qui dure → proposition (ou enregistrement, selon le
-    /// choix pour ce service).
+    /// Détection d'appel (début et fin) : chaque seconde, relève les
+    /// programmes qui utilisent le micro.
+    /// - Hors enregistrement : propose ou démarre selon le choix du service.
+    /// - En cours de réunion : détecte la fin de l'appel (ou un silence
+    ///   prolongé) et arrête automatiquement l'enregistrement.
     pub fn spawn_detection(self: &Arc<Self>) {
         let meetings = Arc::clone(self);
         let spawned = thread::Builder::new()
             .name("call-detection".into())
             .spawn(move || {
                 let mut detector = Detector::default();
+                let mut end_watch: Option<(String, EndDetector)> = None;
+                let mut offer_absent_since: Option<u64> = None;
                 loop {
                     thread::sleep(DETECT_EVERY);
                     let settings = meetings.config().meetings;
-                    if !settings.detect {
+                    let is_recording = recording();
+                    let watch_end =
+                        is_recording && (settings.auto_stop || settings.auto_stop_silence_min > 0);
+                    if !settings.detect && !watch_end {
                         detector = Detector::default();
+                        end_watch = None;
+                        offer_absent_since = None;
                         continue;
                     }
                     let apps = vtt_platform::microphone_apps();
+                    let now = now_ms();
+
+                    // 1. Fin d'enregistrement automatique (réunions uniquement, jamais conférences).
+                    if is_recording {
+                        offer_absent_since = None;
+                        let active_info = lock(&meetings.active).as_ref().map(|a| {
+                            (
+                                a.session.id(),
+                                a.kind,
+                                a.started_at_ms,
+                                a.call_provider,
+                                a.last_audio_ms.load(Ordering::Relaxed),
+                                a.last_system_audio_ms.load(Ordering::Relaxed),
+                                Arc::clone(&a.stopping_in_sec),
+                            )
+                        });
+                        if let Some((
+                            id,
+                            MeetingKind::Reunion,
+                            started_at_ms,
+                            call_provider,
+                            last_audio_ms,
+                            last_system_audio_ms,
+                            stopping_in_sec,
+                        )) = active_info
+                        {
+                            let end = match &mut end_watch {
+                                Some((watched_id, d)) if *watched_id == id => d,
+                                _ => {
+                                    end_watch =
+                                        Some((id, EndDetector::new(started_at_ms, call_provider)));
+                                    &mut end_watch.as_mut().unwrap().1
+                                }
+                            };
+                            let grace_ms = u64::from(settings.auto_stop_delay_sec) * 1_000;
+                            let silence_ms = (settings.auto_stop_silence_min > 0)
+                                .then(|| u64::from(settings.auto_stop_silence_min) * 60_000);
+                            match end.observe(
+                                now,
+                                &apps,
+                                last_audio_ms,
+                                last_system_audio_ms,
+                                settings.auto_stop,
+                                grace_ms,
+                                silence_ms,
+                            ) {
+                                EndStatus::Active => {
+                                    if stopping_in_sec.swap(0, Ordering::Relaxed) != 0 {
+                                        meetings.emit_state(false);
+                                    }
+                                }
+                                EndStatus::StoppingIn { remaining_ms, .. } => {
+                                    let sec = remaining_ms.div_ceil(1_000).max(1) as u32;
+                                    if stopping_in_sec.swap(sec, Ordering::Relaxed) != sec {
+                                        meetings.emit_state(false);
+                                    }
+                                }
+                                EndStatus::Stop(reason) => {
+                                    stopping_in_sec.store(0, Ordering::Relaxed);
+                                    meetings.stop_auto(&reason);
+                                    if let StopReason::CallEnded(provider) = reason {
+                                        detector.unsnooze(provider.key);
+                                    }
+                                    end_watch = None;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            end_watch = None;
+                        }
+                    } else {
+                        end_watch = None;
+                    }
+
+                    // 2. Si une fenêtre de proposition est ouverte mais que l'appel s'est déjà
+                    //    terminé avant la réponse, la refermer proprement.
+                    let offered = lock(&meetings.offer).map(|(p, _)| p);
+                    if let Some(provider) = offered {
+                        let still_on = apps
+                            .iter()
+                            .filter_map(|e| calls::provider(e))
+                            .any(|p| p.key == provider.key);
+                        if still_on {
+                            offer_absent_since = None;
+                        } else {
+                            let since = *offer_absent_since.get_or_insert(now);
+                            if now.saturating_sub(since) >= OFFER_GONE_MS {
+                                log::info!(
+                                    "appel {} terminé avant réponse : proposition fermée",
+                                    provider.label
+                                );
+                                meetings.close_offer();
+                                detector.unsnooze(provider.key);
+                                offer_absent_since = None;
+                            }
+                        }
+                    } else {
+                        offer_absent_since = None;
+                    }
+
+                    // 3. Détection de début d'appel.
+                    if !settings.detect {
+                        continue;
+                    }
                     let decision =
-                        detector.observe(now_ms(), &apps, recording(), |key| settings.policy(key));
+                        detector.observe(now, &apps, is_recording, |key| settings.policy(key));
                     match decision {
                         Some(Decision::Offer(provider)) => {
                             log::info!("appel détecté : {}", provider.label);
@@ -326,7 +513,7 @@ impl Meetings {
                                 "appel détecté : {} (enregistrement automatique)",
                                 provider.label
                             );
-                            if let Err(e) = meetings.start(Some(provider.label)) {
+                            if let Err(e) = meetings.start_call(provider) {
                                 log::warn!("enregistrement automatique : {e}");
                             }
                         }
@@ -410,7 +597,7 @@ impl Meetings {
             self.save_policy(provider.key, policy)?;
         }
         if matches!(choice, "enregistrer" | "toujours") {
-            self.start(Some(provider.label))?;
+            self.start_call(provider)?;
         }
         Ok(())
     }
@@ -434,7 +621,14 @@ impl Meetings {
 
     /// Thread d'enregistrement : chaque seconde, l'audio capté est écrit
     /// (selon le réglage) et découpé en blocs pour la transcription.
-    fn record(&self, session: Arc<Session>, capture: Capture, stop: mpsc::Receiver<()>) {
+    fn record(
+        &self,
+        session: Arc<Session>,
+        capture: Capture,
+        stop: mpsc::Receiver<()>,
+        last_audio_ms: Arc<AtomicU64>,
+        last_system_audio_ms: Arc<AtomicU64>,
+    ) {
         let (dir, mut audio, system, echo_filter, mic_on) = {
             let record = lock(&session.record);
             (
@@ -462,13 +656,21 @@ impl Meetings {
                 capture.as_ref().map(Capture::take).unwrap_or_default()
             };
             let Tracks { mic, system: other } = tracks;
+            let tick_now = now_ms();
             // Son du PC d'abord : il sert à reconnaître l'écho dans le micro.
             let mut feeds = Vec::new();
             if system {
+                if !audio::is_silent(&other, SAMPLE_RATE, ACTIVITY_RMS_THRESHOLD) {
+                    last_system_audio_ms.store(tick_now, Ordering::Relaxed);
+                    last_audio_ms.store(tick_now, Ordering::Relaxed);
+                }
                 echo.feed_system(&other);
                 feeds.push((Track::Eux, other));
             }
             if mic_on {
+                if !audio::is_silent(&mic, SAMPLE_RATE, ACTIVITY_RMS_THRESHOLD) {
+                    last_audio_ms.store(tick_now, Ordering::Relaxed);
+                }
                 feeds.push((Track::Moi, mic));
             }
             for (track, samples) in feeds {

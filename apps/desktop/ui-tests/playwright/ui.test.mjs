@@ -125,6 +125,16 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await page.locator('.panel[data-panel="dictee"] button.revert').click();
       assert.equal(await checkbox.isChecked(), before);
 
+      // Section Réunions : arrêt automatique à la fin d'un appel et délai associé.
+      await page.locator('.settings-nav a[data-panel-link="reunions"]').click();
+      await page.locator("#meeting-auto-stop").waitFor({ state: "visible" });
+      assert.equal(await page.locator("#meeting-auto-stop").isChecked(), true);
+      assert.equal(await page.locator("#meeting-auto-stop-delay").isDisabled(), false);
+      assert.equal(await page.locator("#meeting-auto-stop-delay").inputValue(), "15");
+      assert.equal(await page.locator("#meeting-auto-stop-silence").inputValue(), "0");
+      await page.locator("#meeting-auto-stop").click();
+      assert.equal(await page.locator("#meeting-auto-stop-delay").isDisabled(), true);
+
       assert.deepEqual(errors, []);
     } finally {
       await context.close();
@@ -235,6 +245,26 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       });
       await page.waitForTimeout(60);
       assert.match(await page.locator("#label").textContent(), /Transcription/);
+
+      await page.evaluate(() => {
+        window.__VTT_EMIT__("status", { state: "idle" });
+        window.__VTT_EMIT__("meeting", {
+          recording: true,
+          conference: false,
+          elapsed_ms: 90_000,
+          consent: false,
+          stopping_in_sec: 12,
+        });
+      });
+      await page.waitForTimeout(60);
+      assert.match(await page.locator("#label").textContent(), /fin 12 s/);
+
+      await page.evaluate(() => {
+        window.__VTT_EMIT__("meeting", { recording: false, elapsed_ms: 0, consent: false });
+        window.__VTT_EMIT__("meeting-auto-stopped", "Fin de l'appel Teams : réunion arrêtée");
+      });
+      await page.waitForTimeout(60);
+      assert.match(await page.locator("#label").textContent(), /Fin de l'appel Teams/);
       assert.deepEqual(errors, []);
     } finally {
       await context.close();

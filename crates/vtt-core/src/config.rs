@@ -287,6 +287,15 @@ pub struct MeetingsConfig {
     /// téléchargé à la demande) : recherche hybride et sélection enrichie
     /// des passages pour « Poser une question ».
     pub semantic_search: bool,
+    /// Arrêter automatiquement l'enregistrement d'une réunion quand
+    /// l'application d'appel (Teams, Zoom, Meet, Discord…) libère le micro.
+    pub auto_stop: bool,
+    /// Délai de grâce (en secondes) après libération du micro avant l'arrêt
+    /// automatique (évite les faux arrêts lors d'une reconnexion).
+    pub auto_stop_delay_sec: u32,
+    /// Arrêt automatique après ce nombre de minutes de silence complet sur les
+    /// deux pistes ; 0 : désactivé.
+    pub auto_stop_silence_min: u32,
 }
 
 /// Choix de l'utilisateur pour un service d'appel.
@@ -324,6 +333,12 @@ impl MeetingsConfig {
             .validate()
             .map_err(|e| format!("langue du compte rendu : {e}"))?;
         }
+        if !(5..=300).contains(&self.auto_stop_delay_sec) {
+            return Err("délai avant arrêt automatique : entre 5 et 300 secondes".into());
+        }
+        if self.auto_stop_silence_min > 120 {
+            return Err("arrêt après silence : au plus 120 minutes".into());
+        }
         Ok(())
     }
 }
@@ -344,6 +359,9 @@ impl Default for MeetingsConfig {
             summary_language: String::new(),
             diarize: false,
             semantic_search: false,
+            auto_stop: true,
+            auto_stop_delay_sec: 15,
+            auto_stop_silence_min: 0,
         }
     }
 }
@@ -402,6 +420,10 @@ pub const CAPTURE_KEEP_DAYS: &[u32] = &[0, 1, 7, 30];
 
 /// Durées de conservation proposées (jours ; 0 : toujours).
 pub const MEETING_KEEP_DAYS: &[u32] = &[0, 7, 30, 90, 365];
+/// Délais de grâce proposés avant arrêt automatique à la fin d'un appel (secondes).
+pub const MEETING_AUTO_STOP_DELAYS: &[u32] = &[10, 15, 30, 60];
+/// Durées de silence complet proposées avant arrêt automatique (minutes ; 0 : jamais).
+pub const MEETING_AUTO_STOP_SILENCE_MIN: &[u32] = &[0, 2, 5, 10, 15];
 
 /// Langues proposées pour le mode traduction (une autre peut être saisie
 /// dans config.toml).
