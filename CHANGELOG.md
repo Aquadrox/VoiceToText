@@ -12,6 +12,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 
 - Prétraitement audio local du micro avant transcription (activé par défaut ; réglable dans PC : Réglages → Reconnaissance locale, Android : Réglages → Dictée) : filtre passe-haut 80 Hz qui élimine bruits sourds, bourdonnement secteur et décalage continu avant la détection de silence (moins d'hallucinations), et normalisation douce du niveau pour mieux comprendre les micros faibles ou éloignés sans amplifier le silence ni écrêter les pics.
 
+## 0.46.1 — 2026-11-27
+
+- [PC] Correction de la dictée dans les réglages sous Windows : la touche de dictée est de nouveau détectée lorsque la fenêtre de VoiceToText a le focus, ce qui rétablit la zone de test des réglages.
+- [PC] Correction de l'erreur 404 au téléchargement d'ONNX Runtime (utilisé par la reconnaissance des intervenants, Parakeet et la recherche sémantique locale) : les bibliothèques officielles de Microsoft sont désormais téléchargées depuis PyPI (toujours vérifiées par taille et empreinte SHA-256).
+
 ## 0.46.0 — 2026-11-26
 
 - [PC] Détection automatique de la fin d'une réunion : dès que l'application d'appel (Teams, Zoom, Discord, navigateur…) libère le micro, un court délai de grâce s'affiche dans la pastille (« Réunion 12:34 · fin 15 s ») pour tolérer une reconnexion ou un changement de micro, puis l'enregistrement s'arrête tout seul et lance la fin de la transcription et le compte rendu (activé par défaut ; réglable dans Réglages → Réunions, ne s'applique pas aux conférences).
