@@ -620,6 +620,12 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 - ✅ Bureau (`apps/desktop`) : suivi de l'activité audio micro/PC dans `meetings/capture.rs`, décompte en direct dans la pastille flottante (`Réunion 12:34 · fin 15 s`), notification et note dans la fiche à l'arrêt automatique, réarmement immédiat de `Detector` pour l'appel suivant, fermeture automatique de la fenêtre « Appel détecté » si l'appel raccroche avant réponse, réglages dans **Réglages → Réunions → Détection d'appel** et tests Rust + UI JS + Playwright (`0.46.0`)
 - ⬜ À vérifier sur le terrain : raccrochage Teams / Zoom / Discord / Google Meet (navigateur) sur Windows et Linux, changement de micro pendant l'appel et enchaînement rapide de deux appels
 
+### Correctifs PC : zone de test des réglages et téléchargement ONNX Runtime (#129, #132) ✅
+
+- ✅ Dictée dans les réglages sous Windows (#129) : `tauri::Builder::device_event_filter(DeviceEventFilter::Always)` dans `apps/desktop/src/main.rs` pour désactiver l'enregistrement Raw Input par défaut de Tao (`RIDEV_REMOVE`), qui empêchait Windows de transmettre les touches au hook clavier global `WH_KEYBOARD_LL` tant que notre propre fenêtre WebView2 avait le focus (`tauri-apps/wry#1761`)
+- ✅ Erreur 404 au téléchargement d'ONNX Runtime 1.31.1 (#132) : bascule de `ONNX_RUNTIME` (Windows x64 et Linux x64) des releases GitHub `microsoft/onnxruntime` (devenues 404) vers les paquets officiels PyPI de Microsoft (`.whl` zip, bibliothèques C `onnxruntime.dll` / `libonnxruntime.so.1.31.1` sans dépendance Python, taille et SHA-256 vérifiés, même dossier `onnxruntime-1.31.1` compatible avec les installations existantes) — corrige la diarisation des intervenants, Parakeet et la recherche sémantique locale (`0.46.1`)
+- ⬜ À vérifier sur le terrain : dictée dans la zone de test des réglages sous Windows 11 et téléchargement complet d'ONNX Runtime + modèles des intervenants sur un PC vierge
+
 ### Améliorations de la reconnaissance vocale (ASR) ⬜
 
 Pistes prioritaires retenues pour améliorer la fiabilité, la qualité audio et la portée du vocabulaire en reconnaissance vocale locale :

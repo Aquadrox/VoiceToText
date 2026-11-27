@@ -81,6 +81,12 @@ fn main() {
     let (config, config_error) = paths.load_config();
 
     tauri::Builder::default()
+        // Windows : par défaut, Tao enregistre Raw Input (`DeviceEventFilter::Unfocused`),
+        // ce qui empêche le hook clavier global `WH_KEYBOARD_LL` de recevoir les touches
+        // lorsque notre propre fenêtre WebView2 (ex. Réglages / zone de test) a le focus
+        // (tauri-apps/wry#1761). `Always` retire cet enregistrement (`RIDEV_REMOVE`) et
+        // est sans effet sous Linux.
+        .device_event_filter(tauri::DeviceEventFilter::Always)
         // Une seconde instance installerait un second hook clavier : on l'interdit.
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

@@ -105,17 +105,21 @@ macro_rules! parakeet_url {
 /// Parakeet TDT v3 : modèle par défaut sur le Steam Deck.
 pub const PARAKEET_ID: &str = "parakeet-tdt-0.6b-v3-int8";
 
-/// ONNX Runtime officiel (Microsoft), pour Parakeet.
+/// ONNX Runtime officiel (Microsoft), pour Parakeet, la diarisation et la
+/// recherche sémantique. Tiré des paquets officiels PyPI (format zip) depuis
+/// que le dépôt GitHub `microsoft/onnxruntime` renvoie 404 ; les bibliothèques
+/// C (`onnxruntime.dll` / `libonnxruntime.so.1.31.1`) n'ont aucune dépendance
+/// Python.
 #[cfg(windows)]
 static ONNX_RUNTIME: Runtime = Runtime {
     dir: "onnxruntime-1.31.1",
     content: Content::Archive {
         remote: Remote {
-            url: "https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-win-x64-1.31.1.zip",
-            size: 82_929_944,
-            sha256: "5869e26bb25314375f2d5ef1877e3ea06b1543d6c710e6e4a1ec2f7177ab4b2c",
+            url: "https://files.pythonhosted.org/packages/45/b2/793b4051d8dc6acb379ead9b72050f0ffa283ca49a6904add2e218b83e2e/onnxruntime-1.31.1-cp312-cp312-win_amd64.whl",
+            size: 14_888_466,
+            sha256: "ae8a9a351efda685cc59a66226cdefaa37a126c1d66872ca23a2de9425326130",
         },
-        prefix: "onnxruntime-win-x64-1.31.1/lib/",
+        prefix: "onnxruntime/capi/",
         only: &["onnxruntime.dll", "onnxruntime_providers_shared.dll"],
     },
     library: "onnxruntime.dll",
@@ -125,11 +129,11 @@ static ONNX_RUNTIME: Runtime = Runtime {
     dir: "onnxruntime-1.31.1",
     content: Content::Archive {
         remote: Remote {
-            url: "https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-linux-x64-1.31.1.tgz",
-            size: 11_413_655,
-            sha256: "c849e36a1ef3e22d4ff217b9d1ce4a3cf5b9467b975610913ae959ad5b16bdc9",
+            url: "https://files.pythonhosted.org/packages/eb/27/c6a823bac55b2977bea2027c3ec9393a2c1002cb9a09eb40354563e02730/onnxruntime-1.31.1-cp312-cp312-manylinux_2_28_x86_64.whl",
+            size: 23_760_988,
+            sha256: "1f3dea47f2f0e5117c2404cea7d21fd253ae7836a3bf167a501cdfbb2600d536",
         },
-        prefix: "onnxruntime-linux-x64-1.31.1/lib/",
+        prefix: "onnxruntime/capi/",
         only: &[
             "libonnxruntime.so.1.31.1",
             "libonnxruntime_providers_shared.so",
@@ -732,7 +736,12 @@ fn write_entry(reader: &mut impl Read, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Extrait les fichiers ordinaires de l'archive (zip, ou tar.gz d'après
+/// Archive au format zip (`.zip`, roues Python `.whl`).
+fn is_zip_archive(url: &str) -> bool {
+    url.ends_with(".zip") || url.ends_with(".whl")
+}
+
+/// Extrait les fichiers ordinaires de l'archive (zip / whl, ou tar.gz d'après
 /// `url`) ; liens et dossiers sont ignorés.
 fn extract(
     archive: &Path,
@@ -743,7 +752,7 @@ fn extract(
 ) -> Result<(), String> {
     let file = File::open(archive).map_err(|e| format!("{}: {e}", archive.display()))?;
     let mut extracted = 0;
-    if url.ends_with(".zip") {
+    if is_zip_archive(url) {
         let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("archive : {e}"))?;
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i).map_err(|e| format!("archive : {e}"))?;
@@ -877,6 +886,83 @@ mod tests {
             None,
             "pas dans la liste"
         );
+        assert!(is_zip_archive("https://example.test/a.zip"));
+        assert!(is_zip_archive(
+            "https://example.test/onnxruntime-1.31.1.whl"
+        ));
+        assert!(!is_zip_archive("https://example.test/a.tgz"));
+    }
+
+    #[test]
+    fn wheel_archive_extracts_only_runtime_libraries() {
+        let dir = temp_dir("whl-extract");
+        let archive = dir.join("onnxruntime-1.31.1.whl");
+        {
+            let file = File::create(&archive).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            writer
+                .start_file("onnxruntime/capi/libonnxruntime.so.1.31.1", options)
+                .unwrap();
+            writer.write_all(b"ort-main").unwrap();
+            writer
+                .start_file(
+                    "onnxruntime/capi/libonnxruntime_providers_shared.so",
+                    options,
+                )
+                .unwrap();
+            writer.write_all(b"ort-shared").unwrap();
+            writer
+                .start_file("onnxruntime/capi/onnxruntime_pybind11_state.so", options)
+                .unwrap();
+            writer.write_all(b"ignore-python").unwrap();
+            writer
+                .start_file("onnxruntime/__init__.py", options)
+                .unwrap();
+            writer.write_all(b"# ignore").unwrap();
+            writer.finish().unwrap();
+        }
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
+        extract(
+            &archive,
+            "https://files.pythonhosted.org/packages/.../onnxruntime-1.31.1.whl",
+            &dest,
+            "onnxruntime/capi/",
+            &[
+                "libonnxruntime.so.1.31.1",
+                "libonnxruntime_providers_shared.so",
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(dest.join("libonnxruntime.so.1.31.1")).unwrap(),
+            b"ort-main"
+        );
+        assert_eq!(
+            fs::read(dest.join("libonnxruntime_providers_shared.so")).unwrap(),
+            b"ort-shared"
+        );
+        assert!(!dest.join("onnxruntime_pybind11_state.so").exists());
+        assert!(!dest.join("__init__.py").exists());
+        // Vérifie aussi que le descripteur ONNX_RUNTIME est cohérent.
+        match &ONNX_RUNTIME.content {
+            Content::Archive {
+                remote,
+                prefix,
+                only,
+            } => {
+                assert!(is_zip_archive(remote.url));
+                assert!(only.contains(&ONNX_RUNTIME.library));
+                let sample = format!("{prefix}{}", ONNX_RUNTIME.library);
+                assert_eq!(
+                    archive_target(Path::new(&sample), prefix, only),
+                    Some(PathBuf::from(ONNX_RUNTIME.library))
+                );
+            }
+            Content::Files(_) => panic!("archive attendue pour ONNX_RUNTIME"),
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Vrai téléchargement des moteurs légers (≈ 750 Mo), puis chargement :
