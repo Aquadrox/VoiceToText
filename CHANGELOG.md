@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.46.1 — 2026-11-27
+
+- [PC] Correction de la dictée dans les réglages sous Windows : la touche de dictée est de nouveau détectée lorsque la fenêtre de VoiceToText a le focus, ce qui rétablit la zone de test des réglages.
+- [PC] Correction de l'erreur 404 au téléchargement d'ONNX Runtime (utilisé par la reconnaissance des intervenants, Parakeet et la recherche sémantique locale) : les bibliothèques officielles de Microsoft sont désormais téléchargées depuis PyPI (toujours vérifiées par taille et empreinte SHA-256).
+
 ## 0.46.0 — 2026-11-26
 
 - [PC] Détection automatique de la fin d'une réunion : dès que l'application d'appel (Teams, Zoom, Discord, navigateur…) libère le micro, un court délai de grâce s'affiche dans la pastille (« Réunion 12:34 · fin 15 s ») pour tolérer une reconnexion ou un changement de micro, puis l'enregistrement s'arrête tout seul et lance la fin de la transcription et le compte rendu (activé par défaut ; réglable dans Réglages → Réunions, ne s'applique pas aux conférences).
