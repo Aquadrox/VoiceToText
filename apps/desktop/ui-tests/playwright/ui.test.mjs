@@ -125,6 +125,11 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await page.locator('.panel[data-panel="dictee"] button.revert').click();
       assert.equal(await checkbox.isChecked(), before);
 
+      // Section Reconnaissance locale : prétraitement audio micro activé par défaut.
+      await page.locator('.settings-nav a[data-panel-link="reconnaissance"]').click();
+      await page.locator("#audio-enhance").waitFor({ state: "visible" });
+      assert.equal(await page.locator("#audio-enhance").isChecked(), true);
+
       // Section Réunions : arrêt automatique à la fin d'un appel et délai associé.
       await page.locator('.settings-nav a[data-panel-link="reunions"]').click();
       await page.locator("#meeting-auto-stop").waitFor({ state: "visible" });

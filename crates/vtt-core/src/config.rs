@@ -466,11 +466,24 @@ impl TranslationConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioConfig {
     /// Nom du micro ; vide : micro par défaut de Windows.
     pub device: String,
+    /// Prétraitement audio avant la transcription locale : filtre passe-haut
+    /// 80 Hz (bruits sourds, secteur 50/60 Hz, décalage continu) et
+    /// normalisation douce du niveau pour les micros faibles ou éloignés.
+    pub enhance: bool,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            device: String::new(),
+            enhance: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

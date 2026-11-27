@@ -77,6 +77,139 @@ pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
+/// Fréquence de coupure du filtre passe-haut micro (Hz) : coupe le décalage
+/// continu, le bourdonnement secteur (50/60 Hz), les vibrations de bureau et
+/// les souffles graves sans altérer les formants de la voix humaine.
+pub const HIGHPASS_CUTOFF_HZ: f32 = 80.0;
+
+/// Seuil RMS minimal d'une trame de 30 ms pour être considérée comme parole
+/// active par l'AGC (~ -44 dBFS, au-dessus du seuil de silence). En dessous,
+/// le gain reste à 1 pour ne jamais amplifier le souffle ni le bruit de fond.
+const AGC_SPEECH_FLOOR_RMS: f32 = 0.006;
+/// Niveau cible visé par l'AGC pour la parole active (~ -21 dBFS).
+const AGC_TARGET_RMS: f32 = 0.09;
+/// Zone morte : une voix déjà bien calibrée n'est pas modifiée.
+const AGC_DEADBAND_LOW: f32 = 0.07;
+const AGC_DEADBAND_HIGH: f32 = 0.14;
+/// Bornes du gain appliqué (+15,5 dB max, -6 dB max).
+const AGC_MIN_GAIN: f32 = 0.5;
+const AGC_MAX_GAIN: f32 = 6.0;
+/// Coude du limiteur doux : en dessous, le signal reste strictement linéaire.
+const LIMITER_KNEE: f32 = 0.85;
+const LIMITER_CEIL: f32 = 0.98;
+
+/// Filtre passe-haut Butterworth d'ordre 2 (biquad) précédé d'un retrait du
+/// décalage continu (DC) pour éviter tout transitoire d'attaque.
+///
+/// Préserve exactement le nombre d'échantillons (donc les horodatages).
+pub fn highpass_filter(samples: &[f32], sample_rate: u32, cutoff_hz: f32) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    if sample_rate == 0 || cutoff_hz <= 0.0 || cutoff_hz >= sample_rate as f32 * 0.45 {
+        return samples
+            .iter()
+            .map(|&s| if s.is_finite() { s } else { 0.0 })
+            .collect();
+    }
+
+    // Retrait de la composante continue (DC) avant le filtre récursif.
+    let mut sum = 0.0f64;
+    let mut count = 0usize;
+    for &s in samples {
+        if s.is_finite() {
+            sum += f64::from(s);
+            count += 1;
+        }
+    }
+    let dc = if count > 0 {
+        (sum / count as f64) as f32
+    } else {
+        0.0
+    };
+
+    // Coefficients RBJ Audio EQ Cookbook pour un passe-haut Butterworth (Q = 1/√2).
+    let w0 = std::f64::consts::TAU * f64::from(cutoff_hz) / f64::from(sample_rate);
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let alpha = sin_w0 / (2.0 * std::f64::consts::FRAC_1_SQRT_2);
+
+    let a0 = 1.0 + alpha;
+    let b0 = ((1.0 + cos_w0) * 0.5) / a0;
+    let b1 = -(1.0 + cos_w0) / a0;
+    let b2 = b0;
+    let a1 = (-2.0 * cos_w0) / a0;
+    let a2 = (1.0 - alpha) / a0;
+
+    let mut out = Vec::with_capacity(samples.len());
+    let mut z1 = 0.0f64;
+    let mut z2 = 0.0f64;
+    for &raw in samples {
+        let x = if raw.is_finite() {
+            f64::from(raw - dc)
+        } else {
+            0.0
+        };
+        let y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        out.push(y as f32);
+    }
+    out
+}
+
+/// Limiteur doux : linéaire jusqu'à [`LIMITER_KNEE`], puis compression douce
+/// asymptotique vers [`LIMITER_CEIL`] pour éviter tout écrêtage sur les pics.
+fn soft_limit(x: f32) -> f32 {
+    let abs = x.abs();
+    if abs <= LIMITER_KNEE {
+        return x;
+    }
+    let headroom = LIMITER_CEIL - LIMITER_KNEE;
+    let shaped = LIMITER_KNEE + headroom * ((abs - LIMITER_KNEE) / headroom).tanh();
+    shaped.copysign(x)
+}
+
+/// Normalisation douce du niveau de parole (AGC) avec garde anti-bruit et
+/// limiteur de pics.
+///
+/// - Si aucune trame de 30 ms ne dépasse le plancher vocal, le signal est
+///   renvoyé tel quel (le silence ou le souffle n'est jamais amplifié).
+/// - Le niveau de parole est estimé au 75e percentile des trames actives pour
+///   ignorer à la fois les pauses et un clic isolé.
+/// - Une voix déjà dans la zone confortable reste intacte.
+pub fn normalize_speech_gain(samples: &[f32], sample_rate: u32) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let frame = (sample_rate as usize * 30 / 1000).max(1);
+    let mut active: Vec<f32> = samples
+        .chunks(frame)
+        .map(rms)
+        .filter(|&level| level >= AGC_SPEECH_FLOOR_RMS)
+        .collect();
+    if active.is_empty() {
+        return samples.to_vec();
+    }
+    active.sort_by(f32::total_cmp);
+    let speech_rms = active[(active.len() - 1) * 3 / 4];
+    if (AGC_DEADBAND_LOW..=AGC_DEADBAND_HIGH).contains(&speech_rms) {
+        return samples.iter().map(|&s| soft_limit(s)).collect();
+    }
+    let gain = (AGC_TARGET_RMS / speech_rms).clamp(AGC_MIN_GAIN, AGC_MAX_GAIN);
+    samples.iter().map(|&s| soft_limit(s * gain)).collect()
+}
+
+/// Prétraitement audio complet avant transcription locale (Whisper, Parakeet,
+/// Vosk) : passe-haut 80 Hz puis normalisation douce du niveau de parole.
+///
+/// N'ajoute ni ne retire aucun échantillon : les horodatages mot par mot et
+/// de réunion restent exacts.
+pub fn preprocess_for_asr(samples: &[f32], sample_rate: u32) -> Vec<f32> {
+    let filtered = highpass_filter(samples, sample_rate, HIGHPASS_CUTOFF_HZ);
+    normalize_speech_gain(&filtered, sample_rate)
+}
+
 /// Fréquence des sons de début et de fin de dictée.
 const TONE_RATE: u32 = 22_050;
 
@@ -117,6 +250,12 @@ pub fn tone_wav(notes: &[(f32, u32)], volume: f32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sine(freq_hz: f32, amp: f32, rate: u32, len: usize) -> Vec<f32> {
+        (0..len)
+            .map(|i| amp * (i as f32 * freq_hz * std::f32::consts::TAU / rate as f32).sin())
+            .collect()
+    }
 
     #[test]
     fn downmix_averages_channels() {
@@ -181,5 +320,72 @@ mod tests {
         assert_eq!(data_len, 2 * 2 * (TONE_RATE as usize * 60 / 1000));
         // Fondu : premier échantillon nul.
         assert_eq!(i16::from_le_bytes([wav[44], wav[45]]), 0);
+    }
+
+    #[test]
+    fn highpass_removes_dc_and_low_rumble_while_keeping_speech_band() {
+        let rate = 16_000;
+        // Décalage continu pur : complètement supprimé sans transitoire.
+        let dc = vec![0.25f32; rate as usize];
+        let dc_out = highpass_filter(&dc, rate, HIGHPASS_CUTOFF_HZ);
+        assert!(rms(&dc_out) < 1e-6, "DC résiduel : {}", rms(&dc_out));
+
+        // Grondement 30 Hz fortement atténué (~ -17 dB sur la partie établie).
+        let rumble = sine(30.0, 0.2, rate, rate as usize);
+        let rumble_out = highpass_filter(&rumble, rate, HIGHPASS_CUTOFF_HZ);
+        let rumble_ratio = rms(&rumble_out[4000..]) / rms(&rumble[4000..]);
+        assert!(rumble_ratio < 0.2, "atténuation 30 Hz : {rumble_ratio}");
+
+        // Voix 440 Hz quasiment intacte (> 98 %).
+        let voice = sine(440.0, 0.2, rate, rate as usize);
+        let voice_out = highpass_filter(&voice, rate, HIGHPASS_CUTOFF_HZ);
+        let voice_ratio = rms(&voice_out[4000..]) / rms(&voice[4000..]);
+        assert!(voice_ratio > 0.98, "conservation 440 Hz : {voice_ratio}");
+    }
+
+    #[test]
+    fn preprocess_boosts_quiet_speech_without_boosting_silence_or_clipping() {
+        let rate = 16_000;
+        // Bruit de fond très faible (RMS ~ 0,002) : ne doit jamais être amplifié.
+        let hiss = sine(440.0, 0.003, rate, rate as usize);
+        let hiss_out = preprocess_for_asr(&hiss, rate);
+        assert!(
+            rms(&hiss_out) < 0.004,
+            "bruit amplifié à tort : {}",
+            rms(&hiss_out)
+        );
+
+        // Micro faible (parole à 0,02 d'amplitude → ~0,014 RMS) + un clic isolé fort :
+        // la parole est remontée vers ~0,09 RMS et le clic reste doux sous 0,98.
+        let mut quiet = sine(440.0, 0.02, rate, rate as usize);
+        quiet[4000] = 0.9;
+        let out = preprocess_for_asr(&quiet, rate);
+        assert_eq!(out.len(), quiet.len());
+        let boosted_rms = rms(&out[6000..]);
+        assert!(
+            boosted_rms > 0.07 && boosted_rms < 0.11,
+            "RMS attendu proche de 0,09, obtenu {boosted_rms}"
+        );
+        let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(peak <= LIMITER_CEIL + 1e-4, "écrêtage dépassé : {peak}");
+
+        // Voix déjà bien calibrée (0,14 amplitude ≈ 0,099 RMS) : inchangée.
+        let good = sine(440.0, 0.14, rate, rate as usize);
+        let good_out = preprocess_for_asr(&good, rate);
+        let ratio = rms(&good_out[4000..]) / rms(&good[4000..]);
+        assert!(
+            (ratio - 1.0).abs() < 0.03,
+            "zone morte non respectée : {ratio}"
+        );
+    }
+
+    #[test]
+    fn preprocess_sanitizes_non_finite_samples() {
+        let mut clip = sine(440.0, 0.1, 16_000, 1600);
+        clip[10] = f32::NAN;
+        clip[20] = f32::INFINITY;
+        let out = preprocess_for_asr(&clip, 16_000);
+        assert_eq!(out.len(), clip.len());
+        assert!(out.iter().all(|s| s.is_finite()));
     }
 }

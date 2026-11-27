@@ -363,7 +363,7 @@ export function defaultMockData() {
         hands_free: true,
         system_shortcut: false,
       },
-      audio: { device: "" },
+      audio: { device: "", enhance: true },
       asr: {
         model: "parakeet-tdt-0.6b-v3-int8",
         use_gpu: true,
@@ -404,7 +404,7 @@ export function defaultMockData() {
       capture_templates: [["explication", "Explication"]],
       wayland: false,
       platform: "linux",
-      version: "0.46.0",
+      version: "0.47.0",
     },
     current_status: { state: "idle" },
     meeting_state: { recording: false, elapsed_ms: 0 },

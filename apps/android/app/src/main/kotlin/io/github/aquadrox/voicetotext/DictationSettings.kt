@@ -40,6 +40,7 @@ class DictationSettings : SettingsPage() {
     private lateinit var keyboardActivate: Button
     private lateinit var language: Spinner
     private lateinit var voiceCommands: Switch
+    private lateinit var audioEnhance: Switch
     private lateinit var screenContext: Switch
     private lateinit var liveInsert: Switch
     private lateinit var excludedBox: LinearLayout
@@ -84,6 +85,16 @@ class DictationSettings : SettingsPage() {
                 visibility = View.GONE
             }.also { addView(it) }
             testButton = secondary("Tester le micro") { testMicrophone() }
+            divider()
+            audioEnhance = toggle(
+                "Améliorer le son du micro avant transcription",
+                "Filtre les bruits sourds (passe-haut 80 Hz) et remonte doucement les voix faibles ou éloignées sans amplifier le silence. 100 % local, appliqué aux dictées et aux réunions.",
+            ) { on ->
+                saveSettings(
+                    JSONObject().put("audio_enhance", on),
+                    if (on) "✓ Prétraitement audio activé" else "✓ Prétraitement audio désactivé",
+                )
+            }.anchor("audio_enhance")
             more(
                 "Automatique : en général, Android prend le micro du casque filaire ou USB branché, sinon celui du téléphone. " +
                     "Le micro d'un casque Bluetooth n'est utilisé que si vous le choisissez ici.\n\n" +
@@ -291,6 +302,7 @@ class DictationSettings : SettingsPage() {
     private fun refresh() {
         val view = Config.view(store) ?: return say("Réglages illisibles.")
         voiceCommands.quietly(view.getBoolean("voice_commands"))
+        audioEnhance.quietly(view.optBoolean("audio_enhance", true))
         liveInsert.quietly(view.optBoolean("live_insert", false))
         val contextOn = view.optBoolean("screen_context", false)
         screenContext.quietly(contextOn)

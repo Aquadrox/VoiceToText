@@ -626,6 +626,7 @@ live_insert = false    # mains libres : chaque phrase insérée dès la pause qu
 
 [audio]
 device = ""          # nom du micro ; vide = micro par défaut de Windows
+enhance = true       # prétraitement avant transcription (passe-haut 80 Hz + AGC doux anti-bruit)
 
 [asr]
 model = "ggml-large-v3-turbo-q8_0.bin"

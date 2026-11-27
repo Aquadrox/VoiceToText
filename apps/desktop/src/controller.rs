@@ -159,6 +159,7 @@ pub struct Reconfiguration {
     /// Tarifs des fournisseurs, pour le coût des prochaines dictées.
     tariffs: Tariffs,
     voice_commands: bool,
+    audio_enhance: bool,
     unload: UnloadPolicy,
     retry_shortcut: String,
     /// Modèle de transcription demandé (rechargé s'il change).
@@ -174,6 +175,7 @@ impl Reconfiguration {
             post_processor: settings::build_cleaner(config),
             tariffs: Tariffs::from_config(config),
             voice_commands: config.dictation.voice_commands,
+            audio_enhance: config.audio.enhance,
             unload: UnloadPolicy::from_config(&config.asr),
             retry_shortcut: config.hotkey.retry.trim().to_owned(),
             asr: config.asr.clone(),
@@ -352,7 +354,8 @@ fn run(
     let pipeline = Pipeline::new(transcriber, cleaner, Box::new(ClipboardPaster))
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
-        .with_voice_commands(config.dictation.voice_commands);
+        .with_voice_commands(config.dictation.voice_commands)
+        .with_audio_enhance(config.audio.enhance);
     if !config.snippets.is_empty() {
         log::info!("{} snippet(s) chargé(s)", config.snippets.len());
     }
@@ -1263,6 +1266,7 @@ impl Worker {
         self.pipeline
             .reconfigure(&r.dictionary, &r.snippets, &r.styles, r.post_processor);
         self.pipeline.set_voice_commands(r.voice_commands);
+        self.pipeline.set_audio_enhance(r.audio_enhance);
         self.tariffs = r.tariffs;
         self.unload = r.unload;
         self.retry_shortcut = r.retry_shortcut;
