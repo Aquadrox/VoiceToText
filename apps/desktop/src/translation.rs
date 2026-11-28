@@ -2,15 +2,24 @@
 //! menu de l'icône. Chaque dictée commencée pendant qu'il est actif est
 //! nettoyée puis traduite par le LLM avant l'insertion.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
+use serde::Serialize;
 use tauri::menu::CheckMenuItem;
 use tauri::{AppHandle, Emitter, State, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+use crate::controller::ControllerState;
+use crate::model;
+
 /// Événement envoyé à la pastille : langue d'arrivée, ou `null` si coupé.
 const EVENT: &str = "translation";
+
+/// Événement envoyé à la fenêtre principale : état du pack local M2M100.
+const PACK_EVENT: &str = "translation-pack";
 
 pub struct Translation {
     active: AtomicBool,
@@ -117,4 +126,162 @@ pub fn register(
 #[tauri::command]
 pub fn translation_state(translation: State<'_, TranslationState>) -> Option<String> {
     translation.current()
+}
+
+/// État du pack de traduction local M2M100 (100 langues, ONNX Runtime).
+#[derive(Debug, Clone, Serialize)]
+pub struct PackStatus {
+    pub installed: bool,
+    pub missing_mb: u64,
+    pub downloading: bool,
+    pub progress: Option<u8>,
+    pub error: Option<String>,
+}
+
+#[derive(Default)]
+struct PackProgress {
+    downloading: bool,
+    progress: Option<u8>,
+    error: Option<String>,
+}
+
+/// Gestionnaire du téléchargement et de la suppression du pack local M2M100.
+pub struct TranslationPack {
+    app: AppHandle,
+    models_dir: PathBuf,
+    state: Mutex<PackProgress>,
+}
+
+pub type TranslationPackState = Arc<TranslationPack>;
+
+impl TranslationPack {
+    pub fn new(app: AppHandle, models_dir: PathBuf) -> TranslationPackState {
+        Arc::new(Self {
+            app,
+            models_dir,
+            state: Mutex::new(PackProgress::default()),
+        })
+    }
+
+    pub fn status(&self) -> PackStatus {
+        let guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let installed = model::translation_local(&self.models_dir).is_some();
+        PackStatus {
+            installed,
+            missing_mb: model::translation_missing_mb(&self.models_dir),
+            downloading: guard.downloading,
+            progress: guard.progress,
+            error: guard.error.clone(),
+        }
+    }
+
+    fn emit(&self) {
+        let _ = self.app.emit(PACK_EVENT, self.status());
+    }
+
+    pub fn download(self: &Arc<Self>, controller: ControllerState) -> PackStatus {
+        {
+            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.downloading {
+                return self.status_locked(&guard);
+            }
+            if model::translation_local(&self.models_dir).is_some() {
+                guard.error = None;
+                guard.progress = None;
+                controller.reload_translator();
+                return self.status_locked(&guard);
+            }
+            guard.downloading = true;
+            guard.progress = Some(0);
+            guard.error = None;
+        }
+        self.emit();
+
+        let pack = Arc::clone(self);
+        thread::Builder::new()
+            .name("translation-pack".into())
+            .spawn(move || {
+                log::info!("téléchargement du pack de traduction local M2M100…");
+                let result = model::ensure_translation(&pack.models_dir, |percent| {
+                    {
+                        let mut guard = pack.state.lock().unwrap_or_else(|e| e.into_inner());
+                        guard.progress = Some(percent);
+                    }
+                    pack.emit();
+                });
+                {
+                    let mut guard = pack.state.lock().unwrap_or_else(|e| e.into_inner());
+                    guard.downloading = false;
+                    guard.progress = None;
+                    match result {
+                        Ok(_) => {
+                            guard.error = None;
+                            log::info!("pack de traduction local M2M100 installé");
+                        }
+                        Err(e) => {
+                            log::error!("téléchargement du pack de traduction local : {e}");
+                            guard.error = Some(e);
+                        }
+                    }
+                }
+                if model::translation_local(&pack.models_dir).is_some() {
+                    controller.reload_translator();
+                }
+                pack.emit();
+            })
+            .expect("création du thread pack de traduction");
+
+        self.status()
+    }
+
+    pub fn delete(&self, controller: &ControllerState) -> Result<PackStatus, String> {
+        {
+            let guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.downloading {
+                return Err("téléchargement du pack déjà en cours".into());
+            }
+        }
+        controller.clear_translator();
+        model::delete_translation(&self.models_dir)?;
+        {
+            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            guard.error = None;
+            guard.progress = None;
+        }
+        log::info!("pack de traduction local M2M100 supprimé");
+        let status = self.status();
+        self.emit();
+        Ok(status)
+    }
+
+    fn status_locked(&self, guard: &PackProgress) -> PackStatus {
+        PackStatus {
+            installed: model::translation_local(&self.models_dir).is_some(),
+            missing_mb: model::translation_missing_mb(&self.models_dir),
+            downloading: guard.downloading,
+            progress: guard.progress,
+            error: guard.error.clone(),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn translation_pack_status(pack: State<'_, TranslationPackState>) -> PackStatus {
+    pack.status()
+}
+
+#[tauri::command]
+pub fn download_translation_pack(
+    pack: State<'_, TranslationPackState>,
+    controller: State<'_, ControllerState>,
+) -> PackStatus {
+    pack.download(Arc::clone(&controller))
+}
+
+#[tauri::command]
+pub fn delete_translation_pack(
+    pack: State<'_, TranslationPackState>,
+    controller: State<'_, ControllerState>,
+) -> Result<PackStatus, String> {
+    pack.delete(&controller)
 }

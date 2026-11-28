@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.49.0 — 2026-11-28
+
+- Mode traduction : la liste passe de 6 à 35 langues courantes (japonais, chinois, coréen, arabe, polonais, ukrainien, russe, suédois, turc, grec, hindi…) ; sur PC, l'option « Autre langue… » permet en plus de saisir librement n'importe quelle langue ou code ISO.
+- [PC] Pack de traduction local téléchargeable (M2M100, licence MIT, ~640 Mo, 100 langues) dans Réglages → Dictée et traduction : traduisez vos dictées 100 % hors-ligne et sans coût LLM (vérifié par SHA-256, partage ONNX Runtime avec Parakeet et les intervenants, supprimable en deux clics), avec choix du moteur (Automatique, Pack local hors-ligne ou LLM uniquement).
+
 ## 0.48.0 — 2026-11-28
 
 - [PC] En fenêtre maximisée, toutes les pages (Accueil, Réunions et rapport complet, Historique, Dictionnaire, Snippets, Styles, Prompts et Réglages) utilisent désormais toute la largeur disponible à l'écran.

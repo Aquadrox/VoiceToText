@@ -185,13 +185,128 @@ function fillGeneral(view) {
   $("dict-context-excluded").value = (view.dictation.screen_context_excluded_apps ?? []).join(", ");
   updateContextExcludedVisibility();
 
-  // Une langue saisie à la main dans config.toml reste proposée.
-  const languages = view.languages.includes(view.translation.language)
-    ? view.languages
-    : [...view.languages, view.translation.language];
-  $("tr-language").replaceChildren(...languages.map((l) => option(l, l)));
-  $("tr-language").value = view.translation.language;
+  // Liste élargie + choix « Autre langue… » pour saisir librement toute langue
+  // (LLM ou l'une des 100 langues du pack local M2M100).
+  const CUSTOM_LANG = "__custom__";
+  const langSelect = $("tr-language");
+  const langCustom = $("tr-language-custom");
+  const currentLang = (view.translation.language || "anglais").trim();
+  const known = view.languages.includes(currentLang);
+  langSelect.replaceChildren(
+    ...view.languages.map((l) => option(l, l.charAt(0).toUpperCase() + l.slice(1))),
+    option(CUSTOM_LANG, "Autre langue…"),
+  );
+  if (known) {
+    langSelect.value = currentLang;
+    if (langCustom) langCustom.value = "";
+  } else {
+    langSelect.value = CUSTOM_LANG;
+    if (langCustom) langCustom.value = currentLang;
+  }
+  updateCustomLanguageVisibility();
+  if ($("tr-engine")) {
+    $("tr-engine").value = view.translation.engine || "auto";
+  }
+  if (view.translation_pack) {
+    renderTranslationPack(view.translation_pack);
+  }
 }
+
+function updateCustomLanguageVisibility() {
+  const wrap = $("tr-language-custom-wrap");
+  if (wrap) wrap.hidden = $("tr-language")?.value !== "__custom__";
+}
+
+$("tr-language")?.addEventListener("change", () => {
+  updateCustomLanguageVisibility();
+  if ($("tr-language")?.value === "__custom__") {
+    $("tr-language-custom")?.focus();
+  }
+});
+
+let confirmDeletePack = false;
+let confirmDeletePackTimer = null;
+
+function resetDeletePackConfirm() {
+  confirmDeletePack = false;
+  if (confirmDeletePackTimer) {
+    clearTimeout(confirmDeletePackTimer);
+    confirmDeletePackTimer = null;
+  }
+  const btn = $("tr-pack-delete");
+  if (btn) btn.textContent = "Supprimer le pack";
+}
+
+function renderTranslationPack(pack) {
+  const status = $("tr-pack-status");
+  const download = $("tr-pack-download");
+  const remove = $("tr-pack-delete");
+  if (!pack || !status || !download || !remove) return;
+  resetDeletePackConfirm();
+  status.classList.remove("ok");
+  if (pack.downloading) {
+    const pct = pack.progress ?? 0;
+    status.textContent = `Téléchargement du pack local M2M100 : ${pct} % (vérification SHA-256 à la fin)…`;
+    download.disabled = true;
+    download.hidden = false;
+    download.textContent = `Téléchargement… ${pct} %`;
+    remove.hidden = true;
+  } else if (pack.installed) {
+    status.classList.add("ok");
+    status.textContent =
+      "✓ Pack local M2M100 installé sur ce PC (100 langues hors-ligne, sans coût LLM).";
+    download.hidden = true;
+    download.disabled = false;
+    remove.hidden = false;
+    remove.disabled = false;
+  } else {
+    const mb = pack.missing_mb ? `~${integer.format(pack.missing_mb)} Mo` : "~640 Mo";
+    status.textContent = pack.error
+      ? `Échec du téléchargement : ${pack.error}`
+      : `Pack local non installé (${mb} à télécharger, licence MIT · 100 langues hors-ligne sans LLM).`;
+    download.hidden = false;
+    download.disabled = false;
+    download.textContent = `Télécharger le pack local (${mb})`;
+    remove.hidden = true;
+  }
+}
+
+$("tr-pack-download")?.addEventListener("click", async () => {
+  const button = $("tr-pack-download");
+  button.disabled = true;
+  try {
+    const status = await invoke("download_translation_pack");
+    renderTranslationPack(status);
+  } catch (e) {
+    SettingsUI.showResult("dictee", String(e), true);
+    button.disabled = false;
+  }
+});
+
+$("tr-pack-delete")?.addEventListener("click", async () => {
+  const button = $("tr-pack-delete");
+  if (!confirmDeletePack) {
+    confirmDeletePack = true;
+    button.textContent = "Confirmer la suppression";
+    confirmDeletePackTimer = setTimeout(resetDeletePackConfirm, 4000);
+    return;
+  }
+  resetDeletePackConfirm();
+  button.disabled = true;
+  try {
+    const status = await invoke("delete_translation_pack");
+    renderTranslationPack(status);
+    SettingsUI.showResult("dictee", "Pack de traduction local supprimé du disque.", false);
+  } catch (e) {
+    SettingsUI.showResult("dictee", String(e), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+window.__TAURI__.event.listen("translation-pack", (event) => {
+  if (event.payload) renderTranslationPack(event.payload);
+});
 
 function updateContextExcludedVisibility() {
   const wrap = $("dict-context-excluded-wrap");
@@ -245,6 +360,7 @@ function fillAndKeep(view, keep = []) {
   for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.markClean(name);
   SettingsUI.restorePending(pending);
   updateContextExcludedVisibility();
+  updateCustomLanguageVisibility();
   showEngineNote();
   showVisionWarning();
   for (const name of SettingsUI.panelsOfKind("general")) SettingsUI.refresh(name);
@@ -255,8 +371,9 @@ function fillAndKeep(view, keep = []) {
 async function showGeneral() {
   try {
     const view = await invoke("app_settings_view");
-    // Autostart : toujours l'état réel ; le formulaire, une seule fois.
+    // Autostart et pack local : toujours l'état réel ; le formulaire, une seule fois.
     $("autostart").checked = view.autostart;
+    if (view.translation_pack) renderTranslationPack(view.translation_pack);
     if (!generalFilled) fillAndKeep(view);
     generalFilled = true;
     const status = await invoke("update_status");
@@ -275,6 +392,9 @@ async function showGeneral() {
 /** Réglages généraux à envoyer : seule la section `applying` est prise du formulaire. */
 function readGeneral(applying) {
   const v = (id) => SettingsUI.valueFor($(id), applying);
+  const selectedLang = v("tr-language");
+  const translationLanguage =
+    selectedLang === "__custom__" ? String(v("tr-language-custom") ?? "").trim() : selectedLang;
   return {
     hotkey: {
       key: v("hk-key"),
@@ -311,7 +431,10 @@ function readGeneral(applying) {
         .map((s) => s.trim())
         .filter(Boolean),
     },
-    translation: { language: v("tr-language") },
+    translation: {
+      language: translationLanguage,
+      engine: $("tr-engine") ? v("tr-engine") : "auto",
+    },
     captures: {
       template: v("capture-template"),
       keep_days: Number(v("capture-keep")),

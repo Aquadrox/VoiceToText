@@ -423,4 +423,61 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await context.close();
     }
   });
+
+  it("gère la langue libre, le moteur de traduction et le pack local M2M100 (#127)", async () => {
+    const { context, page, errors } = await openUiPage(browser, server.baseUrl, {
+      colorScheme: "light",
+      hash: "#reglages/dictee",
+    });
+    try {
+      await page.locator("#tr-language").waitFor({ state: "visible" });
+      assert.equal(await page.locator("#tr-language").inputValue(), "anglais");
+      assert.equal(await page.locator("#tr-engine").inputValue(), "auto");
+      assert.equal(await page.locator("#tr-language-custom-wrap").isVisible(), false);
+
+      // Choix « Autre langue… » → affiche le champ libre et passe le moteur en local.
+      await page.locator("#tr-language").selectOption("__custom__");
+      assert.equal(await page.locator("#tr-language-custom-wrap").isVisible(), true);
+      await page.locator("#tr-language-custom").fill("breton");
+      await page.locator("#tr-engine").selectOption("local");
+
+      await page.locator('.panel[data-panel="dictee"] button.apply').click();
+      await page.waitForTimeout(80);
+      const calls = await page.evaluate(() => window.__VTT_CALLS__);
+      const saveCall = calls.find((c) => c.cmd === "save_app_settings");
+      assert.ok(saveCall, "save_app_settings doit être appelé");
+      assert.equal(saveCall.args.translation.language, "breton");
+      assert.equal(saveCall.args.translation.engine, "local");
+
+      // Téléchargement du pack local M2M100 : progression → installé → suppression 2 clics.
+      await page.locator("#tr-pack-download").click();
+      await page.waitForTimeout(60);
+      assert.match((await page.locator("#tr-pack-status").textContent()) || "", /12 %/);
+
+      await page.evaluate(() => {
+        window.__VTT_EMIT__("translation-pack", {
+          installed: true,
+          missing_mb: 0,
+          downloading: false,
+          progress: null,
+          error: null,
+        });
+      });
+      await page.waitForTimeout(60);
+      assert.match((await page.locator("#tr-pack-status").textContent()) || "", /installé/i);
+      assert.equal(await page.locator("#tr-pack-delete").isVisible(), true);
+
+      // Premier clic : demande confirmation ; second clic : supprime.
+      await page.locator("#tr-pack-delete").click();
+      assert.match((await page.locator("#tr-pack-delete").textContent()) || "", /Confirmer/);
+      await page.locator("#tr-pack-delete").click();
+      await page.waitForTimeout(60);
+      assert.equal(await page.locator("#tr-pack-download").isVisible(), true);
+      assert.equal(await page.locator("#tr-pack-delete").isVisible(), false);
+
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
 });

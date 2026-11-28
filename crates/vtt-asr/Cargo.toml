@@ -35,3 +35,7 @@ required-features = ["parakeet", "vosk"]
 [[example]]
 name = "diarize_wav"
 required-features = ["parakeet"]
+
+[[example]]
+name = "translate_text"
+required-features = ["parakeet"]

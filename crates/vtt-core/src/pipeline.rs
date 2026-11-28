@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::config::{Snippet, Style};
+use crate::config::{Snippet, Style, TranslationEngine};
 use crate::usage::Usage;
 use crate::{audio, text};
 
@@ -182,6 +182,19 @@ pub trait PostProcessor: Send + Sync {
     fn command(&self, instruction: &str, selection: Option<&str>) -> Result<Cleaned, Error> {
         let _ = (instruction, selection);
         Err(Error::PostProcess("Command Mode non pris en charge".into()))
+    }
+}
+
+/// Traducteur local optionnel (ex. pack M2M100 sur ONNX Runtime), utilisé en
+/// mode traduction local ou lorsque le LLM est désactivé / indisponible.
+pub trait Translator: Send + Sync {
+    /// Traduit `text` depuis `source_lang` (ex. `"fr"`) vers `target_lang`
+    /// (nom français ou code ISO, ex. `"anglais"`, `"japonais"`, `"ja"`).
+    fn translate(&self, text: &str, source_lang: &str, target_lang: &str) -> Result<String, Error>;
+
+    /// Libère les sessions en mémoire (inactivité ou suppression du pack).
+    fn unload(&self) -> bool {
+        false
     }
 }
 
@@ -391,6 +404,9 @@ struct Cleanup {
 pub struct Pipeline {
     transcriber: Box<dyn Transcriber>,
     post_processor: Option<Box<dyn PostProcessor>>,
+    translator: Option<Box<dyn Translator>>,
+    translation_engine: TranslationEngine,
+    source_language: String,
     sink: Box<dyn TextSink>,
     /// Déclencheur normalisé → texte à insérer.
     snippets: Vec<(String, String)>,
@@ -414,6 +430,9 @@ impl Pipeline {
         Self {
             transcriber,
             post_processor,
+            translator: None,
+            translation_engine: TranslationEngine::Auto,
+            source_language: "fr".to_owned(),
             sink,
             snippets: Vec::new(),
             styles: Vec::new(),
@@ -445,6 +464,34 @@ impl Pipeline {
 
     pub fn set_audio_enhance(&mut self, enabled: bool) {
         self.audio_enhance = enabled;
+    }
+
+    pub fn with_translator(mut self, translator: Option<Box<dyn Translator>>) -> Self {
+        self.translator = translator;
+        self
+    }
+
+    pub fn set_translator(&mut self, translator: Option<Box<dyn Translator>>) {
+        if let Some(old) = self.translator.take() {
+            old.unload();
+        }
+        self.translator = translator;
+    }
+
+    pub fn with_translation_engine(mut self, engine: TranslationEngine) -> Self {
+        self.translation_engine = engine;
+        self
+    }
+
+    pub fn set_translation_engine(&mut self, engine: TranslationEngine) {
+        self.translation_engine = engine;
+    }
+
+    pub fn set_source_language(&mut self, language: impl Into<String>) {
+        let lang = language.into();
+        if !lang.trim().is_empty() {
+            self.source_language = lang;
+        }
     }
 
     /// Remplace le modèle de transcription (changement de modèle dans les
@@ -496,9 +543,12 @@ impl Pipeline {
         self.styles = styles.to_vec();
     }
 
-    /// Libère le modèle de transcription ; `true` s'il était chargé.
+    /// Libère le modèle de transcription (et le traducteur local s'il est
+    /// chargé) ; `true` si un modèle était chargé.
     pub fn unload_model(&self) -> bool {
-        self.transcriber.unload()
+        let asr = self.transcriber.unload();
+        let tr = self.translator.as_ref().is_some_and(|t| t.unload());
+        asr || tr
     }
 
     /// Recharge le modèle de transcription s'il a été libéré.
@@ -883,15 +933,20 @@ impl Pipeline {
                 }
             );
         }
+        let llm_translates = translate_to.is_some()
+            && matches!(
+                self.translation_engine,
+                TranslationEngine::Auto | TranslationEngine::Llm
+            );
         let processor = match style {
-            Some((_, style)) if !style.cleanup && translate_to.is_none() => None,
+            Some((_, style)) if !style.cleanup && !llm_translates => None,
             _ => self.post_processor.as_ref(),
         };
         let directives = Directives {
             style: style
                 .map(|(_, s)| s.instructions.trim())
                 .filter(|i| !i.is_empty()),
-            translate_to,
+            translate_to: llm_translates.then_some(translate_to).flatten(),
             context_terms: &target.context_terms,
             preceding,
         };
@@ -901,27 +956,77 @@ impl Pipeline {
             usage,
             fallback,
         };
-        let mut cleanup = match processor {
-            None if translate_to.is_some() => raw_cleanup(
+        let mut cleanup = match (processor, translate_to, self.translation_engine) {
+            // Mode local explicite : nettoyage LLM éventuel (sans traduction),
+            // puis traduction par le pack local M2M100.
+            (proc_opt, Some(lang), TranslationEngine::Local) => {
+                let mut base = match proc_opt {
+                    None => raw_cleanup(None, None, None),
+                    Some(p) => match p.process(raw, directives) {
+                        Ok(cleaned) if !cleaned.text.trim().is_empty() => Cleanup {
+                            text: cleaned.text.trim().to_owned(),
+                            error: None,
+                            usage: cleaned.usage,
+                            fallback: cleaned.fallback,
+                        },
+                        Ok(cleaned) => raw_cleanup(
+                            Some("réponse vide".to_owned()),
+                            cleaned.usage,
+                            cleaned.fallback,
+                        ),
+                        Err(err) => raw_cleanup(Some(err.to_string()), None, None),
+                    },
+                };
+                self.apply_local_translation(&mut base, lang, false);
+                base
+            }
+            // Mode Auto sans LLM : bascule sur le pack local s'il est installé.
+            (None, Some(lang), TranslationEngine::Auto) => {
+                let mut base = raw_cleanup(None, None, None);
+                if self.translator.is_some() {
+                    self.apply_local_translation(&mut base, lang, false);
+                } else {
+                    base.error = Some(
+                        "mode traduction : activez le nettoyage LLM ou installez le pack de traduction local"
+                            .to_owned(),
+                    );
+                }
+                base
+            }
+            // Mode LLM uniquement sans LLM activé.
+            (None, Some(_), TranslationEngine::Llm) => raw_cleanup(
                 Some("mode traduction : le nettoyage LLM est désactivé".to_owned()),
                 None,
                 None,
             ),
-            None => raw_cleanup(None, None, None),
-            Some(processor) => match processor.process(raw, directives) {
-                Ok(cleaned) if !cleaned.text.trim().is_empty() => Cleanup {
-                    text: cleaned.text.trim().to_owned(),
-                    error: None,
-                    usage: cleaned.usage,
-                    fallback: cleaned.fallback,
-                },
-                Ok(cleaned) => raw_cleanup(
-                    Some("réponse vide".to_owned()),
-                    cleaned.usage,
-                    cleaned.fallback,
-                ),
-                Err(err) => raw_cleanup(Some(err.to_string()), None, None),
-            },
+            (None, None, _) => raw_cleanup(None, None, None),
+            // LLM actif (traduction LLM ou nettoyage normal).
+            (Some(processor), translate_opt, engine) => {
+                let mut res = match processor.process(raw, directives) {
+                    Ok(cleaned) if !cleaned.text.trim().is_empty() => Cleanup {
+                        text: cleaned.text.trim().to_owned(),
+                        error: None,
+                        usage: cleaned.usage,
+                        fallback: cleaned.fallback,
+                    },
+                    Ok(cleaned) => raw_cleanup(
+                        Some("réponse vide".to_owned()),
+                        cleaned.usage,
+                        cleaned.fallback,
+                    ),
+                    Err(err) => raw_cleanup(Some(err.to_string()), None, None),
+                };
+                // En mode Auto, si la traduction LLM échoue et que le pack local
+                // est installé, on tente le pack local en secours.
+                if res.error.is_some()
+                    && engine == TranslationEngine::Auto
+                    && let Some(lang) = translate_opt
+                    && self.translator.is_some()
+                {
+                    self.apply_local_translation(&mut res, lang, true);
+                }
+                res
+            }
         };
         // « nouvelle ligne » en début ou en fin de dictée : le LLM rogne les
         // retours extrêmes.
@@ -933,6 +1038,37 @@ impl Pipeline {
             cleanup.text.push('\n');
         }
         cleanup
+    }
+
+    /// Applique le traducteur local sur `cleanup.text` ; en cas d'échec, garde
+    /// le texte d'origine et note l'erreur (ne perd jamais la dictée).
+    fn apply_local_translation(&self, cleanup: &mut Cleanup, lang: &str, as_fallback: bool) {
+        let Some(translator) = self.translator.as_ref() else {
+            cleanup.error = Some(
+                "mode traduction locale : le pack M2M100 n'est pas installé (Réglages → Dictée et traduction)"
+                    .to_owned(),
+            );
+            return;
+        };
+        match translator.translate(&cleanup.text, &self.source_language, lang) {
+            Ok(translated) if !translated.trim().is_empty() => {
+                cleanup.text = translated.trim().to_owned();
+                cleanup.error = None;
+                if as_fallback {
+                    cleanup.fallback = Some("pack local M2M100".to_owned());
+                }
+            }
+            Ok(_) => {
+                if !as_fallback {
+                    cleanup.error = Some("traduction locale : réponse vide".to_owned());
+                }
+            }
+            Err(err) => {
+                if !as_fallback {
+                    cleanup.error = Some(err.to_string());
+                }
+            }
+        }
     }
 
     /// Command Mode : la dictée est une consigne appliquée à `selection`. En
@@ -1950,5 +2086,128 @@ mod tests {
         ));
         let raw_level = seen.lock().unwrap()[1];
         assert!(raw_level < 0.02, "RMS brut attendu : {raw_level}");
+    }
+
+    struct FakeTranslator {
+        suffix: &'static str,
+    }
+
+    impl Translator for FakeTranslator {
+        fn translate(
+            &self,
+            text: &str,
+            source_lang: &str,
+            target_lang: &str,
+        ) -> Result<String, Error> {
+            Ok(format!(
+                "[{source_lang}->{target_lang}] {text}{}",
+                self.suffix
+            ))
+        }
+    }
+
+    #[test]
+    fn local_translator_runs_offline_and_as_fallback_and_in_local_mode() {
+        // 1. Mode Auto sans LLM + pack local installé → traduit localement.
+        let (p, _sink) = pipeline("Bonjour le monde", None);
+        let p = p
+            .with_translator(Some(Box::new(FakeTranslator { suffix: "" })))
+            .with_translation_engine(TranslationEngine::Auto);
+        let outcome = p
+            .dictate(&clip_ms(1000), &no_target(), None, Some("anglais"))
+            .unwrap();
+        match outcome {
+            Outcome::Inserted {
+                text,
+                post_process_error,
+                translated,
+                ..
+            } => {
+                assert_eq!(text, "[fr->anglais] Bonjour le monde");
+                assert_eq!(post_process_error, None);
+                assert_eq!(translated.as_deref(), Some("anglais"));
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
+
+        // 2. Mode Local explicite avec LLM actif : le LLM nettoie (sans traduire)
+        // puis le pack local traduit.
+        struct CleanOnlyLlm;
+        impl PostProcessor for CleanOnlyLlm {
+            fn process(&self, raw: &str, directives: Directives<'_>) -> Result<Cleaned, Error> {
+                assert!(
+                    directives.translate_to.is_none(),
+                    "le LLM ne doit pas traduire en mode Local"
+                );
+                Ok(Cleaned {
+                    text: format!("{raw}."),
+                    usage: None,
+                    fallback: None,
+                })
+            }
+        }
+        let (p2, _) = pipeline("Bonjour", Some(Box::new(CleanOnlyLlm)));
+        let p2 = p2
+            .with_translator(Some(Box::new(FakeTranslator { suffix: "!" })))
+            .with_translation_engine(TranslationEngine::Local);
+        match p2
+            .dictate(&clip_ms(1000), &no_target(), None, Some("japonais"))
+            .unwrap()
+        {
+            Outcome::Inserted {
+                text,
+                post_process_error,
+                ..
+            } => {
+                assert_eq!(text, "[fr->japonais] Bonjour.!");
+                assert_eq!(post_process_error, None);
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
+
+        // 3. Mode Auto avec LLM en erreur + pack local → secours local.
+        let (p3, _) = pipeline("Salut", Some(Box::new(Failing)));
+        let p3 = p3
+            .with_translator(Some(Box::new(FakeTranslator { suffix: "" })))
+            .with_translation_engine(TranslationEngine::Auto);
+        match p3
+            .dictate(&clip_ms(1000), &no_target(), None, Some("espagnol"))
+            .unwrap()
+        {
+            Outcome::Inserted {
+                text,
+                post_process_error,
+                fallback,
+                ..
+            } => {
+                assert_eq!(text, "[fr->espagnol] Salut");
+                assert_eq!(post_process_error, None);
+                assert_eq!(fallback.as_deref(), Some("pack local M2M100"));
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
+
+        // 4. Mode Local sans pack installé → garde le texte et signale l'erreur.
+        let (p4, _) = pipeline("Bonjour", None);
+        let p4 = p4.with_translation_engine(TranslationEngine::Local);
+        match p4
+            .dictate(&clip_ms(1000), &no_target(), None, Some("anglais"))
+            .unwrap()
+        {
+            Outcome::Inserted {
+                text,
+                post_process_error,
+                ..
+            } => {
+                assert_eq!(text, "Bonjour");
+                assert!(
+                    post_process_error
+                        .as_deref()
+                        .unwrap_or("")
+                        .contains("M2M100")
+                );
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
     }
 }
