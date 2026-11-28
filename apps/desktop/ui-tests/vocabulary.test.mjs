@@ -12,6 +12,13 @@ function setupVocabulary(invoke) {
   const dictEmpty = el("p", { id: "dict-empty", hidden: true });
   const dictSave = el("button", { id: "dict-save" });
   const dictStatus = el("p", { id: "dict-status" });
+  const repForm = el("form", { id: "rep-form" });
+  const repHeard = el("input", { id: "rep-heard", value: "" });
+  const repWritten = el("input", { id: "rep-written", value: "" });
+  const repList = el("ul", { id: "rep-list" });
+  const repEmpty = el("p", { id: "rep-empty", hidden: true });
+  const repSave = el("button", { id: "rep-save" });
+  const repStatus = el("p", { id: "rep-status" });
   const suggestionList = el("ul", { id: "suggestion-list" });
   const suggestionEmpty = el("p", { id: "suggestion-empty", hidden: true });
 
@@ -59,6 +66,13 @@ function setupVocabulary(invoke) {
     dictEmpty,
     dictSave,
     dictStatus,
+    repForm,
+    repHeard,
+    repWritten,
+    repList,
+    repEmpty,
+    repSave,
+    repStatus,
     suggestionList,
     suggestionEmpty,
     snippetTpl,
@@ -84,6 +98,13 @@ function setupVocabulary(invoke) {
     dictEmpty,
     dictSave,
     dictStatus,
+    repForm,
+    repHeard,
+    repWritten,
+    repList,
+    repEmpty,
+    repSave,
+    repStatus,
     suggestionList,
     styleList,
     tplCode,
@@ -93,7 +114,7 @@ function setupVocabulary(invoke) {
 
 test("vocabulary dédoublonne le dictionnaire sans casse et filtre les suggestions déjà connues", async () => {
   const { env, dictForm, dictInput, dictList, dictStatus, suggestionList } = setupVocabulary(async (cmd) => {
-    if (cmd === "vocabulary_view") return { dictionary: ["Tauri"], snippets: [], styles: [] };
+    if (cmd === "vocabulary_view") return { dictionary: ["Tauri"], replacements: [], snippets: [], styles: [] };
     if (cmd === "dictionary_suggestions") {
       return {
         history_enabled: true,
@@ -135,9 +156,68 @@ test("vocabulary dédoublonne le dictionnaire sans casse et filtre les suggestio
   assert.deepEqual(Array.from(env.eval("vocabulary.dictionary")), ["Tauri", "WeSpeaker"]);
 });
 
+test("corrections « entendu → écrit » : ajout, mise à jour sans doublon, suppression et sauvegarde", async () => {
+  let saved = null;
+  const { env, repForm, repHeard, repWritten, repList, repEmpty, repSave, repStatus } = setupVocabulary(
+    async (cmd, args) => {
+      if (cmd === "vocabulary_view") {
+        return {
+          dictionary: [],
+          replacements: saved || [{ heard: "poste graisse", written: "Postgres" }],
+          snippets: [],
+          styles: [],
+        };
+      }
+      if (cmd === "save_vocabulary") {
+        saved = args.update.replacements.map((r) => ({ ...r }));
+        return {};
+      }
+      if (cmd === "dictionary_suggestions") {
+        return { history_enabled: true, suggestions: [] };
+      }
+      return {};
+    },
+  );
+
+  await env.eval("PAGES.dictionnaire.show")();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(repList.children.length, 1);
+  assert.equal(repEmpty.hidden, true);
+
+  // Même « entendu » avec casse/ponctuation différente : met à jour la règle existante.
+  repHeard.value = "Poste graisse !";
+  repWritten.value = "PostgreSQL";
+  repForm.requestSubmit();
+  assert.equal(repList.children.length, 1);
+  assert.equal(env.eval("dirty.replacements"), true);
+
+  // Nouvelle règle : ajoutée.
+  repHeard.value = "aquatroc";
+  repWritten.value = "Aquadrox";
+  repForm.requestSubmit();
+  assert.equal(repList.children.length, 2);
+
+  // Sauvegarde : envoie uniquement la section `replacements`.
+  repSave.click();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(env.eval("dirty.replacements"), false);
+  assert.match(repStatus.textContent, /Enregistré/);
+  assert.deepEqual(saved, [
+    { heard: "Poste graisse !", written: "PostgreSQL" },
+    { heard: "aquatroc", written: "Aquadrox" },
+  ]);
+
+  // Suppression d'une règle.
+  repList.children[0].querySelector("button").click();
+  assert.equal(repList.children.length, 1);
+  assert.equal(env.eval("dirty.replacements"), true);
+});
+
 test("styles clone les modèles sans les altérer, gère cleanup et réordonne la priorité", () => {
   const { env, styleList, tplCode, tplEmail } = setupVocabulary(async () => ({
     dictionary: [],
+    replacements: [],
     snippets: [],
     styles: [],
   }));
@@ -173,7 +253,7 @@ test("styles détecte une application par clic et évite les doublons", async ()
       calls += 1;
       return calls === 1 ? "banque.exe" : "Banque.EXE";
     }
-    return { dictionary: [], snippets: [], styles: [] };
+    return { dictionary: [], replacements: [], snippets: [], styles: [] };
   });
 
   tplCode.click();

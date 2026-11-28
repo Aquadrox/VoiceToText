@@ -184,6 +184,7 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
             &config.styles,
             cleaner(&config),
         );
+        engine.pipeline.set_replacements(&config.replacements);
         engine
             .pipeline
             .set_voice_commands(config.dictation.voice_commands);
@@ -202,6 +203,8 @@ pub fn start(models_dir: &Path, history_file: &Path, toml: &str) -> Result<(), S
     *engine = None;
     let transcriber = load(&path, &config)?;
     let pipeline = Pipeline::new(transcriber, cleaner(&config), Box::new(Collect))
+        .with_dictionary(&config.dictionary)
+        .with_replacements(&config.replacements)
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
         .with_voice_commands(config.dictation.voice_commands)
@@ -236,6 +239,7 @@ pub fn transcribe(samples: Vec<f32>) -> Result<Option<String>, String> {
     engine
         .pipeline
         .transcribe_only(&AudioClip { samples })
+        .map(|opt| opt.map(|text| engine.pipeline.apply_vocabulary(&text)))
         .map_err(|e| e.to_string())
 }
 

@@ -76,7 +76,9 @@ impl MeetingJob {
             samples: self.chunk.samples,
         };
         let end_ms = self.chunk.start_ms + clip.duration_ms();
-        let result = pipeline.transcribe_only(&clip);
+        let result = pipeline
+            .transcribe_only(&clip)
+            .map(|opt| opt.map(|text| pipeline.apply_vocabulary(&text)));
         self.session
             .transcribed(self.track, self.chunk.start_ms, end_ms, result);
     }

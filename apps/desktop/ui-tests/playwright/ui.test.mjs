@@ -480,4 +480,37 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await context.close();
     }
   });
+
+  it("gère les corrections « entendu → écrit » dans le Dictionnaire", async () => {
+    const { context, page, errors } = await openUiPage(browser, server.baseUrl, {
+      colorScheme: "light",
+      hash: "#dictionnaire",
+    });
+    try {
+      await page.locator("#rep-list").waitFor({ state: "visible" });
+      assert.equal(await page.locator("#rep-list li").count(), 1);
+      assert.match((await page.locator("#rep-list li").first().textContent()) || "", /poste graisse.*PostgreSQL/);
+
+      await page.locator("#rep-heard").fill("aquatroc");
+      await page.locator("#rep-written").fill("Aquadrox");
+      await page.locator('#rep-form button[type="submit"]').click();
+      assert.equal(await page.locator("#rep-list li").count(), 2);
+
+      await page.locator("#rep-save").click();
+      await page.waitForTimeout(80);
+      const calls = await page.evaluate(() => window.__VTT_CALLS__);
+      const saveCall = calls.find((c) => c.cmd === "save_vocabulary");
+      assert.ok(saveCall, "save_vocabulary doit être appelé");
+      assert.equal(saveCall.args.update.replacements.length, 2);
+      assert.equal(saveCall.args.update.replacements[1].heard, "aquatroc");
+      assert.equal(saveCall.args.update.replacements[1].written, "Aquadrox");
+
+      await page.locator("#rep-list li button").first().click();
+      assert.equal(await page.locator("#rep-list li").count(), 1);
+
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
 });

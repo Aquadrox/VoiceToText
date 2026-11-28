@@ -21,8 +21,8 @@ use sha2::{Digest, Sha256};
 use super::pairing::DeviceId;
 use super::{Result, SyncError};
 use crate::config::{
-    Config, LlmProfile, PromptKind, PromptPreset, Snippet, Style, clean_dictionary,
-    clean_llm_profiles, clean_prompts, clean_snippets, clean_styles,
+    Config, LlmProfile, PromptKind, PromptPreset, Replacement, Snippet, Style, clean_dictionary,
+    clean_llm_profiles, clean_prompts, clean_replacements, clean_snippets, clean_styles,
 };
 use crate::meeting::MeetingRecord;
 use crate::text::normalize_phrase;
@@ -33,6 +33,7 @@ use crate::text::normalize_phrase;
 pub struct SyncableConfig {
     pub dictionary: Vec<String>,
     pub dictionary_ignored: Vec<String>,
+    pub replacements: Vec<Replacement>,
     pub snippets: Vec<Snippet>,
     pub styles: Vec<Style>,
     pub prompts: Vec<PromptPreset>,
@@ -47,6 +48,7 @@ impl SyncableConfig {
         let payload = Self {
             dictionary: safe.dictionary,
             dictionary_ignored: safe.dictionary_ignored,
+            replacements: safe.replacements,
             snippets: safe.snippets,
             styles: safe.styles,
             prompts: safe.prompts,
@@ -61,6 +63,7 @@ impl SyncableConfig {
         let probe = Config {
             dictionary: self.dictionary.clone(),
             dictionary_ignored: self.dictionary_ignored.clone(),
+            replacements: self.replacements.clone(),
             snippets: self.snippets.clone(),
             styles: self.styles.clone(),
             prompts: self.prompts.clone(),
@@ -75,6 +78,10 @@ impl SyncableConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergeReport {
     pub dictionary_added: usize,
+    #[serde(default)]
+    pub replacements_added: usize,
+    #[serde(default)]
+    pub replacements_updated: usize,
     pub snippets_added: usize,
     pub snippets_updated: usize,
     pub styles_added: usize,
@@ -90,6 +97,8 @@ pub struct MergeReport {
 impl MergeReport {
     pub const fn total_changes(&self) -> usize {
         self.dictionary_added
+            + self.replacements_added
+            + self.replacements_updated
             + self.snippets_added
             + self.snippets_updated
             + self.styles_added
@@ -148,6 +157,16 @@ pub fn merge_config(
     );
     merged.dictionary_ignored = clean_dictionary(&ignored).map_err(SyncError::InvalidConfig)?;
 
+    // 1b. Corrections « entendu → écrit » : fusion par forme « entendu » normalisée.
+    let (replacements, added, updated) = merge_replacements(
+        &local.replacements,
+        &remote_safe.replacements,
+        prefer_remote,
+    );
+    report.replacements_added = added;
+    report.replacements_updated = updated;
+    merged.replacements = clean_replacements(&replacements).map_err(SyncError::InvalidConfig)?;
+
     // 2. Snippets : fusion par déclencheur normalisé.
     let (snippets, added, updated) =
         merge_snippets(&local.snippets, &remote_safe.snippets, prefer_remote);
@@ -200,6 +219,40 @@ fn merge_words(local: &[String], remote: &[String], prefer_remote: bool) -> (Vec
         }
     }
     (by_key.into_values().collect(), added)
+}
+
+fn merge_replacements(
+    local: &[Replacement],
+    remote: &[Replacement],
+    prefer_remote: bool,
+) -> (Vec<Replacement>, usize, usize) {
+    let mut map: BTreeMap<String, Replacement> = BTreeMap::new();
+    for r in local {
+        let key = normalize_phrase(&r.heard);
+        if !key.is_empty() {
+            map.insert(key, r.clone());
+        }
+    }
+    let mut added = 0;
+    let mut updated = 0;
+    for r in remote {
+        let key = normalize_phrase(&r.heard);
+        if key.is_empty() {
+            continue;
+        }
+        match map.get_mut(&key) {
+            None => {
+                added += 1;
+                map.insert(key, r.clone());
+            }
+            Some(existing) if existing != r && prefer_remote => {
+                updated += 1;
+                *existing = r.clone();
+            }
+            _ => {}
+        }
+    }
+    (map.into_values().collect(), added, updated)
 }
 
 fn merge_snippets(
@@ -567,6 +620,7 @@ mod tests {
         let unstripped_remote = SyncableConfig {
             dictionary: remote_cfg.dictionary.clone(),
             dictionary_ignored: Vec::new(),
+            replacements: Vec::new(),
             snippets: Vec::new(),
             styles: Vec::new(),
             prompts: Vec::new(),
@@ -611,6 +665,16 @@ mod tests {
 
         let cfg_a = Config {
             dictionary: vec!["Tauri".into(), "Whisper".into()],
+            replacements: vec![
+                Replacement {
+                    heard: "poste graisse".into(),
+                    written: "Postgres A".into(),
+                },
+                Replacement {
+                    heard: "aquatroc".into(),
+                    written: "Aquadrox".into(),
+                },
+            ],
             snippets: vec![
                 Snippet {
                     trigger: "ma signature".into(),
@@ -637,6 +701,16 @@ mod tests {
 
         let cfg_b = Config {
             dictionary: vec!["whisper".into(), "Parakeet".into()],
+            replacements: vec![
+                Replacement {
+                    heard: "Poste graisse !".into(), // même forme normalisée -> conflit
+                    written: "PostgreSQL".into(),
+                },
+                Replacement {
+                    heard: "c plus plus".into(),
+                    written: "C++".into(),
+                },
+            ],
             snippets: vec![
                 Snippet {
                     trigger: "Ma signature !".into(), // même déclencheur normalisé -> conflit
@@ -666,13 +740,26 @@ mod tests {
 
         // Même horodatage exact : le départage déterministe sur device_id (B > A) doit
         // donner exactement la même vue fusionnée des deux côtés.
-        let (merged_on_a, _) = merge_config(&cfg_a, 5000, &id_a, &snap_b, 5000, &id_b).unwrap();
+        let (merged_on_a, report_a) =
+            merge_config(&cfg_a, 5000, &id_a, &snap_b, 5000, &id_b).unwrap();
         let (merged_on_b, _) = merge_config(&cfg_b, 5000, &id_b, &snap_a, 5000, &id_a).unwrap();
 
         assert_eq!(merged_on_a.dictionary, merged_on_b.dictionary);
+        assert_eq!(merged_on_a.replacements, merged_on_b.replacements);
         assert_eq!(merged_on_a.snippets, merged_on_b.snippets);
         assert_eq!(merged_on_a.styles, merged_on_b.styles);
         assert_eq!(merged_on_a.prompts, merged_on_b.prompts);
+
+        // B a gagné le conflit « poste graisse » et les 3 corrections uniques sont conservées.
+        assert_eq!(merged_on_a.replacements.len(), 3);
+        assert_eq!(report_a.replacements_added, 1);
+        assert_eq!(report_a.replacements_updated, 1);
+        let pg = merged_on_a
+            .replacements
+            .iter()
+            .find(|r| normalize_phrase(&r.heard) == "poste graisse")
+            .unwrap();
+        assert_eq!(pg.written, "PostgreSQL");
 
         // B a gagné le conflit de signature et les deux snippets uniques sont conservés.
         assert_eq!(merged_on_a.snippets.len(), 3);

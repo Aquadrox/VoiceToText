@@ -13,7 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use vtt_core::config::{
-    AsrConfig, DictationConfig, HotkeyConfig, Pricing, Snippet, Style, TranslationEngine,
+    AsrConfig, DictationConfig, HotkeyConfig, Pricing, Replacement, Snippet, Style,
+    TranslationEngine,
 };
 use vtt_core::context;
 use vtt_core::hotkey::{Action, PushToTalk};
@@ -159,6 +160,7 @@ impl UnloadPolicy {
 /// Réglages du thread de traitement, appliqués sans redémarrer.
 pub struct Reconfiguration {
     dictionary: Vec<String>,
+    replacements: Vec<Replacement>,
     snippets: Vec<Snippet>,
     styles: Vec<Style>,
     /// Nettoyage reconstruit (nouveau fournisseur ou dictionnaire ; `None` :
@@ -179,6 +181,7 @@ impl Reconfiguration {
     fn from_config(config: &Config) -> Self {
         Self {
             dictionary: config.dictionary.clone(),
+            replacements: config.replacements.clone(),
             snippets: config.snippets.clone(),
             styles: config.styles.clone(),
             post_processor: settings::build_cleaner(config),
@@ -390,12 +393,20 @@ fn run(
         None => log::info!("nettoyage désactivé (llm.enabled = false)"),
     }
     let pipeline = Pipeline::new(transcriber, cleaner, Box::new(ClipboardPaster))
+        .with_dictionary(&config.dictionary)
+        .with_replacements(&config.replacements)
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
         .with_voice_commands(config.dictation.voice_commands)
         .with_audio_enhance(config.audio.enhance)
         .with_translator(model::build_translator(&paths.models_dir))
         .with_translation_engine(config.translation.engine);
+    if !config.replacements.is_empty() {
+        log::info!(
+            "{} correction(s) « entendu → écrit » chargée(s)",
+            config.replacements.len()
+        );
+    }
     if !config.snippets.is_empty() {
         log::info!("{} snippet(s) chargé(s)", config.snippets.len());
     }
@@ -1312,6 +1323,7 @@ impl Worker {
     fn reconfigure(&mut self, r: Reconfiguration) {
         self.pipeline
             .reconfigure(&r.dictionary, &r.snippets, &r.styles, r.post_processor);
+        self.pipeline.set_replacements(&r.replacements);
         self.pipeline.set_voice_commands(r.voice_commands);
         self.pipeline.set_audio_enhance(r.audio_enhance);
         self.pipeline.set_translation_engine(r.translation_engine);
@@ -1319,8 +1331,9 @@ impl Worker {
         self.unload = r.unload;
         self.retry_shortcut = r.retry_shortcut;
         log::info!(
-            "configuration appliquée : {} mot(s), {} snippet(s), {} style(s)",
+            "configuration appliquée : {} mot(s), {} correction(s), {} snippet(s), {} style(s)",
             r.dictionary.len(),
+            r.replacements.len(),
             r.snippets.len(),
             r.styles.len()
         );

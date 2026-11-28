@@ -8,8 +8,9 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::config::{Snippet, Style, TranslationEngine};
+use crate::config::{Replacement, Snippet, Style, TranslationEngine};
 use crate::usage::Usage;
+use crate::vocab::CompiledVocabulary;
 use crate::{audio, text};
 
 /// Fréquence attendue par Whisper.
@@ -411,6 +412,9 @@ pub struct Pipeline {
     /// Déclencheur normalisé → texte à insérer.
     snippets: Vec<(String, String)>,
     styles: Vec<Style>,
+    dictionary: Vec<String>,
+    replacements: Vec<Replacement>,
+    vocab: CompiledVocabulary,
     /// Commandes vocales (mise en page, annulation) reconnues.
     voice_commands: bool,
     /// Prétraitement audio avant la détection de silence et l'ASR
@@ -436,6 +440,9 @@ impl Pipeline {
             sink,
             snippets: Vec::new(),
             styles: Vec::new(),
+            dictionary: Vec::new(),
+            replacements: Vec::new(),
+            vocab: CompiledVocabulary::default(),
             voice_commands: false,
             audio_enhance: false,
             last_asr_ms: AtomicU64::new(0),
@@ -500,6 +507,28 @@ impl Pipeline {
         self.transcriber = transcriber;
     }
 
+    pub fn with_dictionary(mut self, dictionary: &[String]) -> Self {
+        self.dictionary = dictionary.to_vec();
+        self.vocab = CompiledVocabulary::new(&self.dictionary, &self.replacements);
+        self
+    }
+
+    pub fn with_replacements(mut self, replacements: &[Replacement]) -> Self {
+        self.set_replacements(replacements);
+        self
+    }
+
+    pub fn set_replacements(&mut self, replacements: &[Replacement]) {
+        self.replacements = replacements.to_vec();
+        self.vocab = CompiledVocabulary::new(&self.dictionary, &self.replacements);
+    }
+
+    /// Applique le dictionnaire personnel et les corrections « entendu → écrit »
+    /// au texte transcrit (dictée, insertion en direct, réunions).
+    pub fn apply_vocabulary(&self, text: &str) -> String {
+        self.vocab.apply(text)
+    }
+
     pub fn with_styles(mut self, styles: &[Style]) -> Self {
         self.styles = styles.to_vec();
         self
@@ -538,6 +567,8 @@ impl Pipeline {
         post_processor: Option<Box<dyn PostProcessor>>,
     ) {
         self.transcriber.set_vocabulary(dictionary);
+        self.dictionary = dictionary.to_vec();
+        self.vocab = CompiledVocabulary::new(&self.dictionary, &self.replacements);
         self.post_processor = post_processor;
         self.set_snippets(snippets);
         self.styles = styles.to_vec();
@@ -737,13 +768,15 @@ impl Pipeline {
             });
         }
 
-        // Retours à la ligne dictés et mots épelés, avant le LLM (il les
-        // conserve) ; la version brute les contient aussi.
+        // Retours à la ligne dictés et mots épelés, avant le vocabulaire
+        // universel et le LLM (ils les conservent) ; la version brute les
+        // contient aussi.
         let raw = if self.voice_commands {
             text::apply_layout_commands(&text::join_spelled_letters(&raw))
         } else {
             raw
         };
+        let corrected = self.vocab.apply(&raw);
 
         let started = Instant::now();
         let Cleanup {
@@ -751,7 +784,7 @@ impl Pipeline {
             error: post_process_error,
             usage,
             fallback,
-        } = self.clean(&raw, target, translate_to, None);
+        } = self.clean(&corrected, target, translate_to, None);
         let post_ms = started.elapsed().as_millis();
 
         let started = Instant::now();
@@ -834,11 +867,12 @@ impl Pipeline {
         if raw.trim().is_empty() && !raw.contains('\n') {
             return Ok(None);
         }
+        let corrected = self.vocab.apply(&raw);
 
         let started = Instant::now();
         let preceding = state.context_tail();
         let preceding = (!preceding.trim().is_empty()).then_some(preceding);
-        let cleanup = self.clean(&raw, target, translate_to, preceding);
+        let cleanup = self.clean(&corrected, target, translate_to, preceding);
         let post_ms = started.elapsed().as_millis();
         state.usage = add_usage(state.usage, cleanup.usage);
         if cleanup.error.is_some() && state.error.is_none() {
@@ -2209,5 +2243,57 @@ mod tests {
             }
             other => panic!("attendu Inserted, reçu {other:?}"),
         }
+    }
+
+    #[test]
+    fn universal_vocabulary_applies_without_llm_in_raw_style_and_live_insert() {
+        let dict = vec!["Aquadrox".into(), "Parakeet".into(), "Kubernetes".into()];
+        let reps = vec![Replacement {
+            heard: "poste graisse".into(),
+            written: "PostgreSQL".into(),
+        }];
+
+        // 1. Mode sans LLM : les corrections phonétiques et explicites s'appliquent,
+        // tandis que `raw` conserve la sortie ASR d'origine (utile pour la zone de test).
+        let (p, sink) = pipeline("d'aquatroc tourne parakite avec poste graisse.", None);
+        let p = p.with_dictionary(&dict).with_replacements(&reps);
+        match p.run(&clip_ms(1000), &no_target()).unwrap() {
+            Outcome::Inserted { raw, text, .. } => {
+                assert_eq!(raw, "d'aquatroc tourne parakite avec poste graisse.");
+                assert_eq!(text, "d'Aquadrox tourne Parakeet avec PostgreSQL.");
+                assert_eq!(
+                    sink.0.lock().unwrap().last().map(String::as_str),
+                    Some("d'Aquadrox tourne Parakeet avec PostgreSQL.")
+                );
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
+
+        // 2. Style brut (`cleanup = false`) : profite aussi du vocabulaire universel.
+        let (p_raw, _) = pipeline("déploiement kuber nettes", Some(Box::new(Upper)));
+        let p_raw = p_raw.with_dictionary(&dict).with_styles(&[Style {
+            apps: vec!["code.exe".into()],
+            titles: Vec::new(),
+            instructions: String::new(),
+            cleanup: false,
+        }]);
+        let code_target = Target {
+            app: Some("code.exe".into()),
+            ..Target::default()
+        };
+        match p_raw.run(&clip_ms(1000), &code_target).unwrap() {
+            Outcome::Inserted { text, .. } => {
+                assert_eq!(text, "déploiement Kubernetes");
+            }
+            other => panic!("attendu Inserted, reçu {other:?}"),
+        }
+
+        // 3. Insertion au fil de la dictée : chaque tranche est corrigée avant insertion.
+        let mut live = LiveInsertion::new();
+        p.insert_live_chunk(&mut live, "test parakite", &no_target(), None, None)
+            .unwrap();
+        p.insert_live_chunk(&mut live, "et poste graisse.", &no_target(), None, None)
+            .unwrap();
+        assert_eq!(live.inserted(), "test Parakeet et PostgreSQL.");
     }
 }

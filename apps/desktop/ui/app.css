@@ -811,6 +811,32 @@ ol.entries li + li {
   color: var(--danger);
 }
 
+#replacements .save-bar {
+  position: static;
+  margin-top: 14px;
+  padding: 0;
+  background: transparent;
+}
+
+.rep-form {
+  align-items: center;
+}
+
+.rep-form input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.rep-arrow {
+  flex: 0 0 auto;
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.rep-chips .rep-written {
+  font-weight: 600;
+}
+
 .cards .card {
   margin-bottom: 12px;
 }

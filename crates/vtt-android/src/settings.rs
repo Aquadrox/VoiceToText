@@ -185,10 +185,13 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     to_toml(&config)
 }
 
-/// Dictionnaire et snippets, modifiables sur le téléphone.
+/// Dictionnaire, corrections « entendu → écrit » et snippets, modifiables sur
+/// le téléphone.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Vocabulary {
     pub dictionary: Vec<String>,
+    #[serde(default)]
+    pub replacements: Vec<vtt_core::config::Replacement>,
     pub snippets: Vec<Snippet>,
 }
 
@@ -196,14 +199,16 @@ pub fn vocabulary(toml: &str) -> Result<Vocabulary, String> {
     let (config, _) = parse(toml)?;
     Ok(Vocabulary {
         dictionary: config.dictionary,
+        replacements: config.replacements,
         snippets: config.snippets,
     })
 }
 
-/// Enregistre dictionnaire et snippets (vérifiés comme sur PC).
+/// Enregistre dictionnaire, corrections et snippets (vérifiés comme sur PC).
 pub fn save_vocabulary(toml: &str, vocabulary: &Vocabulary) -> Result<String, String> {
     let (mut config, _) = parse(toml)?;
     config.dictionary = config::clean_dictionary(&vocabulary.dictionary)?;
+    config.replacements = config::clean_replacements(&vocabulary.replacements)?;
     config.snippets = config::clean_snippets(&vocabulary.snippets)?;
     to_toml(&config)
 }
@@ -534,6 +539,7 @@ mod tests {
             "",
             &Vocabulary {
                 dictionary: vec![" Aquadrox ".into(), "Kubernetes".into()],
+                replacements: Vec::new(),
                 snippets: vec![Snippet {
                     trigger: "ma signature".into(),
                     text: "Florian".into(),
@@ -546,6 +552,7 @@ mod tests {
         assert_eq!(back.snippets.len(), 1);
         let empty_trigger = Vocabulary {
             dictionary: Vec::new(),
+            replacements: Vec::new(),
             snippets: vec![Snippet {
                 trigger: " ".into(),
                 text: "x".into(),
@@ -626,5 +633,28 @@ mod tests {
         )
         .unwrap();
         assert!(!parse(&kept).unwrap().0.audio.enhance);
+    }
+
+    #[test]
+    fn vocabulary_saves_and_validates_replacements() {
+        let vocab = Vocabulary {
+            dictionary: vec!["Aquadrox".into()],
+            replacements: vec![vtt_core::config::Replacement {
+                heard: " poste graisse ".into(),
+                written: " PostgreSQL ".into(),
+            }],
+            snippets: vec![],
+        };
+        let saved = save_vocabulary("", &vocab).unwrap();
+        let loaded = vocabulary(&saved).unwrap();
+        assert_eq!(loaded.dictionary, ["Aquadrox"]);
+        assert_eq!(loaded.replacements.len(), 1);
+        assert_eq!(loaded.replacements[0].heard, "poste graisse");
+        assert_eq!(loaded.replacements[0].written, "PostgreSQL");
+
+        // Rétrocompatibilité JSON sans champ `replacements`.
+        let legacy: Vocabulary =
+            serde_json::from_str(r#"{"dictionary":["Tauri"],"snippets":[]}"#).unwrap();
+        assert!(legacy.replacements.is_empty());
     }
 }

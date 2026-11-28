@@ -23,11 +23,15 @@ pub struct Config {
     pub translation: TranslationConfig,
     pub meetings: MeetingsConfig,
     pub captures: CapturesConfig,
-    /// Mots et noms propres à bien orthographier (indices pour Whisper et le LLM).
+    /// Mots et noms propres à bien orthographier (indices Whisper / LLM et
+    /// correspondance universelle post-transcription pour Parakeet, Vosk et le mode sans LLM).
     pub dictionary: Vec<String>,
     /// Suggestions pour le dictionnaire écartées par l'utilisateur.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dictionary_ignored: Vec<String>,
+    /// Corrections explicites « entendu → écrit » appliquées juste après la transcription.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replacements: Vec<Replacement>,
     pub snippets: Vec<Snippet>,
     /// Consignes de nettoyage selon l'application de destination.
     pub styles: Vec<Style>,
@@ -1166,6 +1170,15 @@ impl Style {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Replacement {
+    /// Mot ou expression tel que le moteur de transcription l'écrit par erreur
+    /// (ex. « aquatroc », « poste graisse »).
+    pub heard: String,
+    /// Orthographe voulue (ex. « Aquadrox », « PostgreSQL »).
+    pub written: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snippet {
     /// Phrase prononcée, ex. "ma signature".
@@ -1185,6 +1198,8 @@ fn deepseek_extra_body() -> Map<String, Value> {
 /// qui alourdirait chaque requête).
 pub const MAX_DICTIONARY_WORDS: usize = 500;
 pub const MAX_WORD_CHARS: usize = 80;
+pub const MAX_REPLACEMENTS: usize = 500;
+pub const MAX_REPLACEMENT_WRITTEN_CHARS: usize = 120;
 pub const MAX_SNIPPETS: usize = 200;
 pub const MAX_SNIPPET_CHARS: usize = 20_000;
 pub const MAX_STYLES: usize = 100;
@@ -1207,6 +1222,52 @@ pub fn clean_dictionary(words: &[String]) -> Result<Vec<String>, String> {
     }
     if cleaned.len() > MAX_DICTIONARY_WORDS {
         return Err(format!("au plus {MAX_DICTIONARY_WORDS} mots"));
+    }
+    Ok(cleaned)
+}
+
+/// Corrections « entendu → écrit » saisies dans l'interface : lignes vides
+/// retirées, entrées sur une ligne, « entendu » distinct après normalisation
+/// (casse, accents, ponctuation).
+pub fn clean_replacements(replacements: &[Replacement]) -> Result<Vec<Replacement>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::new();
+    for item in replacements {
+        let heard = item.heard.trim();
+        let written = item.written.trim();
+        if heard.is_empty() && written.is_empty() {
+            continue;
+        }
+        if heard.chars().any(char::is_control) || written.chars().any(char::is_control) {
+            return Err("chaque correction doit tenir sur une seule ligne".into());
+        }
+        let normalized = crate::text::normalize_phrase(heard);
+        if normalized.is_empty() {
+            return Err("chaque correction a besoin d'un texte « entendu » (des mots)".into());
+        }
+        if heard.chars().count() > MAX_WORD_CHARS {
+            return Err(format!(
+                "correction « {heard} » : plus de {MAX_WORD_CHARS} caractères"
+            ));
+        }
+        if written.is_empty() {
+            return Err(format!("correction « {heard} » : texte « écrit » vide"));
+        }
+        if written.chars().count() > MAX_REPLACEMENT_WRITTEN_CHARS {
+            return Err(format!(
+                "correction « {heard} » : texte « écrit » de plus de {MAX_REPLACEMENT_WRITTEN_CHARS} caractères"
+            ));
+        }
+        if !seen.insert(normalized) {
+            return Err(format!("correction en double pour « {heard} »"));
+        }
+        cleaned.push(Replacement {
+            heard: heard.to_owned(),
+            written: written.to_owned(),
+        });
+    }
+    if cleaned.len() > MAX_REPLACEMENTS {
+        return Err(format!("au plus {MAX_REPLACEMENTS} corrections"));
     }
     Ok(cleaned)
 }
@@ -1374,6 +1435,7 @@ impl Config {
         self.prompts = clean_prompts(&self.prompts)?;
         self.llm_profiles = clean_llm_profiles(&self.llm_profiles)?;
         self.dictionary = clean_dictionary(&self.dictionary)?;
+        self.replacements = clean_replacements(&self.replacements)?;
         self.snippets = clean_snippets(&self.snippets)?;
         self.styles = clean_styles(&self.styles)?;
         self.dictation.screen_context_excluded_apps =
@@ -1667,6 +1729,44 @@ mod tests {
             clean_snippets(&[snippet("Mon adresse", "a"), snippet("mon adresse !", "b")]).is_err(),
             "doublon après normalisation"
         );
+    }
+
+    #[test]
+    fn replacements_are_validated_and_round_trip() {
+        let rep = |h: &str, w: &str| Replacement {
+            heard: h.into(),
+            written: w.into(),
+        };
+        let cleaned = clean_replacements(&[
+            rep("  poste graisse ", " PostgreSQL "),
+            rep("", "  "),
+            rep("aquatroc", "Aquadrox"),
+        ])
+        .unwrap();
+        assert_eq!(
+            cleaned,
+            [
+                rep("poste graisse", "PostgreSQL"),
+                rep("aquatroc", "Aquadrox"),
+            ]
+        );
+        assert!(clean_replacements(&[rep("?!", "x")]).is_err());
+        assert!(clean_replacements(&[rep("aquatroc", " ")]).is_err());
+        assert!(clean_replacements(&[rep("a\nb", "c")]).is_err());
+        assert!(clean_replacements(&[rep("a", "b\nc")]).is_err());
+        assert!(
+            clean_replacements(&[rep("Poste graisse", "a"), rep("poste graisse !", "b")]).is_err(),
+            "doublon après normalisation"
+        );
+
+        let cfg = Config {
+            replacements: cleaned,
+            ..Config::default()
+        };
+        let toml = cfg.to_toml().unwrap();
+        assert!(toml.contains("[[replacements]]"), "{toml}");
+        let parsed = Config::from_toml(&toml).unwrap().checked().unwrap();
+        assert_eq!(parsed, cfg);
     }
 
     #[test]
