@@ -325,4 +325,102 @@ describe("Interface PC VoiceToText (Playwright)", () => {
       await context.close();
     }
   });
+
+  it("utilise toute la largeur disponible en fenêtre maximisée (1920×1080) sans débordement (#131)", async () => {
+    const { context, page, errors } = await openUiPage(browser, server.baseUrl, {
+      colorScheme: "light",
+      viewport: { width: 1920, height: 1080 },
+    });
+    try {
+      const pages = [
+        "#accueil",
+        "#reunions",
+        "#historique",
+        "#dictionnaire",
+        "#snippets",
+        "#styles",
+        "#prompts",
+        "#reglages/dictee",
+      ];
+      for (const hash of pages) {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(80);
+        const metrics = await page.evaluate(() => {
+          const main = document.querySelector("main");
+          const visiblePage = document.querySelector(".page:not([hidden])");
+          const mainStyle = getComputedStyle(main);
+          const padding = parseFloat(mainStyle.paddingLeft) + parseFloat(mainStyle.paddingRight);
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            availableWidth: main.clientWidth - padding,
+            pageWidth: visiblePage ? visiblePage.getBoundingClientRect().width : 0,
+          };
+        });
+        assert.ok(
+          metrics.scrollWidth <= metrics.clientWidth + 1,
+          `Débordement horizontal sur ${hash} en 1920×1080 : ${metrics.scrollWidth} > ${metrics.clientWidth}`,
+        );
+        assert.ok(
+          metrics.pageWidth >= metrics.availableWidth - 2 && metrics.pageWidth > 1400,
+          `La page ${hash} n'utilise pas toute la largeur disponible (${metrics.pageWidth}px sur ${metrics.availableWidth}px)`,
+        );
+      }
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("détecte par clic une application à exclure dans Dictée et dans Styles (#128)", async () => {
+    const { context, page, errors } = await openUiPage(browser, server.baseUrl, {
+      colorScheme: "light",
+      hash: "#reglages/dictee",
+    });
+    try {
+      // Active le contexte du champ actif pour afficher le champ d'exclusions.
+      const toggle = page.locator("#dict-context");
+      await toggle.waitFor({ state: "visible" });
+      if (!(await toggle.isChecked())) await toggle.click();
+
+      const excluded = page.locator("#dict-context-excluded");
+      await excluded.waitFor({ state: "visible" });
+      assert.equal(await excluded.inputValue(), "keepass");
+
+      // Premier clic : ajoute banque.exe et marque la section modifiée.
+      await page.locator("#dict-context-detect").click();
+      await page.waitForTimeout(60);
+      assert.equal(await excluded.inputValue(), "keepass, banque.exe");
+      assert.match(
+        (await page.locator('.panel[data-panel="dictee"] .panel-result').textContent()) || "",
+        /Ajouté : banque\.exe/,
+      );
+
+      // Second clic : déjà présent → pas de doublon.
+      await page.locator("#dict-context-detect").click();
+      await page.waitForTimeout(60);
+      assert.equal(await excluded.inputValue(), "keepass, banque.exe");
+      assert.match(
+        (await page.locator('.panel[data-panel="dictee"] .panel-result').textContent()) || "",
+        /déjà dans la liste/,
+      );
+
+      // Même bouton dans Styles par application.
+      await page.evaluate(() => {
+        window.location.hash = "#styles";
+      });
+      await page.waitForTimeout(80);
+      await page.locator("#style-add").click();
+      const styleApps = page.locator("#style-list .card .apps").last();
+      await page.locator("#style-list .card .detect-app").last().click();
+      await page.waitForTimeout(60);
+      assert.equal(await styleApps.inputValue(), "banque.exe");
+
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
 });

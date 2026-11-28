@@ -36,6 +36,7 @@ function setupVocabulary(invoke) {
       { className: "card" },
       el("span", { className: "style-name" }),
       el("input", { className: "apps" }),
+      el("button", { className: "detect-app", textContent: "Détecter" }),
       el("input", { className: "titles" }),
       el("input", { className: "cleanup", type: "checkbox" }),
       el("textarea", { className: "instructions" }),
@@ -163,4 +164,31 @@ test("styles clone les modèles sans les altérer, gère cleanup et réordonne l
   secondCard.querySelector(".up").click();
   assert.equal(env.eval("vocabulary.styles")[0].cleanup, true);
   assert.equal(env.eval("vocabulary.styles")[1].cleanup, false);
+});
+
+test("styles détecte une application par clic et évite les doublons", async () => {
+  let calls = 0;
+  const { env, styleList, tplCode } = setupVocabulary(async (cmd) => {
+    if (cmd === "capture_window_app") {
+      calls += 1;
+      return calls === 1 ? "banque.exe" : "Banque.EXE";
+    }
+    return { dictionary: [], snippets: [], styles: [] };
+  });
+
+  tplCode.click();
+  const card = styleList.children[0];
+  const detect = card.querySelector(".detect-app");
+  const appsInput = card.querySelector(".apps");
+
+  detect.click();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(appsInput.value.includes("banque.exe"));
+  assert.equal(detect.disabled, false);
+  assert.equal(detect.textContent, "Détecter");
+
+  const before = appsInput.value;
+  detect.click();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(appsInput.value, before);
 });

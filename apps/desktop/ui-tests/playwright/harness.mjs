@@ -460,8 +460,9 @@ export function defaultMockData() {
       discovered: [],
       pending_direct: null,
     },
-    update_status: { current: "0.43.0", available: null, checking: false, last_error: null },
-    changelog_view: [{ version: "0.43.0", date: "25 novembre 2026", items: ["Onglet Rapport complet sur PC."] }],
+    update_status: { current: "0.48.0", available: null, checking: false, last_error: null },
+    changelog_view: [{ version: "0.48.0", date: "28 novembre 2026", items: ["Fenêtre maximisée et détection d'application par clic."] }],
+    capture_window_app: "banque.exe",
   };
 }
 

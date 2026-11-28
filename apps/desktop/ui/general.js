@@ -200,6 +200,31 @@ function updateContextExcludedVisibility() {
 
 $("dict-context")?.addEventListener("change", updateContextExcludedVisibility);
 
+/** « Détecter par clic » : attend un clic sur une autre fenêtre et ajoute son exécutable. */
+$("dict-context-detect")?.addEventListener("click", async () => {
+  const button = $("dict-context-detect");
+  const input = $("dict-context-excluded");
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Cliquez sur la fenêtre…";
+  try {
+    const app = await invoke("capture_window_app");
+    const { value, added } = appendAppToList(input.value, app);
+    if (added) {
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      SettingsUI.showResult("dictee", `Ajouté : ${app}. Cliquez sur « Appliquer ».`, false);
+    } else {
+      SettingsUI.showResult("dictee", `« ${app} » est déjà dans la liste.`, false);
+    }
+  } catch (e) {
+    SettingsUI.showResult("dictee", String(e), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+});
+
 /** Réglages généraux appliqués (zone de test, raccourcis cités dans les sections). */
 let generalView = null;
 

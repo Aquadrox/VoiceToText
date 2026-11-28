@@ -86,3 +86,28 @@ test("renderReleases crée les blocs, mémorise l'état, cache si vide et échap
   assert.equal(container.hidden, true);
   assert.equal(container.children.length, 0);
 });
+
+test("appendAppToList ajoute un exécutable et dédoublonne sans casse ni .exe", () => {
+  const env = createEnvironment();
+  env.load("common.js");
+  const normalizeAppKey = env.eval("normalizeAppKey");
+  const appendAppToList = env.eval("appendAppToList");
+
+  assert.equal(normalizeAppKey("  C:\\Apps\\Banque.EXE "), "banque");
+  assert.equal(normalizeAppKey("/usr/bin/Firefox"), "firefox");
+
+  assert.deepEqual({ ...appendAppToList("", "banque.exe") }, { value: "banque.exe", added: true });
+  assert.deepEqual({ ...appendAppToList("signal.exe", "banque.exe") }, {
+    value: "signal.exe, banque.exe",
+    added: true,
+  });
+  // Doublon avec casse ou suffixe .exe différent : ignoré.
+  assert.deepEqual({ ...appendAppToList("signal.exe, banque", "Banque.EXE") }, {
+    value: "signal.exe, banque",
+    added: false,
+  });
+  assert.deepEqual({ ...appendAppToList("signal.exe", "   ") }, {
+    value: "signal.exe",
+    added: false,
+  });
+});

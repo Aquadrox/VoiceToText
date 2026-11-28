@@ -22,9 +22,9 @@ use windows::Win32::UI::Shell::{
     QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
-    HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, SetWindowsHookExW, WH_KEYBOARD_LL, WM_KEYDOWN,
-    WM_SYSKEYDOWN,
+    CallNextHookEx, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindowTextW,
+    GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, SetWindowsHookExW,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
 };
 
 use crate::{KeyEvent, now_ms};
@@ -243,6 +243,56 @@ pub fn foreground_target() -> Target {
         title,
         ..Target::default()
     }
+}
+
+/// Classes Win32 de la barre des tâches, du bureau et du sélecteur Alt+Tab :
+/// ignorées pendant la détection par clic (une vraie fenêtre de l'Explorateur
+/// de fichiers a la classe `CabinetWClass` et reste donc détectable).
+const WINDOWS_SHELL_CLASSES: &[&str] = &[
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "NotifyIconOverflowWindow",
+    "Progman",
+    "WorkerW",
+    "TaskListThumbnailWnd",
+    "MultitaskingViewFrame",
+    "ForegroundStaging",
+    "XamlExplorerHostIslandWindow",
+];
+
+/// Processus du shell Windows (menu Démarrer, recherche, barre système).
+const WINDOWS_SHELL_APPS: &[&str] = &[
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "lockapp.exe",
+];
+
+/// Vrai si la fenêtre active est un élément du bureau Windows (barre des tâches,
+/// menu Démarrer, sélecteur Alt+Tab) et non une application utilisateur.
+pub fn foreground_is_shell_chrome() -> bool {
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() {
+        return true;
+    }
+    let mut class = [0u16; 128];
+    let len = unsafe { GetClassNameW(window, &mut class) };
+    if len > 0 {
+        let name = String::from_utf16_lossy(&class[..len as usize]);
+        if WINDOWS_SHELL_CLASSES.iter().any(|&c| name == c) {
+            return true;
+        }
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+    if let Some(app) = process_name(pid) {
+        let lower = app.to_ascii_lowercase();
+        if WINDOWS_SHELL_APPS.iter().any(|&shell| lower == shell) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Nom de l'exécutable d'un processus, ex. "slack.exe".

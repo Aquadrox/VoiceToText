@@ -34,9 +34,10 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
     ClickRecorder, ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text,
-    exclude_from_capture, foreground_rect, foreground_target, fullscreen_app_running, key_code,
-    key_is_down, modifier_of, modifiers_down, paste_image, play_sound, pressed_keys, screenshot,
-    shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
+    exclude_from_capture, foreground_is_shell_chrome, foreground_rect, foreground_target,
+    fullscreen_app_running, key_code, key_is_down, modifier_of, modifiers_down, paste_image,
+    play_sound, pressed_keys, screenshot, shortcut_key, spawn_keyboard_hook,
+    suppress_menu_activation,
 };
 
 #[cfg(target_os = "linux")]
@@ -50,9 +51,9 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     ClipboardPaster, ascii_path, companion_keys, copy_selection, copy_text, focused_field_context,
-    foreground_rect, foreground_target, fullscreen_app_running, is_steam_deck, key_code,
-    key_is_down, modifier_of, modifiers_down, pressed_keys, session_report, shortcut_key,
-    spawn_keyboard_hook, suppress_menu_activation,
+    foreground_is_shell_chrome, foreground_rect, foreground_target, fullscreen_app_running,
+    is_steam_deck, key_code, key_is_down, modifier_of, modifiers_down, pressed_keys,
+    session_report, shortcut_key, spawn_keyboard_hook, suppress_menu_activation,
 };
 #[cfg(target_os = "linux")]
 mod gamemode_linux;
@@ -114,9 +115,9 @@ mod unsupported;
 pub use unsupported::{
     ClickRecorder, ClipboardPaster, MediaPauser, ascii_path, autostart_enabled, companion_keys,
     copy_selection, copy_text, delete_secret, exclude_from_capture, focused_field_context,
-    foreground_rect, foreground_target, fullscreen_app_running, key_code, key_is_down,
-    list_secrets, load_secret, microphone_apps, modifier_of, modifiers_down, paste_image,
-    play_sound, pressed_keys, protect, screenshot, set_autostart, shortcut_key,
+    foreground_is_shell_chrome, foreground_rect, foreground_target, fullscreen_app_running,
+    key_code, key_is_down, list_secrets, load_secret, microphone_apps, modifier_of, modifiers_down,
+    paste_image, play_sound, pressed_keys, protect, screenshot, set_autostart, shortcut_key,
     spawn_keyboard_hook, store_secret, suppress_menu_activation, unprotect,
 };
 
@@ -253,6 +254,123 @@ fn shortcut_text(modifiers: &[Modifier], code: u32) -> Result<String, String> {
     Ok(parts.join("+"))
 }
 
+/// Fréquence d'observation de la fenêtre active pendant la détection par clic.
+const APP_CAPTURE_POLL: Duration = Duration::from_millis(40);
+
+/// Durée pendant laquelle l'application ciblée doit rester au premier plan
+/// (sans modificateur Alt/Super maintenu) pour éviter de capter un passage
+/// transitoire (Alt+Tab, clic sur la barre des tâches).
+const APP_CAPTURE_STABLE: Duration = Duration::from_millis(180);
+
+/// Instantané observé à chaque tour de boucle de [`capture_window_app`].
+struct WindowSample {
+    target: vtt_core::Target,
+    is_shell: bool,
+    escape_down: bool,
+    nav_modifier_down: bool,
+    elapsed: Duration,
+}
+
+/// Attend que l'utilisateur clique sur une autre fenêtre (ou bascule vers elle
+/// par la barre des tâches / Alt+Tab) et renvoie son application cible.
+///
+/// Ignore la fenêtre de VoiceToText elle-même, les éléments du bureau (barre
+/// des tâches, menu Démarrer, sélecteur Alt+Tab) ainsi que les fenêtres
+/// survolées tant que Alt ou Super reste enfoncé. Échap annule la détection.
+pub fn capture_window_app(timeout: Duration) -> Result<vtt_core::Target, String> {
+    let mut self_keys = vec!["voicetotext".to_owned()];
+    if let Some(app) = foreground_target().app.as_deref() {
+        let key = vtt_core::context::normalize_app_key(app);
+        if !key.is_empty() && !self_keys.contains(&key) {
+            self_keys.push(key);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(name) = exe.file_name().and_then(|n| n.to_str())
+    {
+        let key = vtt_core::context::normalize_app_key(name);
+        if !key.is_empty() && !self_keys.contains(&key) {
+            self_keys.push(key);
+        }
+    }
+
+    let escape = key_code("Escape");
+    let started = Instant::now();
+    capture_window_app_with(
+        timeout,
+        &self_keys,
+        || {
+            let keys = pressed_keys();
+            let escape_down = escape.is_some_and(|code| keys.contains(&code));
+            let nav_modifier_down = keys
+                .iter()
+                .filter_map(|&code| modifier_of(code))
+                .any(|m| matches!(m, Modifier::Alt | Modifier::Super));
+            WindowSample {
+                target: foreground_target(),
+                is_shell: foreground_is_shell_chrome(),
+                escape_down,
+                nav_modifier_down,
+                elapsed: started.elapsed(),
+            }
+        },
+        || std::thread::sleep(APP_CAPTURE_POLL),
+    )
+}
+
+fn capture_window_app_with(
+    timeout: Duration,
+    self_keys: &[String],
+    mut poll: impl FnMut() -> WindowSample,
+    mut wait_step: impl FnMut(),
+) -> Result<vtt_core::Target, String> {
+    let initial = poll();
+    let mut escape_was_down = initial.escape_down;
+    let mut candidate: Option<(String, Duration)> = None;
+
+    loop {
+        wait_step();
+        let sample = poll();
+        if sample.escape_down && !escape_was_down {
+            return Err("détection annulée".into());
+        }
+        escape_was_down = sample.escape_down;
+
+        if sample.elapsed >= timeout {
+            return Err(format!(
+                "aucune fenêtre détectée en {} secondes",
+                timeout.as_secs()
+            ));
+        }
+
+        if sample.nav_modifier_down || sample.is_shell {
+            candidate = None;
+            continue;
+        }
+
+        let Some(app) = sample.target.app.as_deref() else {
+            candidate = None;
+            continue;
+        };
+        let key = vtt_core::context::normalize_app_key(app);
+        if key.is_empty() || self_keys.iter().any(|s| s == &key) {
+            candidate = None;
+            continue;
+        }
+
+        match &candidate {
+            Some((prev, since)) if prev == &key => {
+                if sample.elapsed.saturating_sub(*since) >= APP_CAPTURE_STABLE {
+                    return Ok(sample.target);
+                }
+            }
+            _ => {
+                candidate = Some((key, sample.elapsed));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +399,158 @@ mod tests {
                 "Ctrl+Shift+F9"
             );
         }
+    }
+
+    fn sample(
+        app: Option<&str>,
+        title: Option<&str>,
+        is_shell: bool,
+        escape_down: bool,
+        nav_modifier_down: bool,
+        elapsed_ms: u64,
+    ) -> WindowSample {
+        WindowSample {
+            target: vtt_core::Target {
+                app: app.map(str::to_owned),
+                title: title.map(str::to_owned),
+                ..vtt_core::Target::default()
+            },
+            is_shell,
+            escape_down,
+            nav_modifier_down,
+            elapsed: Duration::from_millis(elapsed_ms),
+        }
+    }
+
+    #[test]
+    fn capture_window_app_ignores_self_shell_and_alttab_then_returns_stable_target() {
+        let mut samples = vec![
+            // État initial : VoiceToText au premier plan.
+            sample(
+                Some("VoiceToText.exe"),
+                Some("VoiceToText"),
+                false,
+                false,
+                false,
+                0,
+            ),
+            // Encore VoiceToText.
+            sample(
+                Some("voicetotext.exe"),
+                Some("VoiceToText"),
+                false,
+                false,
+                false,
+                40,
+            ),
+            // Clic sur la barre des tâches (chrome shell).
+            sample(Some("explorer.exe"), None, true, false, false, 80),
+            // Passage par une autre fenêtre pendant Alt+Tab (Alt enfoncé).
+            sample(Some("chrome.exe"), Some("Accueil"), false, false, true, 120),
+            sample(Some("chrome.exe"), Some("Accueil"), false, false, true, 400),
+            // L'utilisateur choisit son application bancaire et relâche Alt.
+            sample(
+                Some("Banque.exe"),
+                Some("Comptes"),
+                false,
+                false,
+                false,
+                440,
+            ),
+            sample(
+                Some("Banque.exe"),
+                Some("Comptes"),
+                false,
+                false,
+                false,
+                520,
+            ),
+            sample(
+                Some("Banque.exe"),
+                Some("Comptes"),
+                false,
+                false,
+                false,
+                640,
+            ),
+        ]
+        .into_iter();
+
+        let target = capture_window_app_with(
+            Duration::from_secs(15),
+            &["voicetotext".into()],
+            || samples.next().unwrap(),
+            || {},
+        )
+        .unwrap();
+
+        assert_eq!(target.app.as_deref(), Some("Banque.exe"));
+        assert_eq!(target.title.as_deref(), Some("Comptes"));
+    }
+
+    #[test]
+    fn capture_window_app_resets_stability_on_flicker() {
+        let mut samples = vec![
+            sample(Some("voicetotext"), None, false, false, false, 0),
+            sample(Some("firefox"), None, false, false, false, 40),
+            sample(Some("firefox"), None, false, false, false, 160),
+            // Bascule avant 180 ms vers Signal.
+            sample(Some("signal"), None, false, false, false, 200),
+            sample(Some("signal"), None, false, false, false, 390),
+        ]
+        .into_iter();
+
+        let target = capture_window_app_with(
+            Duration::from_secs(15),
+            &["voicetotext".into()],
+            || samples.next().unwrap(),
+            || {},
+        )
+        .unwrap();
+
+        assert_eq!(target.app.as_deref(), Some("signal"));
+    }
+
+    #[test]
+    fn capture_window_app_cancels_on_new_escape_press_only() {
+        // Échap déjà tenu au départ : ne doit pas annuler tant qu'il n'est pas
+        // relâché puis pressé de nouveau.
+        let mut samples = vec![
+            sample(Some("voicetotext"), None, false, true, false, 0),
+            sample(Some("voicetotext"), None, false, true, false, 40),
+            sample(Some("voicetotext"), None, false, false, false, 80),
+            sample(Some("voicetotext"), None, false, true, false, 120),
+        ]
+        .into_iter();
+
+        let err = capture_window_app_with(
+            Duration::from_secs(15),
+            &["voicetotext".into()],
+            || samples.next().unwrap(),
+            || {},
+        )
+        .unwrap_err();
+
+        assert!(err.contains("annulée"), "message inattendu : {err}");
+    }
+
+    #[test]
+    fn capture_window_app_times_out_when_no_other_window_is_selected() {
+        let mut samples = vec![
+            sample(Some("voicetotext"), None, false, false, false, 0),
+            sample(Some("voicetotext"), None, false, false, false, 5000),
+            sample(Some("voicetotext"), None, false, false, false, 15000),
+        ]
+        .into_iter();
+
+        let err = capture_window_app_with(
+            Duration::from_secs(15),
+            &["voicetotext".into()],
+            || samples.next().unwrap(),
+            || {},
+        )
+        .unwrap_err();
+
+        assert!(err.contains("15 secondes"), "message inattendu : {err}");
     }
 }

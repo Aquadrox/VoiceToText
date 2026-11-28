@@ -62,3 +62,29 @@ function formatDuration(ms) {
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
 }
+
+/** Clé de comparaison d'un nom d'application (« Code.exe » → « code »). */
+function normalizeAppKey(name) {
+  const trimmed = String(name ?? "").trim();
+  const base = trimmed.split(/[/\\]/).pop().toLowerCase();
+  return base.endsWith(".exe") ? base.slice(0, -4) : base;
+}
+
+/**
+ * Ajoute une application détectée à une liste séparée par des virgules sans
+ * doublon (insensible à la casse et au suffixe « .exe »).
+ */
+function appendAppToList(currentValue, detectedApp) {
+  const clean = String(detectedApp ?? "").trim();
+  const items = String(currentValue ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const key = normalizeAppKey(clean);
+  if (!key) return { value: items.join(", "), added: false };
+  if (items.some((item) => normalizeAppKey(item) === key)) {
+    return { value: items.join(", "), added: false };
+  }
+  items.push(clean);
+  return { value: items.join(", "), added: true };
+}

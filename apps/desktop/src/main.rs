@@ -121,6 +121,7 @@ fn main() {
             app_settings::set_autostart,
             app_settings::capture_hotkey,
             app_settings::capture_shortcut,
+            app_settings::capture_window_app,
             app_settings::overlay_visible,
             export::export_settings,
             export::import_settings,
