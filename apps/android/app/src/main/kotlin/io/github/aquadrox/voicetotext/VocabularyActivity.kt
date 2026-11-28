@@ -17,19 +17,28 @@ import org.json.JSONObject
 class VocabularyActivity : Activity() {
     private val store by lazy { Store(this) }
     private val words = mutableListOf<String>()
+    private val replacements = mutableListOf<Pair<String, String>>()
     private val snippets = mutableListOf<Pair<String, String>>()
     private lateinit var wordList: FlowLayout
     private lateinit var wordsEmpty: TextView
+    private lateinit var replacementList: LinearLayout
+    private lateinit var replacementsEmpty: TextView
     private lateinit var snippetList: LinearLayout
     private lateinit var message: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val reply = JSONObject(Native.vocabulary(store.config)).optJSONObject("ok")
-        reply?.getJSONArray("dictionary")?.let { array ->
+        reply?.optJSONArray("dictionary")?.let { array ->
             for (i in 0 until array.length()) words += array.getString(i)
         }
-        reply?.getJSONArray("snippets")?.let { array ->
+        reply?.optJSONArray("replacements")?.let { array ->
+            for (i in 0 until array.length()) {
+                val rep = array.getJSONObject(i)
+                replacements += rep.getString("heard") to rep.getString("written")
+            }
+        }
+        reply?.optJSONArray("snippets")?.let { array ->
             for (i in 0 until array.length()) {
                 val snippet = array.getJSONObject(i)
                 snippets += snippet.getString("trigger") to snippet.getString("text")
@@ -40,13 +49,13 @@ class VocabularyActivity : Activity() {
             message = notice()
 
             card("Dictionnaire", R.drawable.ic_book_a).apply {
-                note("Noms propres, jargon, sigles : leur orthographe est donnée à Whisper et au LLM.")
+                note("Noms propres, jargon, sigles : appliqués juste après la transcription (Parakeet, Vosk, Whisper et mode sans LLM), et donnés à Whisper et au LLM.")
                 lateinit var word: EditText
                 row {
                     word = field("Mot à ajouter")
                     addAction("Ajouter") {
                         val value = word.text.toString().trim()
-                        if (value.isNotEmpty() && value !in words) {
+                        if (value.isNotEmpty() && words.none { it.equals(value, ignoreCase = true) }) {
                             words += value
                             render()
                         }
@@ -58,6 +67,26 @@ class VocabularyActivity : Activity() {
                 addView(wordList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(10)
                 })
+            }
+
+            card("Corrections (« entendu → écrit »)", R.drawable.ic_spell_check_2).apply {
+                note("Quand la transcription déforme toujours le même mot ou une expression (ex. « poste graisse » → « PostgreSQL »).")
+                val heard = field("Entendu (ex. poste graisse)")
+                val written = field("Écrit (ex. PostgreSQL)")
+                secondary("Ajouter la correction") {
+                    val h = heard.text.toString().trim()
+                    val w = written.text.toString().trim()
+                    if (h.isNotEmpty() && w.isNotEmpty()) {
+                        val idx = replacements.indexOfFirst { it.first.equals(h, ignoreCase = true) }
+                        if (idx >= 0) replacements[idx] = h to w else replacements += h to w
+                        heard.setText("")
+                        written.setText("")
+                        render()
+                    }
+                }
+                replacementsEmpty = note("Aucune correction explicite pour l'instant.")
+                replacementList = LinearLayout(this@VocabularyActivity).apply { orientation = LinearLayout.VERTICAL }
+                addView(replacementList)
             }
 
             card("Snippets", R.drawable.ic_clipboard_paste).apply {
@@ -101,6 +130,17 @@ class VocabularyActivity : Activity() {
         addView(iconButton(R.drawable.ic_x, "Retirer $label") { remove(); render() }, LinearLayout.LayoutParams(dp(30), dp(30)))
     }
 
+    /** Ligne d'une correction « entendu → écrit », avec sa croix pour la retirer. */
+    private fun replacementRow(heard: String, written: String, remove: () -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(8), 0, dp(8))
+        val texts = LinearLayout(this@VocabularyActivity).apply { orientation = LinearLayout.VERTICAL }
+        texts.text("« $heard » → $written", 15f, bold = true)
+        addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(iconButton(R.drawable.ic_x, "Retirer « $heard »") { remove(); render() }, LinearLayout.LayoutParams(dp(36), dp(36)))
+    }
+
     /** Ligne d'un snippet : déclencheur, texte, croix pour le retirer. */
     private fun snippetRow(trigger: String, value: String, remove: () -> Unit) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -117,6 +157,12 @@ class VocabularyActivity : Activity() {
         wordList.removeAllViews()
         words.toList().forEach { w -> wordList.addView(chip(w) { words.remove(w) }) }
         wordsEmpty.say(if (words.isEmpty()) "Aucun mot pour l'instant." else "")
+        replacementList.removeAllViews()
+        replacements.toList().forEachIndexed { i, r ->
+            if (i > 0) replacementList.divider(0)
+            replacementList.addView(replacementRow(r.first, r.second) { replacements.remove(r) })
+        }
+        replacementsEmpty.say(if (replacements.isEmpty()) "Aucune correction explicite pour l'instant." else "")
         snippetList.removeAllViews()
         snippets.toList().forEachIndexed { i, s ->
             if (i > 0) snippetList.divider(0)
@@ -127,6 +173,10 @@ class VocabularyActivity : Activity() {
     private fun save() {
         val vocabulary = JSONObject()
             .put("dictionary", JSONArray(words))
+            .put(
+                "replacements",
+                JSONArray(replacements.map { JSONObject().put("heard", it.first).put("written", it.second) }),
+            )
             .put(
                 "snippets",
                 JSONArray(snippets.map { JSONObject().put("trigger", it.first).put("text", it.second) }),

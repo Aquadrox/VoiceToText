@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use vtt_core::Config;
-use vtt_core::config::{self, Snippet, Style};
+use vtt_core::config::{self, Replacement, Snippet, Style};
 use vtt_core::suggest::{self, Suggestion};
 
 use crate::controller::ControllerState;
@@ -16,6 +16,7 @@ use crate::settings::{self, SharedConfig};
 #[derive(Serialize)]
 pub struct VocabularyView {
     dictionary: Vec<String>,
+    replacements: Vec<Replacement>,
     snippets: Vec<Snippet>,
     styles: Vec<Style>,
 }
@@ -27,6 +28,7 @@ fn load_vocabulary_view(paths: &Paths) -> Result<VocabularyView, String> {
     }
     Ok(VocabularyView {
         dictionary: config.dictionary,
+        replacements: config.replacements,
         snippets: config.snippets,
         styles: config.styles,
     })
@@ -41,6 +43,8 @@ pub fn vocabulary_view(paths: State<'_, Paths>) -> Result<VocabularyView, String
 #[derive(Deserialize)]
 pub struct VocabularyUpdate {
     dictionary: Option<Vec<String>>,
+    #[serde(default)]
+    replacements: Option<Vec<Replacement>>,
     snippets: Option<Vec<Snippet>>,
     styles: Option<Vec<Style>>,
 }
@@ -55,6 +59,9 @@ fn apply_vocabulary_update(paths: &Paths, update: VocabularyUpdate) -> Result<Co
     }
     if let Some(words) = update.dictionary {
         updated.dictionary = config::clean_dictionary(&words)?;
+    }
+    if let Some(replacements) = update.replacements {
+        updated.replacements = config::clean_replacements(&replacements)?;
     }
     if let Some(snippets) = update.snippets {
         updated.snippets = config::clean_snippets(&snippets)?;
@@ -224,6 +231,10 @@ mod tests {
     fn vocabulary_update_replaces_only_given_sections() {
         let dir = temp_dir("update");
         let paths = Paths::for_tests(&dir);
+        let replacement = Replacement {
+            heard: "poste graisse".into(),
+            written: "PostgreSQL".into(),
+        };
         let snippet = Snippet {
             trigger: "sig".into(),
             text: "Salut".into(),
@@ -238,23 +249,26 @@ mod tests {
             &paths,
             VocabularyUpdate {
                 dictionary: Some(vec!["Aquadrox".into(), "  ".into()]),
+                replacements: Some(vec![replacement.clone()]),
                 snippets: Some(vec![snippet.clone()]),
                 styles: Some(vec![style.clone()]),
             },
         )
         .unwrap();
 
-        // Mise à jour du dictionnaire seul : snippets et styles conservés.
+        // Mise à jour du dictionnaire seul : corrections, snippets et styles conservés.
         let updated = apply_vocabulary_update(
             &paths,
             VocabularyUpdate {
                 dictionary: Some(vec!["VoiceToText".into()]),
+                replacements: None,
                 snippets: None,
                 styles: None,
             },
         )
         .unwrap();
         assert_eq!(updated.dictionary, vec!["VoiceToText"]);
+        assert_eq!(updated.replacements, vec![replacement]);
         assert_eq!(updated.snippets, vec![snippet]);
         assert_eq!(updated.styles, vec![style]);
 
@@ -264,6 +278,7 @@ mod tests {
                 &paths,
                 VocabularyUpdate {
                     dictionary: None,
+                    replacements: None,
                     snippets: Some(vec![Snippet {
                         trigger: "   ".into(),
                         text: "ok".into(),
@@ -274,6 +289,7 @@ mod tests {
             .is_err()
         );
         let view = load_vocabulary_view(&paths).unwrap();
+        assert_eq!(view.replacements.len(), 1);
         assert_eq!(view.snippets.len(), 1);
 
         let _ = fs::remove_dir_all(&dir);

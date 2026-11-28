@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.50.0 — 2026-11-28
+
+- Vocabulaire universel et corrections phonétiques / floues : votre dictionnaire personnel s'applique désormais directement après la transcription (dictées, insertion au fil de la dictée et réunions) afin que Parakeet, Vosk et le mode sans LLM (ainsi que les styles en texte brut) profitent de la même précision sur les noms propres, sigles et jargon, avec garde contre les faux positifs sur les mots courants.
+- Corrections explicites « entendu → écrit » : dans Dictionnaire (PC et Android), ajoutez des remplacements précis pour les mots ou expressions que la transcription déforme toujours (ex. « poste graisse » → « PostgreSQL »), appliqués à chaud, exportés avec les réglages et synchronisés sur le Wi-Fi local entre vos appareils.
+
 ## 0.49.0 — 2026-11-28
 
 - Mode traduction : la liste passe de 6 à 35 langues courantes (japonais, chinois, coréen, arabe, polonais, ukrainien, russe, suédois, turc, grec, hindi…) ; sur PC, l'option « Autre langue… » permet en plus de saisir librement n'importe quelle langue ou code ISO.

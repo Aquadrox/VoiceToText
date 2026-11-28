@@ -1,8 +1,8 @@
 // Pages Dictionnaire, Snippets et Styles : édition puis enregistrement dans
 // config.toml, appliqué sans redémarrer.
-const vocabulary = { dictionary: [], snippets: [], styles: [] };
+const vocabulary = { dictionary: [], replacements: [], snippets: [], styles: [] };
 /** Sections modifiées et pas encore enregistrées (non rechargées au retour). */
-const dirty = { dictionary: false, snippets: false, styles: false };
+const dirty = { dictionary: false, replacements: false, snippets: false, styles: false };
 
 const STYLE_TEMPLATES = {
   messagerie: {
@@ -28,7 +28,7 @@ const STYLE_TEMPLATES = {
 async function loadVocabulary() {
   const view = await invoke("vocabulary_view");
   for (const section of Object.keys(vocabulary)) {
-    if (!dirty[section]) vocabulary[section] = view[section];
+    if (!dirty[section]) vocabulary[section] = view[section] || [];
   }
 }
 
@@ -64,6 +64,16 @@ const splitList = (text) =>
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+
+const normalizeReplacementKey = (text) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
 /* ---------- Dictionnaire ---------- */
 
@@ -106,6 +116,68 @@ $("dict-save").addEventListener("click", async () => {
     renderSuggestions();
   }
 });
+
+/* ---------- Corrections (« entendu → écrit ») ---------- */
+
+function renderReplacements() {
+  if (!$("rep-list")) return;
+  const items = vocabulary.replacements.map((rule, index) => {
+    const item = document.createElement("li");
+    const heard = document.createElement("span");
+    heard.textContent = rule.heard;
+    const arrow = document.createElement("span");
+    arrow.className = "rep-arrow muted";
+    arrow.textContent = "→";
+    const written = document.createElement("span");
+    written.className = "rep-written";
+    written.textContent = rule.written;
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = `Retirer « ${rule.heard} → ${rule.written} »`;
+    remove.addEventListener("click", () => {
+      vocabulary.replacements.splice(index, 1);
+      markDirty("replacements", "rep");
+      renderReplacements();
+    });
+    item.append(heard, arrow, written, remove);
+    return item;
+  });
+  $("rep-list").replaceChildren(...items);
+  $("rep-empty").hidden = items.length > 0;
+}
+
+if ($("rep-form")) {
+  $("rep-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const heard = $("rep-heard").value.trim();
+    const written = $("rep-written").value.trim();
+    const key = normalizeReplacementKey(heard);
+    if (!key || !written) return;
+    const existing = vocabulary.replacements.find(
+      (r) => normalizeReplacementKey(r.heard) === key,
+    );
+    if (existing) {
+      if (existing.written !== written || existing.heard !== heard) {
+        existing.heard = heard;
+        existing.written = written;
+        markDirty("replacements", "rep");
+      }
+    } else {
+      vocabulary.replacements.push({ heard, written });
+      markDirty("replacements", "rep");
+    }
+    $("rep-heard").value = "";
+    $("rep-written").value = "";
+    $("rep-heard").focus();
+    renderReplacements();
+  });
+
+  $("rep-save").addEventListener("click", async () => {
+    if (await save("replacements", "rep", $("rep-save"))) {
+      renderReplacements();
+    }
+  });
+}
 
 /* Suggestions tirées de l'historique. */
 let suggestions = [];
@@ -179,6 +251,7 @@ registerPage("dictionnaire", {
       setStatus("dict", String(e), "error");
     }
     renderDictionary();
+    renderReplacements();
     loadSuggestions();
   },
 });

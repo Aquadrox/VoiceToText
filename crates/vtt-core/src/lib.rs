@@ -24,6 +24,7 @@ pub mod suggest;
 pub mod sync;
 pub mod text;
 pub mod usage;
+pub mod vocab;
 pub mod voicebook;
 
 pub use config::Config;

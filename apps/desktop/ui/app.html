@@ -284,7 +284,9 @@
         <section class="page" id="page-dictionnaire" hidden>
           <h1>Dictionnaire</h1>
           <p class="muted">
-            Noms propres, jargon, sigles : leur orthographe est transmise à Whisper et au LLM.
+            Noms propres, jargon, sigles : appliqués automatiquement juste après la transcription
+            (<strong>Parakeet</strong>, <strong>Vosk</strong>, <strong>Whisper</strong> et <strong>mode sans LLM</strong>),
+            et transmis à Whisper et au LLM.
           </p>
           <form id="dict-form" class="row">
             <input id="dict-input" type="text" placeholder="Ajouter un mot…" spellcheck="false" maxlength="80" />
@@ -296,6 +298,27 @@
             <button id="dict-save" class="primary">Enregistrer</button>
             <span id="dict-status" class="muted small"></span>
           </div>
+
+          <section id="replacements">
+            <h2>Corrections (« entendu → écrit »)</h2>
+            <p class="muted small">
+              Quand un moteur de transcription déforme toujours le même mot ou une expression
+              (ex. <code>poste graisse</code> → <code>PostgreSQL</code>, <code>aquatroc</code> → <code>Aquadrox</code>),
+              ajoutez ici le remplacement exact. Appliqué avant le nettoyage LLM, sans faux positifs.
+            </p>
+            <form id="rep-form" class="row rep-form">
+              <input id="rep-heard" type="text" placeholder="Entendu (ex. poste graisse)" spellcheck="false" maxlength="80" />
+              <span class="rep-arrow muted" aria-hidden="true">→</span>
+              <input id="rep-written" type="text" placeholder="Écrit (ex. PostgreSQL)" spellcheck="false" maxlength="120" />
+              <button type="submit">Ajouter</button>
+            </form>
+            <ul id="rep-list" class="chips rep-chips"></ul>
+            <p id="rep-empty" class="muted small" hidden>Aucune correction explicite pour l'instant.</p>
+            <div class="save-bar">
+              <button id="rep-save" class="primary">Enregistrer</button>
+              <span id="rep-status" class="muted small"></span>
+            </div>
+          </section>
 
           <section id="suggestions">
             <h2>Suggestions</h2>

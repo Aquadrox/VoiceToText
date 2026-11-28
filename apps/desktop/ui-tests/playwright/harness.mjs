@@ -330,6 +330,7 @@ export function defaultMockData() {
     voicebook_view: [{ id: "v-marie", name: "Marie", samples: 12, meetings: 3 }],
     vocabulary_view: {
       dictionary: ["VoiceToText", "Aquadrox"],
+      replacements: [{ heard: "poste graisse", written: "PostgreSQL" }],
       suggestions: [{ word: "Playwright", count: 3 }],
       snippets: [{ trigger: "mon mail", text: "contact@exemple.fr" }],
       styles: [{ name: "Code", apps: ["code"], titles: [], instructions: "Concis.", cleanup: true }],
@@ -520,6 +521,9 @@ export async function openUiPage(
       core: {
         invoke: async (cmd, args) => {
           calls.push({ cmd, args: args ?? null });
+          if (cmd === "save_vocabulary" && args?.update && initialMocks.vocabulary_view) {
+            Object.assign(initialMocks.vocabulary_view, structuredClone(args.update));
+          }
           if (Object.prototype.hasOwnProperty.call(initialMocks, cmd)) {
             return structuredClone(initialMocks[cmd]);
           }
