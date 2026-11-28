@@ -253,6 +253,31 @@ function renderStyles() {
       style.apps = splitList(apps.value);
       changed();
     });
+    const detectApp = card.querySelector(".detect-app");
+    if (detectApp) {
+      detectApp.addEventListener("click", async () => {
+        const label = detectApp.textContent;
+        detectApp.disabled = true;
+        detectApp.textContent = "Cliquez sur la fenêtre…";
+        try {
+          const app = await invoke("capture_window_app");
+          const { value, added } = appendAppToList(apps.value, app);
+          if (added) {
+            apps.value = value;
+            style.apps = splitList(value);
+            changed();
+            setStatus("style", `Ajouté : ${app} — cliquez sur Enregistrer`, "dirty");
+          } else {
+            setStatus("style", `« ${app} » est déjà dans la liste`);
+          }
+        } catch (e) {
+          setStatus("style", String(e), "error");
+        } finally {
+          detectApp.disabled = false;
+          detectApp.textContent = label;
+        }
+      });
+    }
     titles.addEventListener("input", () => {
       style.titles = splitList(titles.value);
       changed();

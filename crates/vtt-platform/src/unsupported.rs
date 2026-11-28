@@ -43,6 +43,10 @@ pub fn foreground_target() -> vtt_core::Target {
     vtt_core::Target::default()
 }
 
+pub fn foreground_is_shell_chrome() -> bool {
+    false
+}
+
 pub fn focused_field_context() -> crate::FocusedField {
     crate::FocusedField::default()
 }

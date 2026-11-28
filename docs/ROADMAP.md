@@ -626,6 +626,12 @@ Voir le texte s'écrire pendant une longue dictée, et pas seulement un aperçu 
 - ✅ Erreur 404 au téléchargement d'ONNX Runtime 1.31.1 (#132) : bascule de `ONNX_RUNTIME` (Windows x64 et Linux x64) des releases GitHub `microsoft/onnxruntime` (devenues 404) vers les paquets officiels PyPI de Microsoft (`.whl` zip, bibliothèques C `onnxruntime.dll` / `libonnxruntime.so.1.31.1` sans dépendance Python, taille et SHA-256 vérifiés, même dossier `onnxruntime-1.31.1` compatible avec les installations existantes) — corrige la diarisation des intervenants, Parakeet et la recherche sémantique locale (`0.46.1`)
 - ⬜ À vérifier sur le terrain : dictée dans la zone de test des réglages sous Windows 11 et téléchargement complet d'ONNX Runtime + modèles des intervenants sur un PC vierge
 
+### Confort PC : fenêtre maximisée et détection d'application par clic (#131, #128) ✅
+
+- ✅ Fenêtre maximisée pleine largeur (#131) : suppression des plafonds `max-width` (`820px` sur `.page`, `1080px` sur `.page.settings-page`) dans `apps/desktop/ui/app.css`, élargissement progressif de la liste des réunions sur grand écran et agrandissement vertical du rapport complet (`max(520px, 75vh)`), vérifié par Playwright en 1920×1080 (`0.48.0`)
+- ✅ Détection d'application par clic (#128) : `vtt_platform::capture_window_app` (Windows et Linux X11/Wayland) avec filtrage de VoiceToText, du chrome système (barre des tâches, menu Démarrer, sélecteur Alt+Tab / panneaux Linux), garde contre les passages transitoires Alt+Tab et annulation par Échap ; commande Tauri `capture_window_app` ramenant la fenêtre au premier plan sans jamais journaliser le titre ; bouton **Détecter par clic** dans **Réglages → Dictée et traduction** (applications exclues du contexte) et bouton **Détecter** dans **Styles par application**, avec dédoublonnage insensible à la casse et au `.exe` et tests Rust + UI JS + Playwright (`0.48.0`)
+- ⬜ À vérifier sur le terrain : rendu maximisé sous Windows 11 (grand écran) et détection par clic d'une application bancaire / personnelle (côte à côte, via la barre des tâches et via Alt+Tab)
+
 ### Améliorations de la reconnaissance vocale (ASR) ⬜
 
 Pistes prioritaires retenues pour améliorer la fiabilité, la qualité audio et la portée du vocabulaire en reconnaissance vocale locale :

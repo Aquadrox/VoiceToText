@@ -268,6 +268,38 @@ pub async fn capture_shortcut(app: AppHandle) -> Result<String, String> {
     result
 }
 
+/// Temps laissé pour cliquer sur la fenêtre d'une application à détecter.
+const APP_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Détection d'une application par clic (exclusion du contexte d'écran ou style
+/// par application) : attend que l'utilisateur clique sur une autre fenêtre
+/// (ou la choisisse dans la barre des tâches / Alt+Tab), renvoie son nom
+/// d'exécutable (jamais son titre), puis ramène VoiceToText au premier plan.
+#[tauri::command]
+pub async fn capture_window_app(window: tauri::WebviewWindow) -> Result<String, String> {
+    let result = tauri::async_runtime::spawn_blocking(|| {
+        vtt_platform::capture_window_app(APP_CAPTURE_TIMEOUT)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r)
+    .and_then(|target| {
+        target
+            .app
+            .filter(|a| !a.trim().is_empty())
+            .ok_or_else(|| "application introuvable pour cette fenêtre".into())
+    });
+
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    if let Ok(name) = &result {
+        log::info!("application détectée : {name}");
+    }
+    result
+}
+
 /// Pastille affichée ou masquée par sa page (Linux) : au repos, elle est
 /// vraiment masquée. Sous Linux, une fenêtre transparente qui reste affichée
 /// peut ne plus se redessiner (bulle grise figée sur l'écran). Sous Windows,

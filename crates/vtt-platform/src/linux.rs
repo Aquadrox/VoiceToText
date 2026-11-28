@@ -699,6 +699,35 @@ pub fn foreground_target() -> Target {
     }
 }
 
+/// Classes de fenêtres du bureau Linux (barre des tâches, lanceur, fond) à
+/// ignorer pendant la détection d'une application par clic.
+const LINUX_SHELL_CLASSES: &[&str] = &[
+    "plasmashell",
+    "krunner",
+    "ksmserver",
+    "gnome-shell",
+    "xfce4-panel",
+    "xfdesktop",
+    "waybar",
+    "rofi",
+    "wofi",
+    "dmenu",
+    "plank",
+    "docky",
+    "latte-dock",
+    "polybar",
+];
+
+/// Vrai si la fenêtre active est un élément du bureau (barre des tâches,
+/// panneau, lanceur) et non une application utilisateur.
+pub fn foreground_is_shell_chrome() -> bool {
+    let Some(app) = foreground_target().app else {
+        return false;
+    };
+    let key = app.trim().to_ascii_lowercase();
+    LINUX_SHELL_CLASSES.iter().any(|&shell| key == shell)
+}
+
 /// Lecture du champ actif : repli propre sous Linux (non disponible de façon
 /// uniforme sur X11/Wayland/SteamOS sans activer AT-SPI2).
 pub fn focused_field_context() -> crate::FocusedField {

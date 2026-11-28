@@ -578,7 +578,11 @@
                   </label>
                   <div id="dict-context-excluded-wrap" class="field" hidden>
                     <label for="dict-context-excluded">Applications exclues du contexte (séparées par des virgules)</label>
-                    <input id="dict-context-excluded" type="text" placeholder="banque.exe, signal.exe" spellcheck="false" />
+                    <div class="row key-row">
+                      <input id="dict-context-excluded" type="text" placeholder="banque.exe, signal.exe" spellcheck="false" />
+                      <button type="button" id="dict-context-detect">Détecter par clic</button>
+                    </div>
+                    <p class="hint">« Détecter par clic », puis cliquez sur la fenêtre de l'application à exclure (ou choisissez-la dans la barre des tâches / Alt+Tab ; Échap annule).</p>
                   </div>
                 </div>
 
@@ -1237,8 +1241,13 @@
           <button class="remove danger" title="Supprimer">Supprimer</button>
         </div>
         <div class="grid even">
-          <label>Applications (exécutables, séparés par des virgules)
-            <input class="apps" type="text" placeholder="slack.exe, discord.exe" spellcheck="false" /></label>
+          <div class="card-field">
+            <label>Applications (exécutables, séparés par des virgules)</label>
+            <div class="row key-row">
+              <input class="apps" type="text" placeholder="slack.exe, discord.exe" spellcheck="false" />
+              <button class="detect-app" type="button" title="Cliquer sur la fenêtre d'une application pour ajouter son exécutable">Détecter</button>
+            </div>
+          </div>
           <label>Titre de fenêtre contenant (séparés par des virgules)
             <input class="titles" type="text" placeholder="Gmail, WhatsApp" spellcheck="false" /></label>
         </div>

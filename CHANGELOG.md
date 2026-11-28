@@ -8,6 +8,11 @@ Règles (vérifiées par la CI, `.github/scripts/changelog.py check`) :
 - une ligne `- ` par changement, en mots d'utilisateur (texte simple : la mise en forme n'est pas affichée) ;
 - `[PC]` ou `[Android]` en tête d'un changement propre à une plateforme ; sans préfixe, il est montré sur les deux.
 
+## 0.48.0 — 2026-11-28
+
+- [PC] En fenêtre maximisée, toutes les pages (Accueil, Réunions et rapport complet, Historique, Dictionnaire, Snippets, Styles, Prompts et Réglages) utilisent désormais toute la largeur disponible à l'écran.
+- [PC] Détection d'une application par clic : cliquez sur « Détecter par clic » dans Réglages → Dictée et traduction (applications exclues du contexte d'écran) ou sur « Détecter » dans Styles par application, puis cliquez sur la fenêtre voulue (ou choisissez-la dans la barre des tâches / Alt+Tab) pour ajouter automatiquement son exécutable sans avoir à le chercher (Échap annule).
+
 ## 0.47.0 — 2026-11-27
 
 - Prétraitement audio local du micro avant transcription (activé par défaut ; réglable dans PC : Réglages → Reconnaissance locale, Android : Réglages → Dictée) : filtre passe-haut 80 Hz qui élimine bruits sourds, bourdonnement secteur et décalage continu avant la détection de silence (moins d'hallucinations), et normalisation douce du niveau pour mieux comprendre les micros faibles ou éloignés sans amplifier le silence ni écrêter les pics.
