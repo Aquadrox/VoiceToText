@@ -12,12 +12,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use vtt_core::config::{AsrConfig, DictationConfig, HotkeyConfig, Pricing, Snippet, Style};
+use vtt_core::config::{
+    AsrConfig, DictationConfig, HotkeyConfig, Pricing, Snippet, Style, TranslationEngine,
+};
 use vtt_core::context;
 use vtt_core::hotkey::{Action, PushToTalk};
 use vtt_core::live::{DEFAULT_PREVIEW_CHARS, LiveSession};
 use vtt_core::{
-    AudioClip, Config, LiveInsertion, Outcome, Pipeline, PostProcessor, Target, TextSink, Word,
+    AudioClip, Config, LiveInsertion, Outcome, Pipeline, PostProcessor, Target, TextSink,
+    Translator, Word,
 };
 use vtt_platform::audio::Recorder;
 use vtt_platform::{ClipboardPaster, FocusedField, MediaPauser, now_ms};
@@ -107,6 +110,11 @@ pub enum Work {
     MeetingWake,
     /// Mots horodatés d'un clip (capture commentée), renvoyés par `reply`.
     Transcribe(AudioClip, Sender<Result<Vec<Word>, String>>),
+    /// Charge ou décharge le pack de traduction local M2M100 à chaud.
+    SetTranslator {
+        translator: Option<Box<dyn Translator>>,
+        ack: Option<Sender<()>>,
+    },
 }
 
 /// Fréquence de vérification de la libération du modèle.
@@ -160,6 +168,7 @@ pub struct Reconfiguration {
     tariffs: Tariffs,
     voice_commands: bool,
     audio_enhance: bool,
+    translation_engine: TranslationEngine,
     unload: UnloadPolicy,
     retry_shortcut: String,
     /// Modèle de transcription demandé (rechargé s'il change).
@@ -176,6 +185,7 @@ impl Reconfiguration {
             tariffs: Tariffs::from_config(config),
             voice_commands: config.dictation.voice_commands,
             audio_enhance: config.audio.enhance,
+            translation_engine: config.translation.engine,
             unload: UnloadPolicy::from_config(&config.asr),
             retry_shortcut: config.hotkey.retry.trim().to_owned(),
             asr: config.asr.clone(),
@@ -300,6 +310,34 @@ impl Controller {
             self.start(config.clone());
         }
     }
+
+    /// Recharge à chaud le traducteur local M2M100 après téléchargement.
+    pub fn reload_translator(&self) {
+        if let Some(worker) = lock(&self.worker).clone() {
+            let translator = model::build_translator(&self.paths.models_dir);
+            let _ = worker.send(Work::SetTranslator {
+                translator,
+                ack: None,
+            });
+        }
+    }
+
+    /// Décharge et détache le traducteur local avant suppression des fichiers
+    /// (évite un fichier verrouillé sous Windows).
+    pub fn clear_translator(&self) {
+        if let Some(worker) = lock(&self.worker).clone() {
+            let (tx, rx) = mpsc::channel();
+            if worker
+                .send(Work::SetTranslator {
+                    translator: None,
+                    ack: Some(tx),
+                })
+                .is_ok()
+            {
+                let _ = rx.recv_timeout(Duration::from_secs(5));
+            }
+        }
+    }
 }
 
 /// Canaux du thread clavier : file des dictées et réglages à appliquer.
@@ -355,7 +393,9 @@ fn run(
         .with_snippets(&config.snippets)
         .with_styles(&config.styles)
         .with_voice_commands(config.dictation.voice_commands)
-        .with_audio_enhance(config.audio.enhance);
+        .with_audio_enhance(config.audio.enhance)
+        .with_translator(model::build_translator(&paths.models_dir))
+        .with_translation_engine(config.translation.engine);
     if !config.snippets.is_empty() {
         log::info!("{} snippet(s) chargé(s)", config.snippets.len());
     }
@@ -1138,6 +1178,13 @@ impl Worker {
                     self.reconfigure(*r);
                     continue;
                 }
+                Work::SetTranslator { translator, ack } => {
+                    self.pipeline.set_translator(translator);
+                    if let Some(tx) = ack {
+                        let _ = tx.send(());
+                    }
+                    continue;
+                }
                 Work::ModelReady => {
                     self.model
                         .sync(&mut self.pipeline, &self.reporter, &self.recording);
@@ -1267,6 +1314,7 @@ impl Worker {
             .reconfigure(&r.dictionary, &r.snippets, &r.styles, r.post_processor);
         self.pipeline.set_voice_commands(r.voice_commands);
         self.pipeline.set_audio_enhance(r.audio_enhance);
+        self.pipeline.set_translation_engine(r.translation_engine);
         self.tariffs = r.tariffs;
         self.unload = r.unload;
         self.retry_shortcut = r.retry_shortcut;

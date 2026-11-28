@@ -116,6 +116,9 @@ fn main() {
             vocabulary::dictionary_suggestions,
             vocabulary::ignore_suggestion,
             translation::translation_state,
+            translation::translation_pack_status,
+            translation::download_translation_pack,
+            translation::delete_translation_pack,
             app_settings::app_settings_view,
             app_settings::save_app_settings,
             app_settings::set_autostart,
@@ -223,6 +226,9 @@ fn main() {
                 &config.translation.language,
             );
             app.manage(Arc::clone(&translation));
+            let translation_pack =
+                translation::TranslationPack::new(app.handle().clone(), paths.models_dir.clone());
+            app.manage(Arc::clone(&translation_pack));
             let voices = speakers::Voices::new(app.handle().clone(), paths.models_dir.clone());
             app.manage(Arc::clone(&voices));
             if config.meetings.diarize {

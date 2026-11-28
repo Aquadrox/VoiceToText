@@ -378,7 +378,7 @@ export function defaultMockData() {
         screen_context_excluded_apps: ["keepass"],
         live_insert: false,
       },
-      translation: { enabled: false, language: "Anglais" },
+      translation: { language: "anglais", engine: "auto" },
       updates: { check: true },
       captures: {
         template: "explication",
@@ -400,11 +400,18 @@ export function defaultMockData() {
         { file: "large-v3-turbo-q8_0", label: "Whisper large-v3-turbo", engine: "whisper", size_mb: 874, downloaded: false },
       ],
       keys: ["AltGr", "RightCtrl", "F13", "Pause"],
-      languages: ["Français", "Anglais", "Espagnol"],
+      languages: ["anglais", "espagnol", "allemand", "italien", "portugais", "néerlandais", "japonais", "chinois", "arabe"],
       capture_templates: [["explication", "Explication"]],
       wayland: false,
+      translation_pack: {
+        installed: false,
+        missing_mb: 640,
+        downloading: false,
+        progress: null,
+        error: null,
+      },
       platform: "linux",
-      version: "0.47.0",
+      version: "0.49.0",
     },
     current_status: { state: "idle" },
     meeting_state: { recording: false, elapsed_ms: 0 },
@@ -460,9 +467,32 @@ export function defaultMockData() {
       discovered: [],
       pending_direct: null,
     },
-    update_status: { current: "0.48.0", available: null, checking: false, last_error: null },
-    changelog_view: [{ version: "0.48.0", date: "28 novembre 2026", items: ["Fenêtre maximisée et détection d'application par clic."] }],
+    update_status: { current: "0.49.0", available: null, checking: false, last_error: null },
+    changelog_view: {
+      releases: [
+        {
+          version: "0.49.0",
+          date: "28 novembre 2026",
+          items: ["Packs de traduction locaux M2M100 (100 langues hors-ligne)."],
+        },
+      ],
+    },
     capture_window_app: "banque.exe",
+    save_app_settings: { notes: [] },
+    download_translation_pack: {
+      installed: false,
+      missing_mb: 640,
+      downloading: true,
+      progress: 12,
+      error: null,
+    },
+    delete_translation_pack: {
+      installed: false,
+      missing_mb: 640,
+      downloading: false,
+      progress: null,
+      error: null,
+    },
   };
 }
 

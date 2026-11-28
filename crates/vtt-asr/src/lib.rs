@@ -7,6 +7,8 @@ mod diarize;
 mod embed;
 #[cfg(feature = "parakeet")]
 mod parakeet;
+#[cfg(feature = "parakeet")]
+mod translate;
 #[cfg(feature = "vosk")]
 mod vosk;
 #[cfg(all(feature = "vulkan", target_os = "linux"))]
@@ -18,6 +20,8 @@ pub use diarize::Diarizer;
 pub use embed::TextEmbedder;
 #[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetTranscriber;
+#[cfg(feature = "parakeet")]
+pub use translate::M2m100Translator;
 #[cfg(feature = "vosk")]
 pub use vosk::VoskTranscriber;
 

@@ -365,6 +365,139 @@ pub fn ensure_semantic(dir: &Path, mut progress: impl FnMut(u8)) -> Result<Seman
     semantic_local(dir).ok_or_else(|| "modèle de recherche sémantique incomplet".to_owned())
 }
 
+/// Pack de traduction locale multilingue (100 langues, hors-ligne) :
+/// `facebook/m2m100_418M` (MIT), export ONNX quantifié 8 bits (Xenova) à une
+/// révision figée de Hugging Face. Partage ONNX Runtime avec Parakeet, la
+/// diarisation et la recherche sémantique.
+const TRANSLATION_DIR: &str = "traduction-m2m100-418m-1";
+static TRANSLATION: Content = Content::Files(&[
+    (
+        "encoder_model_quantized.onnx",
+        Remote {
+            url: "https://huggingface.co/Xenova/m2m100_418M/resolve/9c374f0b7aca709787cea97b047bfbbd1559d177/onnx/encoder_model_quantized.onnx",
+            size: 287_856_370,
+            sha256: "13a94e354a9140764eb81102d77d3ec6952d796e6f113c651eeb3c3443da0386",
+        },
+    ),
+    (
+        "decoder_model_merged_quantized.onnx",
+        Remote {
+            url: "https://huggingface.co/Xenova/m2m100_418M/resolve/9c374f0b7aca709787cea97b047bfbbd1559d177/onnx/decoder_model_merged_quantized.onnx",
+            size: 344_128_178,
+            sha256: "007654bcabb6cea6fd3bde34ce933137b431330b3755781145d7b6906270b45a",
+        },
+    ),
+    (
+        "tokenizer.json",
+        Remote {
+            url: "https://huggingface.co/Xenova/m2m100_418M/resolve/9c374f0b7aca709787cea97b047bfbbd1559d177/tokenizer.json",
+            size: 7_988_527,
+            sha256: "03d9e111731c2d71f39a2c2a88499743e4c251385d07f0384b4349a23ba54363",
+        },
+    ),
+]);
+
+/// Pack de traduction local prêt à charger.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranslationModels {
+    pub encoder: PathBuf,
+    pub decoder: PathBuf,
+    pub tokenizer: PathBuf,
+    pub runtime: PathBuf,
+}
+
+/// Pack de traduction local présent et complet.
+pub fn translation_local(dir: &Path) -> Option<TranslationModels> {
+    let models = dir.join(TRANSLATION_DIR);
+    if !complete(&models) {
+        return None;
+    }
+    Some(TranslationModels {
+        encoder: models.join("encoder_model_quantized.onnx"),
+        decoder: models.join("decoder_model_merged_quantized.onnx"),
+        tokenizer: models.join("tokenizer.json"),
+        runtime: local_runtime(dir, &ONNX_RUNTIME)?,
+    })
+}
+
+/// Ce qu'il reste à télécharger pour le pack de traduction local (Mo).
+pub fn translation_missing_mb(dir: &Path) -> u64 {
+    let models = if complete(&dir.join(TRANSLATION_DIR)) {
+        0
+    } else {
+        TRANSLATION.size()
+    };
+    let runtime = if local_runtime(dir, &ONNX_RUNTIME).is_some() {
+        0
+    } else {
+        ONNX_RUNTIME.content.size()
+    };
+    (models + runtime).div_ceil(1_000_000)
+}
+
+/// Renvoie le pack de traduction local, en téléchargeant ce qui manque.
+pub fn ensure_translation(
+    dir: &Path,
+    mut progress: impl FnMut(u8),
+) -> Result<TranslationModels, String> {
+    if let Some(models) = translation_local(dir) {
+        return Ok(models);
+    }
+    let models_missing = !complete(&dir.join(TRANSLATION_DIR));
+    let runtime_missing = local_runtime(dir, &ONNX_RUNTIME).is_none();
+    let mut progress = Progress {
+        total: if models_missing {
+            TRANSLATION.size()
+        } else {
+            0
+        } + if runtime_missing {
+            ONNX_RUNTIME.content.size()
+        } else {
+            0
+        },
+        done: 0,
+        last: u8::MAX,
+        report: &mut progress,
+    };
+    if runtime_missing {
+        install_dir(
+            &dir.join(ONNX_RUNTIME.dir),
+            &ONNX_RUNTIME.content,
+            &mut progress,
+        )?;
+    }
+    if models_missing {
+        install_dir(&dir.join(TRANSLATION_DIR), &TRANSLATION, &mut progress)?;
+    }
+    translation_local(dir).ok_or_else(|| "pack de traduction local incomplet".to_owned())
+}
+
+/// Supprime le pack de traduction local du disque (ONNX Runtime est conservé
+/// car il peut servir à Parakeet, aux intervenants ou à la recherche sémantique).
+pub fn delete_translation(dir: &Path) -> Result<(), String> {
+    let models = dir.join(TRANSLATION_DIR);
+    if models.exists() {
+        fs::remove_dir_all(&models)
+            .map_err(|e| format!("suppression du pack de traduction : {e}"))?;
+    }
+    Ok(())
+}
+
+/// Construit un traducteur local paresseux si le pack M2M100 est installé.
+pub fn build_translator(dir: &Path) -> Option<Box<dyn vtt_core::Translator>> {
+    let models = translation_local(dir)?;
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get().clamp(2, 6))
+        .unwrap_or(4);
+    Some(Box::new(vtt_asr::M2m100Translator::new(
+        models.encoder,
+        models.decoder,
+        models.tokenizer,
+        models.runtime,
+        threads,
+    )))
+}
+
 /// Modèles proposés dans les réglages ; tailles et SHA-256 relevés sur
 /// Hugging Face, GitHub et alphacephei.com (le téléchargement est vérifié
 /// avec).
@@ -1138,6 +1271,46 @@ mod tests {
         if cleanup {
             fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    #[test]
+    fn translation_models_require_model_and_runtime_and_can_be_deleted() {
+        let dir = temp_dir("translation-local");
+        assert!(translation_local(&dir).is_none());
+        let expected_all = (TRANSLATION.size() + ONNX_RUNTIME.content.size()).div_ceil(1_000_000);
+        assert_eq!(translation_missing_mb(&dir), expected_all);
+
+        fs::create_dir_all(dir.join(TRANSLATION_DIR)).unwrap();
+        fs::write(dir.join(TRANSLATION_DIR).join(COMPLETE), b"").unwrap();
+        assert!(translation_local(&dir).is_none());
+        assert_eq!(
+            translation_missing_mb(&dir),
+            ONNX_RUNTIME.content.size().div_ceil(1_000_000)
+        );
+
+        fs::create_dir_all(dir.join(ONNX_RUNTIME.dir)).unwrap();
+        fs::write(dir.join(ONNX_RUNTIME.dir).join(COMPLETE), b"").unwrap();
+        let models = translation_local(&dir).unwrap();
+        assert_eq!(
+            models.encoder,
+            dir.join(TRANSLATION_DIR)
+                .join("encoder_model_quantized.onnx")
+        );
+        assert_eq!(
+            models.decoder,
+            dir.join(TRANSLATION_DIR)
+                .join("decoder_model_merged_quantized.onnx")
+        );
+        assert_eq!(
+            models.tokenizer,
+            dir.join(TRANSLATION_DIR).join("tokenizer.json")
+        );
+        assert_eq!(translation_missing_mb(&dir), 0);
+
+        delete_translation(&dir).unwrap();
+        assert!(translation_local(&dir).is_none());
+        assert!(local_runtime(&dir, &ONNX_RUNTIME).is_some());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

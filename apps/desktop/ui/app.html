@@ -593,12 +593,31 @@
                       <label for="tr-language">Traduire vers</label>
                       <select id="tr-language"></select>
                     </div>
+                    <div id="tr-language-custom-wrap" class="field" hidden>
+                      <label for="tr-language-custom">Autre langue</label>
+                      <input id="tr-language-custom" type="text" maxlength="40" placeholder="ex. breton, swahili, code ISO…" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                      <label for="tr-engine">Moteur de traduction</label>
+                      <select id="tr-engine">
+                        <option value="auto">Automatique (LLM si activé, sinon pack local)</option>
+                        <option value="local">Pack local hors-ligne (M2M100 — 100 langues)</option>
+                        <option value="llm">LLM uniquement</option>
+                      </select>
+                    </div>
                   </div>
                   <p class="hint">
                     Raccourci <strong data-shortcut="hk-translate"></strong> ou menu de l'icône →
-                    <strong>Mode traduction</strong> : les dictées suivantes sont nettoyées puis
-                    traduites par le LLM, jusqu'à ce que vous coupiez le mode.
+                    <strong>Mode traduction</strong> : les dictées suivantes sont traduites jusqu'à
+                    ce que vous coupiez le mode (par le LLM ou par le pack local hors-ligne).
                   </p>
+                  <div id="tr-pack-box" data-untracked>
+                    <p id="tr-pack-status" class="status small muted"></p>
+                    <div class="row">
+                      <button type="button" id="tr-pack-download">Télécharger le pack local (100 langues)</button>
+                      <button type="button" id="tr-pack-delete" class="danger" hidden>Supprimer le pack</button>
+                    </div>
+                  </div>
                 </div>
                 <div class="panel-result result" hidden></div>
               </form>
@@ -1149,6 +1168,10 @@
                   <p class="hint">
                     Recherche sémantique locale : modèle multilingue intfloat/multilingual-e5-small
                     (Microsoft, MIT), conversion ONNX quantifiée par Xenova, exécuté via ONNX Runtime.
+                  </p>
+                  <p class="hint">
+                    Traduction locale hors-ligne : modèle multilingue M2M100-418M (Meta AI, MIT,
+                    100 langues), conversion ONNX quantifiée par Xenova, exécuté via ONNX Runtime.
                   </p>
                 </div>
 

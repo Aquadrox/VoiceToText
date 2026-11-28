@@ -162,6 +162,7 @@ pub fn update(toml: &str, update: &Update) -> Result<String, String> {
     config.llm = llm;
     let translation = TranslationConfig {
         language: update.translation.trim().to_owned(),
+        engine: config.translation.engine,
     };
     translation.validate()?;
     config.asr.model = update.model.clone();

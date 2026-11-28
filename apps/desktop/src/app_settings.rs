@@ -41,10 +41,15 @@ pub struct AppSettingsView {
     autostart: bool,
     /// Session Wayland (Linux) : réglage de KDE à signaler pour le raccourci.
     wayland: bool,
+    /// État du pack de traduction local M2M100 (installé, taille, téléchargement).
+    translation_pack: crate::translation::PackStatus,
 }
 
 #[tauri::command(async)]
-pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, String> {
+pub fn app_settings_view(
+    paths: State<'_, Paths>,
+    pack: State<'_, crate::translation::TranslationPackState>,
+) -> Result<AppSettingsView, String> {
     let (config, error) = paths.load_config();
     if let Some(error) = error {
         return Err(error);
@@ -74,6 +79,7 @@ pub fn app_settings_view(paths: State<'_, Paths>) -> Result<AppSettingsView, Str
         wayland: cfg!(target_os = "linux")
             && (std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"))
                 || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())),
+        translation_pack: pack.status(),
     })
 }
 
@@ -199,6 +205,7 @@ pub fn save_app_settings(
     config.dictation = dictation;
     config.translation = TranslationConfig {
         language: translation.language.trim().to_owned(),
+        engine: translation.engine,
     };
     let profile = captures.vision_profile.trim();
     if !profile.is_empty() && !config.llm_profiles.iter().any(|p| p.name == profile) {
